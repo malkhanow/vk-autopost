@@ -84,7 +84,8 @@ GROUPING_PROMPT = (
     "несколько групп. Не объединяй в одну группу фото, если не уверен, "
     "что это точно один и тот же физический товар - лучше сделать "
     "несколько маленьких групп, чем одну большую ошибочную.\n\n"
-    "Ответь СТРОГО в формате JSON, без markdown:\n"
+    "Ответь СТРОГО в формате JSON-ОБЪЕКТА (не массива) с одним ключом "
+    '"groups", без markdown:\n'
     '{"groups": [{"files": ["имя1.jpg", "имя2.jpg"]}, {"files": ["имя3.jpg"]}]}\n\n'
     "Каждый файл должен встретиться ровно в одной группе."
 )
@@ -242,7 +243,16 @@ def group_photos(local_files):
         for name, path, exif_time in local_files
     ]
     result = call_openrouter_vision(GROUPING_PROMPT, entries)
-    return result["groups"]
+    # нейросеть иногда возвращает JSON по-разному оформленным - подстраиваемся
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        if "groups" in result and isinstance(result["groups"], list):
+            return result["groups"]
+        # на случай если модель вернула один объект-группу без обёртки
+        if "files" in result:
+            return [result]
+    raise RuntimeError(f"Неожиданный формат ответа группировки: {result}")
 
 
 def generate_post_text(local_paths):
