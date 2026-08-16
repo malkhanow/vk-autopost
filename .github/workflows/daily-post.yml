@@ -4,10 +4,10 @@ on:
   schedule:
     # 07:00 UTC = 10:00 по Москве (МСК = UTC+3, без переходов на летнее время)
     - cron: '0 7 * * *'
-  workflow_dispatch: {}   # позволяет запустить вручную кнопкой "Run workflow"
+  workflow_dispatch: {}
 
 permissions:
-  contents: write   # нужно, чтобы workflow мог закоммитить новый feed.xml и фото
+  contents: write
 
 jobs:
   post:
@@ -29,6 +29,8 @@ jobs:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
         run: python generate_feed.py
 
       - name: Commit and push updated feed
@@ -36,5 +38,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/feed.xml docs/images feed_items.json
-          git diff --staged --quiet && echo "Нечего коммитить" || git commit -m "Обновление RSS-ленты"
+          git diff --staged --quiet && echo "Нечего коммитить" || git commit -m "Обновление ленты"
           git push
