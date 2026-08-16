@@ -55,7 +55,7 @@ IMAGES_DIR = "docs/images"
 MAX_ITEMS_IN_FEED = 30
 
 OPENROUTER_MODEL = "openrouter/free"
-MAX_PHOTOS_PER_GROUPING_CALL = 15  # чтобы не перегружать один запрос к нейросети
+MAX_PHOTOS_PER_GROUPING_CALL = 10  # некоторые бесплатные модели не берут больше 12 фото за раз
 MAX_PHOTOS_PER_POST = 4  # жёсткий предел фото в одном товаре/посте
 
 BENEFITS_BLOCK = (
