@@ -237,15 +237,12 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
         raw = data["choices"][0]["message"]["content"].strip().strip("`")
         if raw.startswith("json"):
             raw = raw[4:].strip()
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            # модель могла обернуть JSON лишним текстом - вырезаем сам объект
-            start = raw.find("{")
-            end = raw.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                return json.loads(raw[start:end + 1])
-            raise
+        start = raw.find("{")
+        if start == -1:
+            raise RuntimeError(f"В ответе нейросети нет JSON-объекта: {raw!r}")
+        decoder = json.JSONDecoder()
+        parsed_obj, _ = decoder.raw_decode(raw, start)
+        return parsed_obj
 
     raise RuntimeError(f"OpenRouter не ответил после {max_retries} попыток: {last_error}")
 
