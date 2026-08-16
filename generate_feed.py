@@ -55,7 +55,7 @@ IMAGES_DIR = "docs/images"
 MAX_ITEMS_IN_FEED = 30
 
 OPENROUTER_MODEL = "openrouter/free"
-MAX_PHOTOS_PER_GROUPING_CALL = 30  # чтобы не перегружать один запрос к нейросети
+MAX_PHOTOS_PER_GROUPING_CALL = 15  # чтобы не перегружать один запрос к нейросети
 MAX_PHOTOS_PER_POST = 4  # жёсткий предел фото в одном товаре/посте
 
 BENEFITS_BLOCK = (
@@ -133,6 +133,7 @@ def list_files_in_source():
             "sort": "created",
             "fields": "_embedded.items.name,_embedded.items.path,_embedded.items.type,_embedded.items.created",
         },
+        timeout=30,
     )
     resp.raise_for_status()
     items = resp.json().get("_embedded", {}).get("items", [])
@@ -144,10 +145,11 @@ def download_file(path, dest_path):
         "https://cloud-api.yandex.net/v1/disk/resources/download",
         headers=yandex_headers(),
         params={"path": path},
+        timeout=30,
     )
     resp.raise_for_status()
     href = resp.json()["href"]
-    with requests.get(href, stream=True) as r:
+    with requests.get(href, stream=True, timeout=60) as r:
         r.raise_for_status()
         with open(dest_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -160,6 +162,7 @@ def move_to_posted(src_path, filename):
         "https://cloud-api.yandex.net/v1/disk/resources/move",
         headers=yandex_headers(),
         params={"from": src_path, "path": dest_path, "overwrite": "true"},
+        timeout=30,
     )
     resp.raise_for_status()
 
@@ -215,6 +218,7 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=body,
+            timeout=90,
         )
         if resp.status_code == 429:
             last_error = f"429 too many requests (попытка {attempt}/{max_retries})"
@@ -261,6 +265,7 @@ def post_to_telegram(image_paths, caption):
                 url,
                 data={"chat_id": TELEGRAM_CHANNEL, "caption": caption},
                 files={"photo": f},
+                timeout=60,
             )
         resp.raise_for_status()
         if not resp.json().get("ok"):
@@ -283,6 +288,7 @@ def post_to_telegram(image_paths, caption):
             url,
             data={"chat_id": TELEGRAM_CHANNEL, "media": json.dumps(media)},
             files=files,
+            timeout=90,
         )
     finally:
         for fh in open_files:
@@ -353,7 +359,8 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         local_files = []  # (name, local_path, exif_time, yandex_path)
-        for f in files:
+        for idx, f in enumerate(files, start=1):
+            print(f"Скачиваю фото {idx}/{len(files)}: {f['name']}...")
             local_path = os.path.join(tmp_dir, f["name"])
             download_file(f["path"], local_path)
             exif_time = get_exif_datetime(local_path, f.get("created", ""))
