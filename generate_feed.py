@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
 """
-Автопостинг фото из Яндекс.Диска в RSS-ленту, которую сам VK
-периодически проверяет и публикует в группу (через встроенную функцию
-VK "Импорт RSS" в настройках сообщества).
+Автопостинг товаров из Яндекс.Диска - без ручной сортировки по папкам.
 
-Логика одного запуска:
-  1. Смотрим папку SOURCE_DIR на Яндекс.Диске.
-  2. Берём самый старый (первый загруженный) файл.
-  3. Скачиваем его во временный файл.
-  4. Просим нейросеть написать описание на основе содержимого фото.
-  5. Копируем фото в docs/images/ (эта папка публикуется через GitHub Pages).
-  6. Добавляем новую запись в feed_items.json и полностью перегенерируем
-     docs/feed.xml на основе последних записей.
-  7. Переносим файл из SOURCE_DIR в POSTED_DIR на Диске.
-
-Коммит и отправку изменений в репозиторий (git add/commit/push) делает
-сам workflow (.github/workflows/daily-post.yml) следующим шагом, не
-этот скрипт.
-
-Если в SOURCE_DIR ничего нет — скрипт просто завершается без ошибки.
+Все фото просто лежат вперемешку в SOURCE_DIR ("to_post"). Раз в день
+скрипт:
+  1. Скачивает ВСЕ ещё не опубликованные фото из SOURCE_DIR.
+  2. Читает время съёмки каждого фото из EXIF (если есть).
+  3. Показывает все фото разом нейросети и просит определить, какие из
+     них - один и тот же товар (используя и визуальное сходство, и
+     время съёмки как подсказку).
+  4. Берёт САМУЮ РАННЮЮ группу (по времени съёмки) - это сегодняшний
+     пост, остальные группы останутся на следующие запуски.
+  5. Для выбранной группы просит нейросеть написать заголовок/описание/
+     призыв по фиксированному шаблону.
+  6. Публикует альбом в Telegram-канал.
+  7. Добавляет запись в RSS-ленту (docs/feed.xml, обычный импорт, одно
+     фото-обложка на пост - без режима "статья", чтобы пост в VK
+     оставался обычным, без перехода на отдельную страницу).
+  8. Переносит фото выбранной группы из SOURCE_DIR в POSTED_DIR.
 
 Нужные переменные окружения (задаются в GitHub Secrets):
   YANDEX_TOKEN        - OAuth-токен Яндекс.Диска
   OPENROUTER_API_KEY  - ключ OpenRouter
-  SITE_BASE_URL       - базовый адрес GitHub Pages, например
+  SITE_BASE_URL       - адрес GitHub Pages, например
                         https://malkhanow.github.io/vk-autopost
+  TELEGRAM_BOT_TOKEN  - токен бота от @BotFather
+  TELEGRAM_CHANNEL    - юзернейм канала, например @customstudio_print
 """
 
 import base64
+import io
 import json
 import mimetypes
 import os
@@ -40,6 +42,7 @@ from email.utils import format_datetime
 from html import escape
 
 import requests
+from PIL import Image, ExifTags
 
 # ---------- настройки ----------
 
@@ -49,17 +52,60 @@ POSTED_DIR = "/posted"
 ITEMS_FILE = "feed_items.json"
 FEED_FILE = "docs/feed.xml"
 IMAGES_DIR = "docs/images"
-MAX_ITEMS_IN_FEED = 30  # сколько последних постов держим в ленте
+MAX_ITEMS_IN_FEED = 30
 
 OPENROUTER_MODEL = "openrouter/free"
+MAX_PHOTOS_PER_GROUPING_CALL = 30  # чтобы не перегружать один запрос к нейросети
+MAX_PHOTOS_PER_POST = 4  # жёсткий предел фото в одном товаре/посте
+
+BENEFITS_BLOCK = (
+    "🔥 не трескается\n"
+    "☔️ спокойно переносит стирки\n"
+    "🎨 сохраняет яркость и детали"
+)
+CLOSING_BLOCK = (
+    "📩 Присылай изображение в сообщения — обсудим и сделаем.\n"
+    "✨ Custom Studio — носи то, что нравится тебе."
+)
+
+GROUPING_PROMPT = (
+    "Тебе показаны фотографии товаров (одежда с кастомными принтами) "
+    "вперемешку - несколько разных товаров, у каждого может быть "
+    "несколько фото с разных ракурсов. К каждому фото приложена подпись "
+    "с именем файла и временем съёмки (если известно).\n\n"
+    "Определи, какие фото относятся к ОДНОМУ И ТОМУ ЖЕ физическому "
+    "товару (разные ракурсы одной вещи), а какие - к разным товарам. "
+    "Ориентируйся в первую очередь на то, что видно на фото (одна и та "
+    "же вещь, цвет, принт), время съёмки используй как дополнительную "
+    "подсказку (фото одного товара обычно снимают подряд, за несколько "
+    "минут).\n\n"
+    f"В ОДНОЙ группе не может быть больше {MAX_PHOTOS_PER_POST} фото - "
+    "даже если тебе кажется, что похожих фото больше, разбей их на "
+    "несколько групп. Не объединяй в одну группу фото, если не уверен, "
+    "что это точно один и тот же физический товар - лучше сделать "
+    "несколько маленьких групп, чем одну большую ошибочную.\n\n"
+    "Ответь СТРОГО в формате JSON, без markdown:\n"
+    '{"groups": [{"files": ["имя1.jpg", "имя2.jpg"]}, {"files": ["имя3.jpg"]}]}\n\n'
+    "Каждый файл должен встретиться ровно в одной группе."
+)
 
 CAPTION_PROMPT = (
-    "Ты ведёшь соцсети компании, которая печатает кастомные принты на "
-    "футболках и другой одежде. Посмотри на фото и напиши короткое, "
-    "живое описание для поста: 1-3 предложения, без хэштегов, "
-    "без markdown-разметки, на русском языке. Подчеркни то, что видно "
-    "на конкретном фото (цвет, принт, ткань, деталь), не пиши общими "
-    "фразами."
+    "Ты ведёшь соцсети Custom Studio - компании, которая печатает "
+    "кастомные принты на футболках, куртках, сумках и другой одежде. "
+    "Посмотри на фото товара (может быть несколько ракурсов одного и "
+    "того же изделия) и напиши три части поста в формате JSON, "
+    "БЕЗ markdown-разметки, на русском:\n\n"
+    '{"hook": "...", "body": "...", "cta": "..."}\n\n'
+    "hook - один короткий цепляющий заголовок с эмодзи-кружком в начале "
+    "(🖤/🔵/💙 и т.п.), например «🖤 Рэй на чёрной оверсайз футболке 👀🔥».\n"
+    "body - 1-3 предложения: что именно сделали, для кого/какой повод, "
+    "какие детали видно на фото (цвет, принт, ткань, деталь). Пиши "
+    "конкретно про то, что видно на фото, не общими фразами.\n"
+    "cta - одно предложение с призывом прислать свой дизайн для похожего "
+    "изделия, в стиле «А ещё ты можешь прислать свой дизайн, картинку "
+    "или персонажа — мы перенесём его на одежду» (адаптируй под то, что "
+    "на фото - футболка/куртка/сумка/другое).\n\n"
+    "НИКОГДА не указывай цену и не выдумывай её."
 )
 
 YANDEX_TOKEN = os.environ["YANDEX_TOKEN"]
@@ -67,6 +113,8 @@ OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 SITE_BASE_URL = os.environ.get(
     "SITE_BASE_URL", "https://malkhanow.github.io/vk-autopost"
 ).rstrip("/")
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHANNEL = os.environ["TELEGRAM_CHANNEL"]
 
 
 # ---------- Яндекс.Диск ----------
@@ -75,21 +123,20 @@ def yandex_headers():
     return {"Authorization": f"OAuth {YANDEX_TOKEN}"}
 
 
-def get_next_file():
+def list_files_in_source():
     resp = requests.get(
         "https://cloud-api.yandex.net/v1/disk/resources",
         headers=yandex_headers(),
         params={
             "path": SOURCE_DIR,
-            "limit": 100,
+            "limit": 200,
             "sort": "created",
-            "fields": "_embedded.items.name,_embedded.items.path,_embedded.items.type",
+            "fields": "_embedded.items.name,_embedded.items.path,_embedded.items.type,_embedded.items.created",
         },
     )
     resp.raise_for_status()
     items = resp.json().get("_embedded", {}).get("items", [])
-    files = [i for i in items if i.get("type") == "file"]
-    return files[0] if files else None
+    return [i for i in items if i.get("type") == "file"]
 
 
 def download_file(path, dest_path):
@@ -117,13 +164,40 @@ def move_to_posted(src_path, filename):
     resp.raise_for_status()
 
 
+# ---------- EXIF ----------
+
+def get_exif_datetime(local_path, fallback_iso):
+    """Возвращает время съёмки в виде строки, либо fallback (время загрузки на Диск)."""
+    try:
+        img = Image.open(local_path)
+        exif = img.getexif()
+        if exif:
+            for tag_id, value in exif.items():
+                tag = ExifTags.TAGS.get(tag_id)
+                if tag in ("DateTimeOriginal", "DateTime"):
+                    return value  # формат "YYYY:MM:DD HH:MM:SS"
+    except Exception:
+        pass
+    return fallback_iso
+
+
 # ---------- OpenRouter ----------
 
-def generate_caption(image_path, max_retries=3):
-    mime_type, _ = mimetypes.guess_type(image_path)
-    mime_type = mime_type or "image/jpeg"
-    with open(image_path, "rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode("utf-8")
+def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
+    """image_entries: список (подпись_текст, путь_к_файлу)."""
+    content = [{"type": "text", "text": prompt_text}]
+    for label, path in image_entries:
+        mime_type, _ = mimetypes.guess_type(path)
+        mime_type = mime_type or "image/jpeg"
+        with open(path, "rb") as f:
+            image_b64 = base64.b64encode(f.read()).decode("utf-8")
+        content.append({"type": "text", "text": label})
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{image_b64}"},
+            }
+        )
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -131,18 +205,8 @@ def generate_caption(image_path, max_retries=3):
     }
     body = {
         "model": OPENROUTER_MODEL,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": CAPTION_PROMPT},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime_type};base64,{image_b64}"},
-                    },
-                ],
-            }
-        ],
+        "messages": [{"role": "user", "content": content}],
+        "response_format": {"type": "json_object"},
     }
 
     last_error = None
@@ -159,12 +223,76 @@ def generate_caption(image_path, max_retries=3):
             continue
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
+        raw = data["choices"][0]["message"]["content"].strip().strip("`")
+        if raw.startswith("json"):
+            raw = raw[4:].strip()
+        return json.loads(raw)
 
     raise RuntimeError(f"OpenRouter не ответил после {max_retries} попыток: {last_error}")
 
 
-# ---------- работа с лентой ----------
+def group_photos(local_files):
+    """local_files: список (filename, local_path, exif_time_str)."""
+    entries = [
+        (f"Файл: {name}, время съёмки: {exif_time}", path)
+        for name, path, exif_time in local_files
+    ]
+    result = call_openrouter_vision(GROUPING_PROMPT, entries)
+    return result["groups"]
+
+
+def generate_post_text(local_paths):
+    entries = [("", path) for path in local_paths]
+    result = call_openrouter_vision(CAPTION_PROMPT, entries)
+    return result["hook"], result["body"], result["cta"]
+
+
+def assemble_full_text(hook, body, cta):
+    return f"{hook}\n\n{body}\n\n{BENEFITS_BLOCK}\n\n{cta}\n\n{CLOSING_BLOCK}"
+
+
+# ---------- Telegram ----------
+
+def post_to_telegram(image_paths, caption):
+    if len(image_paths) == 1:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        with open(image_paths[0], "rb") as f:
+            resp = requests.post(
+                url,
+                data={"chat_id": TELEGRAM_CHANNEL, "caption": caption},
+                files={"photo": f},
+            )
+        resp.raise_for_status()
+        if not resp.json().get("ok"):
+            raise RuntimeError(f"Telegram API error: {resp.json()}")
+        return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMediaGroup"
+    media, files, open_files = [], {}, []
+    try:
+        for idx, path in enumerate(image_paths[:10]):
+            field = f"photo{idx}"
+            item = {"type": "photo", "media": f"attach://{field}"}
+            if idx == 0:
+                item["caption"] = caption
+            media.append(item)
+            fh = open(path, "rb")
+            open_files.append(fh)
+            files[field] = fh
+        resp = requests.post(
+            url,
+            data={"chat_id": TELEGRAM_CHANNEL, "media": json.dumps(media)},
+            files=files,
+        )
+    finally:
+        for fh in open_files:
+            fh.close()
+    resp.raise_for_status()
+    if not resp.json().get("ok"):
+        raise RuntimeError(f"Telegram API error: {resp.json()}")
+
+
+# ---------- RSS-лента ----------
 
 def load_items():
     if not os.path.exists(ITEMS_FILE):
@@ -182,29 +310,28 @@ def build_feed_xml(items):
     now = format_datetime(datetime.now(timezone.utc))
     entries = []
     for item in items[:MAX_ITEMS_IN_FEED]:
-        image_url = f"{SITE_BASE_URL}/images/{item['image']}"
+        cover_url = f"{SITE_BASE_URL}/images/{item['images'][0]}"
         description_html = (
-            f'&lt;img src="{escape(image_url)}"/&gt;'
-            f"&lt;p&gt;{escape(item['caption'])}&lt;/p&gt;"
+            f'&lt;img src="{escape(cover_url)}"/&gt;'
+            f"&lt;p&gt;{escape(item['full_text']).replace(chr(10), ' ')}&lt;/p&gt;"
         )
         entries.append(
             "  <item>\n"
-            f"    <title>{escape(item['caption'][:60])}</title>\n"
+            f"    <title>{escape(item['hook'][:80])}</title>\n"
             f"    <link>{escape(SITE_BASE_URL)}/#{escape(item['guid'])}</link>\n"
             f"    <guid isPermaLink=\"false\">{escape(item['guid'])}</guid>\n"
             f"    <pubDate>{escape(item['pubDate'])}</pubDate>\n"
             f"    <description>{description_html}</description>\n"
-            f"    <enclosure url=\"{escape(image_url)}\" type=\"image/jpeg\"/>\n"
+            f"    <enclosure url=\"{escape(cover_url)}\" type=\"image/jpeg\"/>\n"
             "  </item>"
         )
-
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0">\n'
         "<channel>\n"
         "  <title>Custom Studio - Печать на футболках</title>\n"
         f"  <link>{escape(SITE_BASE_URL)}</link>\n"
-        "  <description>Автоматическая лента фото для импорта в VK</description>\n"
+        "  <description>Автоматическая лента товаров для импорта в VK</description>\n"
         f"  <lastBuildDate>{now}</lastBuildDate>\n"
         + "\n".join(entries) +
         "\n</channel>\n</rss>\n"
@@ -217,37 +344,94 @@ def build_feed_xml(items):
 # ---------- основной сценарий ----------
 
 def main():
-    next_file = get_next_file()
-    if next_file is None:
+    files = list_files_in_source()
+    if not files:
         print("Нет новых фото в", SOURCE_DIR, "- сегодня постить нечего.")
         return
 
-    filename = next_file["name"]
-    src_path = next_file["path"]
-    print(f"Беру файл: {src_path}")
-
-    ext = os.path.splitext(filename)[1] or ".jpg"
-    image_id = f"{uuid.uuid4().hex}{ext}"
+    files = files[:MAX_PHOTOS_PER_GROUPING_CALL]
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        local_path = os.path.join(tmp_dir, filename)
-        download_file(src_path, local_path)
-        print("Файл скачан, запрашиваю подпись у нейросети...")
+        local_files = []  # (name, local_path, exif_time, yandex_path)
+        for f in files:
+            local_path = os.path.join(tmp_dir, f["name"])
+            download_file(f["path"], local_path)
+            exif_time = get_exif_datetime(local_path, f.get("created", ""))
+            local_files.append((f["name"], local_path, exif_time, f["path"]))
 
-        caption = generate_caption(local_path)
-        print("Подпись готова:", caption)
+        print(f"Скачано {len(local_files)} фото, определяю группы товаров...")
 
+        if len(local_files) == 1:
+            groups = [{"files": [local_files[0][0]]}]
+        else:
+            groups = group_photos([(n, p, t) for n, p, t, _ in local_files])
+
+        by_name = {n: (p, t, yp) for n, p, t, yp in local_files}
+
+        # жёсткая защита: даже если нейросеть ошиблась и слепила
+        # группу больше MAX_PHOTOS_PER_POST - обрезаем её здесь,
+        # а не доверяем только текстовой инструкции
+        capped_groups = []
+        for g in groups:
+            valid_files = [n for n in g.get("files", []) if n in by_name]
+            if not valid_files:
+                continue
+            if len(valid_files) > MAX_PHOTOS_PER_POST:
+                print(
+                    f"Внимание: нейросеть предложила группу из "
+                    f"{len(valid_files)} фото, обрезаю до {MAX_PHOTOS_PER_POST} "
+                    f"(беру самые ранние по времени съёмки): {valid_files}"
+                )
+                valid_files = sorted(
+                    valid_files, key=lambda n: by_name[n][1]
+                )[:MAX_PHOTOS_PER_POST]
+            capped_groups.append({"files": valid_files})
+        groups = capped_groups
+
+        # находим группу с самым ранним временем съёмки
+        def group_earliest(g):
+            times = [by_name[n][1] for n in g["files"] if n in by_name]
+            return min(times) if times else "9999"
+
+        groups = [g for g in groups if any(n in by_name for n in g["files"])]
+        if not groups:
+            print("Не удалось сгруппировать фото, пропускаю запуск.")
+            return
+        chosen = min(groups, key=group_earliest)
+        chosen_files = [n for n in chosen["files"] if n in by_name]
+        print(f"Выбрана группа (товар) из {len(chosen_files)} фото: {chosen_files}")
+
+        local_paths = [by_name[n][0] for n in chosen_files]
+
+        print("Запрашиваю текст поста у нейросети...")
+        hook, body, cta = generate_post_text(local_paths)
+        full_text = assemble_full_text(hook, body, cta)
+        print("Текст готов:\n", full_text)
+
+        print("Публикую в Telegram...")
+        post_to_telegram(local_paths, full_text)
+        print("Опубликовано в Telegram.")
+
+        image_ids = []
         os.makedirs(IMAGES_DIR, exist_ok=True)
-        final_image_path = os.path.join(IMAGES_DIR, image_id)
-        with open(local_path, "rb") as src, open(final_image_path, "wb") as dst:
-            dst.write(src.read())
+        for local_path in local_paths:
+            ext = os.path.splitext(local_path)[1] or ".jpg"
+            image_id = f"{uuid.uuid4().hex}{ext}"
+            with open(local_path, "rb") as src, open(
+                os.path.join(IMAGES_DIR, image_id), "wb"
+            ) as dst:
+                dst.write(src.read())
+            image_ids.append(image_id)
+
+        yandex_paths_to_move = [(by_name[n][2], n) for n in chosen_files]
 
     items = load_items()
     items.insert(
         0,
         {
-            "image": image_id,
-            "caption": caption,
+            "images": image_ids,
+            "hook": hook,
+            "full_text": full_text,
             "pubDate": format_datetime(datetime.now(timezone.utc)),
             "guid": uuid.uuid4().hex,
         },
@@ -256,8 +440,9 @@ def main():
     build_feed_xml(items)
     print("Лента docs/feed.xml обновлена.")
 
-    move_to_posted(src_path, filename)
-    print(f"Файл перенесён в {POSTED_DIR}/{filename}")
+    for yandex_path, name in yandex_paths_to_move:
+        move_to_posted(yandex_path, name)
+    print(f"Перенесено в {POSTED_DIR}: {[n for _, n in yandex_paths_to_move]}")
 
 
 if __name__ == "__main__":
