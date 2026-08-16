@@ -210,7 +210,6 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
     body = {
         "model": OPENROUTER_MODEL,
         "messages": [{"role": "user", "content": content}],
-        "response_format": {"type": "json_object"},
     }
 
     last_error = None
@@ -228,10 +227,25 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
             continue
         resp.raise_for_status()
         data = resp.json()
+        if "error" in data:
+            last_error = f"OpenRouter вернул ошибку: {data['error']}"
+            print(last_error)
+            time.sleep(15 * attempt)
+            continue
+        if "choices" not in data:
+            raise RuntimeError(f"Неожиданный ответ OpenRouter (нет 'choices'): {data}")
         raw = data["choices"][0]["message"]["content"].strip().strip("`")
         if raw.startswith("json"):
             raw = raw[4:].strip()
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            # модель могла обернуть JSON лишним текстом - вырезаем сам объект
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return json.loads(raw[start:end + 1])
+            raise
 
     raise RuntimeError(f"OpenRouter не ответил после {max_retries} попыток: {last_error}")
 
