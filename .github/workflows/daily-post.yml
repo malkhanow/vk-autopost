@@ -27,7 +27,7 @@ jobs:
       - name: Run feed generator
         env:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
