@@ -32,12 +32,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
           PYTHONUNBUFFERED: "1"
+          TELEGRAM_BRIDGE_CHANNEL: ${{ secrets.TELEGRAM_BRIDGE_CHANNEL }}
         run: python generate_feed.py
 
       - name: Commit and push updated feed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/feed.xml docs/images feed_items.json
+          git add docs/feed.xml docs/images feed_items.json post_state.json
           git diff --staged --quiet && echo "Нечего коммитить" || git commit -m "Обновление ленты"
           git push
