@@ -234,6 +234,8 @@ def call_mistral_vision(prompt_text, image_entries, max_retries=3):
             print(last_error)
             time.sleep(15 * attempt)
             continue
+        if resp.status_code == 400:
+            raise RuntimeError(f"Mistral 400 Bad Request: {resp.text}")
         resp.raise_for_status()
         data = resp.json()
         if "error" in data:
