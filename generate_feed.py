@@ -56,14 +56,10 @@ STATE_FILE = "post_state.json"
 MAX_ITEMS_IN_FEED = 30
 MAX_CAROUSELS_PER_MONTH = 15  # бесплатный лимит Crosslybot на кросспостинг в VK
 
-# Фиксированная бесплатная vision-модель (не случайный роутер).
-# Если задан OPENROUTER_MODEL в env — используем его (удобно менять без
-# редактирования кода). Иначе берём лучшую бесплатную vision-модель на
-# август 2026. Резервная: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
-OPENROUTER_MODEL = os.environ.get(
-    "OPENROUTER_MODEL", "google/gemma-4-31b-it:free"
-)
-MAX_PHOTOS_PER_GROUPING_CALL = 10  # некоторые бесплатные модели не берут больше 12 фото за раз
+# Фиксированная бесплатная vision-модель — Mistral (pixtral умеет картинки,
+# бесплатный план без кредитки, 2 req/min достаточно для ежедневного постинга).
+MISTRAL_MODEL = "pixtral-12b-2409"
+MAX_PHOTOS_PER_GROUPING_CALL = 10
 MAX_PHOTOS_PER_POST = 4  # жёсткий предел фото в одном товаре/посте
 
 BENEFITS_BLOCK = (
@@ -118,7 +114,7 @@ CAPTION_PROMPT = (
 )
 
 YANDEX_TOKEN = os.environ["YANDEX_TOKEN"]
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+MISTRAL_API_KEY = os.environ["MISTRAL_API_KEY"]
 SITE_BASE_URL = os.environ.get(
     "SITE_BASE_URL", "https://malkhanow.github.io/vk-autopost"
 ).rstrip("/")
@@ -197,9 +193,9 @@ def get_exif_datetime(local_path, fallback_iso):
     return fallback_iso
 
 
-# ---------- OpenRouter ----------
+# ---------- Mistral ----------
 
-def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
+def call_mistral_vision(prompt_text, image_entries, max_retries=3):
     """image_entries: список (подпись_текст, путь_к_файлу)."""
     content = [{"type": "text", "text": prompt_text}]
     for label, path in image_entries:
@@ -207,7 +203,8 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
         mime_type = mime_type or "image/jpeg"
         with open(path, "rb") as f:
             image_b64 = base64.b64encode(f.read()).decode("utf-8")
-        content.append({"type": "text", "text": label})
+        if label:
+            content.append({"type": "text", "text": label})
         content.append(
             {
                 "type": "image_url",
@@ -216,18 +213,18 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
         )
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json",
     }
     body = {
-        "model": OPENROUTER_MODEL,
+        "model": MISTRAL_MODEL,
         "messages": [{"role": "user", "content": content}],
     }
 
     last_error = None
     for attempt in range(1, max_retries + 1):
         resp = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://api.mistral.ai/v1/chat/completions",
             headers=headers,
             json=body,
             timeout=90,
@@ -240,12 +237,12 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
         resp.raise_for_status()
         data = resp.json()
         if "error" in data:
-            last_error = f"OpenRouter вернул ошибку: {data['error']}"
+            last_error = f"Mistral вернул ошибку: {data['error']}"
             print(last_error)
             time.sleep(15 * attempt)
             continue
         if "choices" not in data:
-            raise RuntimeError(f"Неожиданный ответ OpenRouter (нет 'choices'): {data}")
+            raise RuntimeError(f"Неожиданный ответ Mistral (нет 'choices'): {data}")
         raw = data["choices"][0]["message"]["content"].strip().strip("`")
         if raw.startswith("json"):
             raw = raw[4:].strip()
@@ -256,7 +253,7 @@ def call_openrouter_vision(prompt_text, image_entries, max_retries=3):
         parsed_obj, _ = decoder.raw_decode(raw, start)
         return parsed_obj
 
-    raise RuntimeError(f"OpenRouter не ответил после {max_retries} попыток: {last_error}")
+    raise RuntimeError(f"Mistral не ответил после {max_retries} попыток: {last_error}")
 
 
 def group_photos(local_files):
@@ -265,7 +262,7 @@ def group_photos(local_files):
         (f"Файл: {name}, время съёмки: {exif_time}", path)
         for name, path, exif_time in local_files
     ]
-    result = call_openrouter_vision(GROUPING_PROMPT, entries)
+    result = call_mistral_vision(GROUPING_PROMPT, entries)
     # нейросеть иногда возвращает JSON по-разному оформленным - подстраиваемся
     if isinstance(result, list):
         return result
@@ -280,7 +277,7 @@ def group_photos(local_files):
 
 def generate_post_text(local_paths):
     entries = [("", path) for path in local_paths]
-    result = call_openrouter_vision(CAPTION_PROMPT, entries)
+    result = call_mistral_vision(CAPTION_PROMPT, entries)
     return result["hook"], result["body"], result["cta"]
 
 
