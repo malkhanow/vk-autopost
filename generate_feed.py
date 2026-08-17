@@ -52,7 +52,9 @@ POSTED_DIR = "/posted"
 ITEMS_FILE = "feed_items.json"
 FEED_FILE = "docs/feed.xml"
 IMAGES_DIR = "docs/images"
+STATE_FILE = "post_state.json"
 MAX_ITEMS_IN_FEED = 30
+MAX_CAROUSELS_PER_MONTH = 15  # бесплатный лимит Crosslybot на кросспостинг в VK
 
 OPENROUTER_MODEL = "openrouter/free"
 MAX_PHOTOS_PER_GROUPING_CALL = 10  # некоторые бесплатные модели не берут больше 12 фото за раз
@@ -116,6 +118,10 @@ SITE_BASE_URL = os.environ.get(
 ).rstrip("/")
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHANNEL = os.environ["TELEGRAM_CHANNEL"]
+# Мостовой канал: сюда шлём только «карусельные» посты, его слушает
+# Crosslybot и репостит их в VK каруселью. Если пусто - карусельный режим
+# выключен, всё уходит в VK одиночками через RSS (как раньше).
+TELEGRAM_BRIDGE_CHANNEL = os.environ.get("TELEGRAM_BRIDGE_CHANNEL", "").strip()
 
 
 # ---------- Яндекс.Диск ----------
@@ -278,13 +284,13 @@ def assemble_full_text(hook, body, cta):
 
 # ---------- Telegram ----------
 
-def post_to_telegram(image_paths, caption):
+def post_to_telegram(channel, image_paths, caption):
     if len(image_paths) == 1:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
         with open(image_paths[0], "rb") as f:
             resp = requests.post(
                 url,
-                data={"chat_id": TELEGRAM_CHANNEL, "caption": caption},
+                data={"chat_id": channel, "caption": caption},
                 files={"photo": f},
                 timeout=60,
             )
@@ -307,7 +313,7 @@ def post_to_telegram(image_paths, caption):
             files[field] = fh
         resp = requests.post(
             url,
-            data={"chat_id": TELEGRAM_CHANNEL, "media": json.dumps(media)},
+            data={"chat_id": channel, "media": json.dumps(media)},
             files=files,
             timeout=90,
         )
@@ -333,18 +339,42 @@ def save_items(items):
         json.dump(items, f, ensure_ascii=False, indent=2)
 
 
+def load_state():
+    """Счётчик карусельных постов за текущий месяц (переживает перезапуски
+    за счёт коммита post_state.json обратно в репо)."""
+    if not os.path.exists(STATE_FILE):
+        return {}
+    with open(STATE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_state(state):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
 def build_feed_xml(items):
     now = format_datetime(datetime.now(timezone.utc))
     entries = []
     for item in items[:MAX_ITEMS_IN_FEED]:
-        cover_url = f"{SITE_BASE_URL}/images/{item['images'][0]}"
+        # поддержка старой схемы ленты: новые записи имеют images[]/full_text/hook,
+        # старые - image (одиночное) и caption. Без этого одна старая запись
+        # роняла весь фид с KeyError: 'images'.
+        images = item.get("images") or (
+            [item["image"]] if item.get("image") else []
+        )
+        if not images:
+            continue  # запись без картинки пропускаем, а не валим весь прогон
+        text = item.get("full_text") or item.get("caption", "")
+        hook = item.get("hook") or text[:80]
+        cover_url = f"{SITE_BASE_URL}/images/{images[0]}"
         description_html = (
             f'&lt;img src="{escape(cover_url)}"/&gt;'
-            f"&lt;p&gt;{escape(item['full_text']).replace(chr(10), ' ')}&lt;/p&gt;"
+            f"&lt;p&gt;{escape(text).replace(chr(10), ' ')}&lt;/p&gt;"
         )
         entries.append(
             "  <item>\n"
-            f"    <title>{escape(item['hook'][:80])}</title>\n"
+            f"    <title>{escape(hook[:80])}</title>\n"
             f"    <link>{escape(SITE_BASE_URL)}/#{escape(item['guid'])}</link>\n"
             f"    <guid isPermaLink=\"false\">{escape(item['guid'])}</guid>\n"
             f"    <pubDate>{escape(item['pubDate'])}</pubDate>\n"
@@ -377,6 +407,26 @@ def main():
         return
 
     files = files[:MAX_PHOTOS_PER_GROUPING_CALL]
+
+    now = datetime.now(timezone.utc)
+    state = load_state()
+    if state.get("month") != now.strftime("%Y-%m"):
+        state = {"month": now.strftime("%Y-%m"), "carousels": 0}
+
+    # "Карусельный" день (пост уходит в VK каруселью через мостовой канал):
+    # по нечётным числам месяца ("через день"), пока не упёрлись в бесплатный
+    # лимит Crosslybot (15/мес) и только если мостовой канал вообще настроен.
+    # Иначе - "одиночный" день: пост уходит в VK через RSS одной фотографией.
+    is_carousel_day = (
+        bool(TELEGRAM_BRIDGE_CHANNEL)
+        and now.day % 2 == 1
+        and state.get("carousels", 0) < MAX_CAROUSELS_PER_MONTH
+    )
+    print(
+        "Режим на сегодня:",
+        "КАРУСЕЛЬ (мостовой канал -> VK)" if is_carousel_day
+        else "ОДИНОЧКА (RSS -> VK)",
+    )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         local_files = []  # (name, local_path, exif_time, yandex_path)
@@ -436,37 +486,57 @@ def main():
         full_text = assemble_full_text(hook, body, cta)
         print("Текст готов:\n", full_text)
 
-        print("Публикую в Telegram...")
-        post_to_telegram(local_paths, full_text)
-        print("Опубликовано в Telegram.")
+        # основной Telegram-канал получает пост всегда (твоя ТГ-аудитория)
+        print("Публикую в основной Telegram-канал...")
+        post_to_telegram(TELEGRAM_CHANNEL, local_paths, full_text)
+        print("Опубликовано в основной Telegram-канал.")
 
         image_ids = []
-        os.makedirs(IMAGES_DIR, exist_ok=True)
-        for local_path in local_paths:
-            ext = os.path.splitext(local_path)[1] or ".jpg"
-            image_id = f"{uuid.uuid4().hex}{ext}"
-            with open(local_path, "rb") as src, open(
-                os.path.join(IMAGES_DIR, image_id), "wb"
-            ) as dst:
-                dst.write(src.read())
-            image_ids.append(image_id)
+        if is_carousel_day:
+            # Карусельный день: дублируем пост в мостовой канал. Его слушает
+            # Crosslybot и публикует в VK каруселью. В RSS этот пост НЕ
+            # добавляем, иначе в VK будет дубль (карусель + одиночка).
+            print("Публикую в мостовой канал (для VK-карусели через Crosslybot)...")
+            post_to_telegram(TELEGRAM_BRIDGE_CHANNEL, local_paths, full_text)
+            print("Опубликовано в мостовой канал.")
+        else:
+            # Одиночный день: сохраняем картинку(и) под обложку RSS-поста в VK.
+            os.makedirs(IMAGES_DIR, exist_ok=True)
+            for local_path in local_paths:
+                ext = os.path.splitext(local_path)[1] or ".jpg"
+                image_id = f"{uuid.uuid4().hex}{ext}"
+                with open(local_path, "rb") as src, open(
+                    os.path.join(IMAGES_DIR, image_id), "wb"
+                ) as dst:
+                    dst.write(src.read())
+                image_ids.append(image_id)
 
         yandex_paths_to_move = [(by_name[n][2], n) for n in chosen_files]
 
-    items = load_items()
-    items.insert(
-        0,
-        {
-            "images": image_ids,
-            "hook": hook,
-            "full_text": full_text,
-            "pubDate": format_datetime(datetime.now(timezone.utc)),
-            "guid": uuid.uuid4().hex,
-        },
-    )
-    save_items(items)
-    build_feed_xml(items)
-    print("Лента docs/feed.xml обновлена.")
+    # --- вне временной папки ---
+    if is_carousel_day:
+        state["carousels"] += 1
+        print(
+            f"Карусель засчитана: {state['carousels']}/{MAX_CAROUSELS_PER_MONTH} "
+            f"за {state['month']}. Пост в VK опубликует Crosslybot из мостового канала."
+        )
+    else:
+        items = load_items()
+        items.insert(
+            0,
+            {
+                "images": image_ids,
+                "hook": hook,
+                "full_text": full_text,
+                "pubDate": format_datetime(now),
+                "guid": uuid.uuid4().hex,
+            },
+        )
+        save_items(items)
+        build_feed_xml(items)
+        print("Лента docs/feed.xml обновлена (одиночный пост для VK).")
+
+    save_state(state)
 
     for yandex_path, name in yandex_paths_to_move:
         move_to_posted(yandex_path, name)
