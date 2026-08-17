@@ -56,7 +56,13 @@ STATE_FILE = "post_state.json"
 MAX_ITEMS_IN_FEED = 30
 MAX_CAROUSELS_PER_MONTH = 15  # бесплатный лимит Crosslybot на кросспостинг в VK
 
-OPENROUTER_MODEL = "openrouter/free"
+# Фиксированная бесплатная vision-модель (не случайный роутер).
+# Если задан OPENROUTER_MODEL в env — используем его (удобно менять без
+# редактирования кода). Иначе берём лучшую бесплатную vision-модель на
+# август 2026. Резервная: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+OPENROUTER_MODEL = os.environ.get(
+    "OPENROUTER_MODEL", "google/gemma-4-31b-it:free"
+)
 MAX_PHOTOS_PER_GROUPING_CALL = 10  # некоторые бесплатные модели не берут больше 12 фото за раз
 MAX_PHOTOS_PER_POST = 4  # жёсткий предел фото в одном товаре/посте
 
