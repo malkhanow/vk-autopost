@@ -59,7 +59,7 @@ MAX_CAROUSELS_PER_MONTH = 15  # бесплатный лимит Crosslybot на 
 # Фиксированная бесплатная vision-модель — Mistral (pixtral умеет картинки,
 # бесплатный план без кредитки, 2 req/min достаточно для ежедневного постинга).
 MISTRAL_MODEL = "pixtral-12b-2409"
-MAX_PHOTOS_PER_GROUPING_CALL = 10
+MAX_PHOTOS_PER_GROUPING_CALL = 8  # Mistral принимает максимум 8 изображений за запрос
 MAX_PHOTOS_PER_POST = 4  # жёсткий предел фото в одном товаре/посте
 
 BENEFITS_BLOCK = (
