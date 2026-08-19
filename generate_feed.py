@@ -33,8 +33,8 @@ from PIL import Image, ExifTags
 
 # ---------- настройки ----------
 
-SOURCE_DIR = "/to_post"
-POSTED_DIR = "/posted"
+SOURCE_DIR = "/Custom Studio Autopost/to_post"
+POSTED_DIR = "/Custom Studio Autopost/posted"
 STATE_FILE = "post_state.json"
 
 MISTRAL_MODEL = "pixtral-12b-2409"
