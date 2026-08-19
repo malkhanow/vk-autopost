@@ -2,12 +2,8 @@ name: Daily VK Post
 
 on:
   schedule:
-    # 07:00 UTC = 10:00 по Москве (МСК = UTC+3, без переходов на летнее время)
-    - cron: '0 7 * * *'
-  workflow_dispatch: {}
-
-permissions:
-  contents: write
+    - cron: '0 7 * * *'  # 07:00 UTC = 10:00 МСК
+  workflow_dispatch:
 
 jobs:
   post:
@@ -22,23 +18,21 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install requests Pillow
 
       - name: Run feed generator
         env:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          SITE_BASE_URL: ${{ secrets.SITE_BASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
           PYTHONUNBUFFERED: "1"
-          TELEGRAM_BRIDGE_CHANNEL: ${{ secrets.TELEGRAM_BRIDGE_CHANNEL }}
         run: python generate_feed.py
 
-      - name: Commit and push updated feed
+      - name: Commit and push state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/feed.xml docs/images feed_items.json post_state.json
-          git diff --staged --quiet && echo "Нечего коммитить" || git commit -m "Обновление ленты"
+          git add post_state.json
+          git diff --staged --quiet || git commit -m "update post state [skip ci]"
           git push
