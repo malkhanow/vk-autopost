@@ -1,12 +1,13 @@
 {
-  "post24_index": 1,
+  "post24_index": 2,
   "used_photos": {
     "posts_24": [
+      "photo_4_2025-10-25_20-00-42.jpg",
       "photo_9_2025-10-25_20-06-32.jpg"
     ],
     "care": [
       "care.png"
     ]
   },
-  "post24_adapt_count": 1
+  "post24_adapt_count": 2
 }
