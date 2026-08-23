@@ -527,30 +527,75 @@ IMAGE_URL: https://...
 
 def post_to_telegram(text, photo_path=None):
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+    CAPTION_LIMIT = 1024
 
-    if photo_path and os.path.exists(photo_path):
-        with open(photo_path, "rb") as f:
-            resp = requests.post(
-                f"{base_url}/sendPhoto",
-                data={"chat_id": TELEGRAM_CHANNEL, "caption": text, "parse_mode": "Markdown"},
-                files={"photo": f},
-                timeout=60,
+    def send_message(body, parse_mode="Markdown"):
+        payload = {"chat_id": TELEGRAM_CHANNEL, "text": body}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        return requests.post(f"{base_url}/sendMessage", json=payload, timeout=30)
+
+    def send_photo(path, caption, parse_mode="Markdown"):
+        data = {"chat_id": TELEGRAM_CHANNEL}
+        if caption:
+            data["caption"] = caption
+            if parse_mode:
+                data["parse_mode"] = parse_mode
+        with open(path, "rb") as f:
+            return requests.post(
+                f"{base_url}/sendPhoto", data=data, files={"photo": f}, timeout=60
             )
-        try:
-            os.unlink(photo_path)
-        except Exception:
-            pass
-    else:
-        resp = requests.post(
-            f"{base_url}/sendMessage",
-            json={"chat_id": TELEGRAM_CHANNEL, "text": text, "parse_mode": "Markdown"},
-            timeout=30,
-        )
 
-    resp.raise_for_status()
-    print("Опубликовано в Telegram.")
+    has_photo = bool(photo_path and os.path.exists(photo_path))
 
-# ---------- Праздники ----------
+    if has_photo:
+        size_mb = os.path.getsize(photo_path) / 1024 / 1024
+        print(f"Фото: {os.path.basename(photo_path)}, {size_mb:.1f} МБ")
+        if size_mb > 9.5:
+            print("Фото больше 10 МБ — отправляю без него.")
+            has_photo = False
+
+    try:
+        if has_photo:
+            # Длинный текст не влезет в подпись — фото отдельно, текст отдельно
+            if len(text) > CAPTION_LIMIT:
+                print(f"Текст {len(text)} символов — отправляю фото и текст раздельно.")
+                resp = send_photo(photo_path, None)
+                if not resp.ok:
+                    print("Ошибка фото:", resp.text)
+                resp = send_message(text)
+                if not resp.ok:
+                    print("Markdown не прошёл, повтор без разметки:", resp.text)
+                    resp = send_message(text, parse_mode=None)
+            else:
+                resp = send_photo(photo_path, text)
+                if not resp.ok:
+                    print("Ошибка Telegram:", resp.text)
+                    # Пробуем без разметки
+                    resp = send_photo(photo_path, text, parse_mode=None)
+                    if not resp.ok:
+                        print("Фото не принято, отправляю только текст:", resp.text)
+                        resp = send_message(text)
+                        if not resp.ok:
+                            resp = send_message(text, parse_mode=None)
+        else:
+            resp = send_message(text)
+            if not resp.ok:
+                print("Markdown не прошёл, повтор без разметки:", resp.text)
+                resp = send_message(text, parse_mode=None)
+
+        if not resp.ok:
+            print("ИТОГОВАЯ ОШИБКА:", resp.status_code, resp.text)
+            resp.raise_for_status()
+
+        print("Опубликовано в Telegram.")
+
+    finally:
+        if photo_path and os.path.exists(photo_path):
+            try:
+                os.unlink(photo_path)
+            except Exception:
+                pass
 
 def check_holidays(today):
     for h in HOLIDAYS:
