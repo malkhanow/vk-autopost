@@ -17,7 +17,7 @@ const PropertiesService = { getScriptProperties: () => ({ getProperty: k => PROP
 const stub = new Proxy({}, { get: () => () => { throw new Error('not stubbed'); } });
 
 const api = new Function('Utilities','Session','PropertiesService','SpreadsheetApp','UrlFetchApp','LockService','ScriptApp','ContentService','console',
-  code + '\nreturn {norm_,pickList_,slotsIn_,slotsOut_,payIn_,payState_,tariffIn_,translit_,uniqueId_,addMonth_,parseDate_,dateOut_,parseJsonLoose_,detectTariff_,briefFromAnswers_,findAnswer_,buildConfig_,normRubrics_,padAnswers_,bool_,num_,list_,lines_,today_,ghError_,LIMITS_KNOWN,TOPICS_KNOWN};')
+  code + '\nreturn {norm_,pickList_,slotsIn_,slotsOut_,payIn_,payState_,tariffIn_,translit_,uniqueId_,addMonth_,parseDate_,dateOut_,parseJsonLoose_,detectTariff_,briefFromAnswers_,findAnswer_,buildConfig_,normRubrics_,padAnswers_,bool_,num_,list_,lines_,today_,ghError_,mdEscape_,LIMITS_KNOWN,TOPICS_KNOWN};')
   (Utilities, Session, PropertiesService, stub, stub, stub, stub, stub, console);
 
 let fails = 0;
@@ -36,6 +36,12 @@ eq('limits with commas', api.pickList_('Цены и стоимость услу�
 eq('limits newline', api.pickList_('Своё ограничение\nЕщё одно', api.LIMITS_KNOWN), ['Своё ограничение','Ещё одно']);
 eq('topics', api.pickList_('Фото работ, Отзывы и результаты', api.TOPICS_KNOWN), ['Фото работ','Отзывы и результаты']);
 eq('pay in', [api.payIn_('Оплачено'), api.payIn_('Просрочка'), api.payIn_('paid'), api.payIn_('')], ['paid','overdue','paid','brief']);
+eq('статусы дропдауна', ['Оплачено 1 мес','Оплачено 12 мес','Ожидает оплаты','Просрочено','Отменить оплату'].map(api.payIn_),
+   ['paid','paid','due','overdue','due']);
+eq('лист главнее даты: просрочено', api.payState_('overdue', new Date(2999,0,1)), 'overdue');
+eq('оплачено, но дата прошла', api.payState_('paid', new Date(2000,0,1)), 'overdue');
+eq('пустой статус без даты', api.payState_('brief', null), 'brief');
+eq('markdown экранируется', api.mdEscape_('Новый бриф: @olga_spb_realty *тест*'), 'Новый бриф: @olga\\_spb\\_realty \\*тест\\*');
 eq('tariff in', [api.tariffIn_('ПРО'), api.tariffIn_('тариф БИЗНЕС'), api.tariffIn_('')], ['ПРО','БИЗНЕС','СТАРТ']);
 eq('translit', api.translit_('Пекарня «Тесто и дело»'), 'pekarnya-testo-i-delo');
 eq('uniqueId', api.uniqueId_('beauty-bar', ['beauty-bar','beauty-bar-2']), 'beauty-bar-3');

@@ -11,7 +11,8 @@ class DCLogic {
   }
 }
 const store = {};
-const window = { localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } } };
+const opened = [];
+const window = { open: (u) => { opened.push(u); return {}; }, localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } } };
 const navigator = { clipboard: { writeText: () => {} } };
 
 let calls = [];
@@ -37,7 +38,8 @@ const SERVER_CLIENT = {
   city: 'СПб', networks: ['VK', 'Telegram'], links: '', tone: 'Простой и дружелюбный — как друг',
   slots: ['morning', 'evening'], hasPhoto: true, rubrics: [{ name: 'Фото работ', days: 'пн, чт', prompt: 'P', example: '' }],
   holidays: 'Да', faq: 'a\nb', limits: ['Цены и стоимость услуг'], limitsText: '', cta: 'Записаться',
-  source: 'Avito', startedAt: '2026-05-12', nextPay: '2026-09-01', paidAt: '', pay: 'test',
+  source: 'Avito', startedAt: '2026-05-12', nextPay: '2026-09-01', pay: 'test', payRaw: 'Тест без оплаты',
+  rowUrl: 'https://docs.google.com/spreadsheets/d/TESTID/edit#gid=0&range=F2',
   active: true, stylePrompt: '', configPushed: '', niche: 'салон красоты', topics: ['Фото работ'],
   styleAnswers: ['1', '2', '3', '4', '5'], checks: { disk: true }, iterations: 0, photoQueue: 14,
   lastPostDate: '24.08.2026 10:00', lastPostStatus: 'Опубликован'
@@ -64,7 +66,7 @@ const SERVER_CLIENT = {
     clients: { clients: [SERVER_CLIENT] },
     briefs: { briefs: [{ fid: 'row-2', row: 2, business: 'Пекарня', name: 'Данила', niche: 'пекарня', city: 'СПб', tariff: 'ПРО', tg: '@t', about: 'Хлеб', at: '24.08 · 18:22', tag: 'новый', answers: { name: 'Данила', business: 'Пекарня' } }] },
     log: { log: [{ id: 'beauty-bar', date: '24.08.2026', time: '10:00', rubric: 'Фото работ', ok: true, err: '' }] },
-    settings: { props: { GITHUB_TOKEN: true, ROUTERAI_KEY: true, TG_BOT_TOKEN: false, GITHUB_REPO: true, TG_CHAT_ID: false } }
+    settings: { props: { GITHUB_TOKEN: true, ROUTERAI_KEY: true, GITHUB_REPO: true } }
   };
   comp = new Component();
   comp.renderVals();
@@ -80,12 +82,14 @@ const SERVER_CLIENT = {
   ok('лог', v.logRows.length === 1 && v.logRows[0].business === 'Beauty BAR');
   ok('секреты: статус, не значение', v.settingFields[2].value === '' && v.settingFields[2].state === 'задан', JSON.stringify(v.settingFields[2].value));
   ok('WEBAPP_URL виден', v.settingFields[0].value.endsWith('/exec'));
-  ok('TG_CHAT_ID не задан', v.settingFields[6].state === 'не задан', v.settingFields[6].state);
+  ok('полей Telegram в настройках нет', v.settingFields.every(f => f.key.indexOf('TG_') < 0), v.settingFields.map(f => f.key).join(','));
+  ok('настроек ровно пять', v.settingFields.length === 5, v.settingFields.length);
   ok('конфиг в предпросмотре', JSON.parse(v.configJson).slots[0].cron === '07:00');
 
   /* --- 3. onSave --- */
   calls = [];
   reply.save = { client: Object.assign({}, SERVER_CLIENT, { about: 'Обновлено' }) };
+  comp.setState({ tab: 'brief' });
   v.onSave();
   await later(30);
   const save = calls.find(c => c.action === 'save');
@@ -96,44 +100,30 @@ const SERVER_CLIENT = {
   ok('токен в теле', save.body.token === 'secret-123');
   ok('ответ применён', comp.renderVals().c.about === 'Обновлено');
 
-  /* --- 4. confirmPayment --- */
+  /* --- 4. оплата ведётся в таблице --- */
   calls = [];
-  reply.pay = { client: Object.assign({}, SERVER_CLIENT, { pay: 'paid', paidAt: '2026-09-01', nextPay: '2026-10-01' }), nextPay: '2026-10-01' };
-  comp.renderVals().confirmPayment();
-  await later(30);
-  ok('confirmPayment -> POST pay', calls[0].action === 'pay' && calls[0].body.id === 'beauty-bar');
+  opened.length = 0;
   v = comp.renderVals();
-  ok('оплата применена', v.c.payLabel === 'Оплачено' && v.c.nextPay === '1 октября 2026', v.c.nextPay);
+  ok('кнопки подтверждения нет', v.confirmPayment === undefined && v.payBtnLabel === undefined);
+  ok('вместо неё ссылка на строку', v.sheetBtnLabel === 'Открыть строку в таблице');
+  ok('статус из листа показан', v.payRaw === 'Тест без оплаты', v.payRaw);
+  ok('подсказка про дропдаун', /дропдаун/.test(v.payHint), v.payHint);
+  v.openRow();
+  await later(20);
+  ok('открывает строку на ячейке статуса', opened[0] === 'https://docs.google.com/spreadsheets/d/TESTID/edit#gid=0&range=F2', opened[0]);
+  ok('в сеть при этом не ходит', calls.length === 0);
 
-  /* --- 4b. защита от повторного подтверждения и откат --- */
-  v = comp.renderVals();
-  ok('кнопка подтверждения серая', v.payBtnStyle.indexOf('not-allowed') > 0 && v.payBtnStyle.indexOf('#f4f4f1') > 0, v.payBtnStyle);
-  ok('кнопка отмены показана', v.isPaid === true && v.unpayLabel === 'Отменить оплату');
-  ok('кнопка отмены красная', v.unpayBtnStyle.indexOf('#a91f18') > 0, v.unpayBtnStyle);
-  ok('подсказка про откат', /Отменить оплату/.test(v.payHint), v.payHint);
-  calls = [];
-  v.confirmPayment();
-  await later(30);
-  ok('повторный клик не уходит на сервер', calls.length === 0);
-  ok('повторный клик объясняет причину', /уже подтверждена/.test(comp.state.toast || ''), comp.state.toast);
+  opened.length = 0;
+  comp.setState({ view: 'payments' });
+  comp.renderVals().payRows.find(r => r.id === 'beauty-bar').onConfirm({ stopPropagation() {} });
+  ok('в списке оплат — та же ссылка', opened[0] === 'https://docs.google.com/spreadsheets/d/TESTID/edit#gid=0&range=F2', opened[0]);
+  comp.setState({ view: 'card' });
 
   calls = [];
-  reply.unpay = { client: Object.assign({}, SERVER_CLIENT, { pay: 'due', paidAt: '', prevPay: '', nextPay: '2026-09-01', checks: { disk: true, paid: false } }), nextPay: '2026-09-01' };
-  comp.renderVals().cancelPayment();
+  comp.renderVals().onSave();
   await later(30);
-  ok('cancelPayment -> POST unpay', calls[0].action === 'unpay' && calls[0].body.id === 'beauty-bar', calls[0] && calls[0].action);
-  v = comp.renderVals();
-  ok('дата вернулась', v.c.nextPay === '1 сентября 2026', v.c.nextPay);
-  ok('статус — ждёт оплаты', v.c.payLabel === 'Ждёт оплаты', v.c.payLabel);
-  ok('галочка paid снята', v.checklist[5].checked === false);
-  ok('кнопка отмены скрыта', v.isPaid === false);
-  ok('подтверждение снова доступно', v.payBtnStyle.indexOf('not-allowed') < 0);
-
-  calls = [];
-  reply.pay = { client: Object.assign({}, SERVER_CLIENT, { pay: 'paid', prevPay: '2026-09-01', paidAt: '2026-09-01', nextPay: '2026-10-01' }), nextPay: '2026-10-01' };
-  comp.renderVals().confirmPayment();
-  await later(30);
-  ok('после отката подтверждение уходит на сервер', calls[0] && calls[0].action === 'pay');
+  const body = calls.find(c => c.action === 'save').body.client;
+  ok('save не отправляет статус оплаты', body.pay === undefined && body.nextPay === undefined, Object.keys(body).join(','));
 
   /* --- 5. onPush --- */
   calls = [];

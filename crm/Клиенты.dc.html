@@ -502,15 +502,10 @@
                   </div>
                   <div style="display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; padding-top: 12px; border-top: 1px solid #eeeeea">
                     <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Дата подключения</span><span style="font-family: 'IBM Plex Mono', monospace">{{ c.startedAt }}</span></div>
-                    <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Последняя оплата</span><span style="font-family: 'IBM Plex Mono', monospace">{{ c.paidAt }}</span></div>
+                    <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Статус в таблице</span><span style="font-family: 'IBM Plex Mono', monospace">{{ payRaw }}</span></div>
                     <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Следующий платёж</span><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{ c.nextPay }}</span></div>
                   </div>
-                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 14px">
-                    <button onClick="{{ confirmPayment }}" style="{{ payBtnStyle }}" style-hover="opacity: 0.88">{{ payBtnLabel }}</button>
-                    <sc-if value="{{ isPaid }}" hint-placeholder-val="{{ false }}">
-                      <button onClick="{{ cancelPayment }}" style="{{ unpayBtnStyle }}" style-hover="opacity: 0.88">{{ unpayLabel }}</button>
-                    </sc-if>
-                  </div>
+                  <button onClick="{{ openRow }}" style="{{ sheetBtnStyle }}" style-hover="opacity: 0.88">{{ sheetBtnLabel }}</button>
                   <p style="margin: 9px 0 0; font-size: 11.5px; color: #8a8f96">{{ payHint }}</p>
                 </section>
 
@@ -871,9 +866,7 @@ function fromApi(o) {
   Object.keys(o || {}).forEach(k => { if (o[k] !== null && o[k] !== undefined) clean[k] = o[k]; });
   return client(Object.assign(clean, {
     startedAt: parseDate(o.startedAt),
-    paidAt: parseDate(o.paidAt),
     nextPay: parseDate(o.nextPay),
-    prevPay: parseDate(o.prevPay),
     active: o.active !== false,
     styleAnswers: padAnswers(o.styleAnswers),
     checks: o.checks || {},
@@ -894,7 +887,7 @@ function toApi(c) {
     slots: c.slots, hasPhoto: !!c.hasPhoto || c.photoQueue > 0, rubrics: c.rubrics,
     holidays: c.holidays, faq: c.faq, limits: c.limits, limitsText: c.limitsText,
     cta: c.cta, source: c.source, startedAt: isoDate(c.startedAt),
-    nextPay: isoDate(c.nextPay), paidAt: isoDate(c.paidAt), pay: c.pay,
+    // pay и nextPay не отправляем: ими распоряжается дропдаун в таблице
     active: c.active !== false, stylePrompt: c.stylePrompt, niche: c.niche,
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
@@ -905,7 +898,7 @@ function toApi(c) {
 const BLANK = client({
   id: '—', business: 'Клиентов пока нет', name: '', niche: '', city: '',
   phone: '', tg: '', email: '', about: '', audience: '',
-  startedAt: null, paidAt: null, nextPay: null
+  startedAt: null, nextPay: null
 });
 
 /* ====================================================================
@@ -927,7 +920,7 @@ const DATA = [
     cta: 'Записаться — в сообщения сообщества или по телефону в описании.',
     limits: ['Цены и стоимость услуг', 'Гарантии результата'], limitsText: 'Не сравнивать с конкурентами по именам.',
     topics: ['Фото работ', 'Советы и полезное', 'Отзывы и результаты'], photoQueue: 14,
-    startedAt: d(2026, 5, 12), paidAt: null, nextPay: d(2026, 9, 1),
+    startedAt: d(2026, 5, 12), nextPay: d(2026, 9, 1),
     lastPostDate: '24.08.2026 10:00', lastPostStatus: 'Опубликован',
     stylePrompt: 'Короткие предложения, 8–14 слов. Обращение на «вы», без канцелярита. Часто начинает с наблюдения, заканчивает приглашением. Любит уменьшительные формы, не использует эмодзи в начале строки.',
     styleAnswers: TASKS.map(function (t, i) { return i < 5 ? 'Ответ клиента получен ' + (12 + i) + '.08' : ''; }),
@@ -950,7 +943,7 @@ const DATA = [
     limits: ['Проценты, ставки, доходность', 'Гарантии результата', 'Конкретные сроки выполнения'],
     limitsText: 'Не называть конкретные банки и условия их продуктов.',
     topics: ['Советы и полезное', 'Частые вопросы', 'Идеи и вдохновение'], photoQueue: 3,
-    startedAt: d(2026, 7, 28), paidAt: d(2026, 7, 28), nextPay: d(2026, 8, 28),
+    startedAt: d(2026, 7, 28), nextPay: d(2026, 8, 28),
     lastPostDate: '24.08.2026 10:00', lastPostStatus: 'Опубликован', source: 'Avito',
     styleAnswers: ['Вчера доделала документы к сделке, вечером просто гуляла у Смольного.', 'Удивил клиент — принёс торт после сделки.', 'Люблю простую пасту в кафе на Восстания.', '', ''],
     rubrics: [], checks: { disk: true, channel: true, secrets: true, config: true, test: true, paid: true }, iterations: 0
@@ -964,7 +957,7 @@ const DATA = [
     cta: 'Замер и расчёт — напишите в личные сообщения.',
     limits: ['Цены и стоимость услуг', 'Конкретные сроки выполнения'],
     topics: ['Фото работ', 'Идеи и вдохновение'], photoQueue: 7,
-    startedAt: d(2026, 6, 26), paidAt: d(2026, 7, 26), nextPay: d(2026, 8, 26),
+    startedAt: d(2026, 6, 26), nextPay: d(2026, 8, 26),
     lastPostDate: '23.08.2026 14:00', lastPostStatus: 'Опубликован', source: 'ВКонтакте',
     rubrics: [], checks: { disk: true, channel: true, secrets: true, config: true, test: true, paid: true }
   }),
@@ -976,7 +969,7 @@ const DATA = [
     audience: 'Мужчины 25–50, покупают к дате; плюс постоянные заказчицы на подарки.',
     cta: 'Заказать букет — в сообщения или по телефону.',
     limits: ['Цены и стоимость услуг'], topics: ['Фото работ', 'Идеи и вдохновение'], photoQueue: 0,
-    startedAt: d(2026, 4, 15), paidAt: d(2026, 7, 15), nextPay: d(2026, 8, 15),
+    startedAt: d(2026, 4, 15), nextPay: d(2026, 8, 15),
     lastPostDate: '19.08.2026 14:00', lastPostStatus: 'Ошибка: нет фото в to_post/', source: 'Порекомендовали знакомые',
     rubrics: [], checks: { disk: true, channel: true, secrets: true, config: true, test: true }
   }),
@@ -989,7 +982,7 @@ const DATA = [
     cta: 'Записаться на диагностику — по телефону или в сообщения.',
     limits: ['Цены и стоимость услуг', 'Гарантии результата'],
     topics: ['Советы и полезное', 'Частые вопросы', 'Фото работ'], photoQueue: 21,
-    startedAt: d(2026, 3, 9), paidAt: d(2026, 8, 9), nextPay: d(2026, 9, 9),
+    startedAt: d(2026, 3, 9), nextPay: d(2026, 9, 9),
     lastPostDate: '24.08.2026 10:00', lastPostStatus: 'Опубликован', source: 'Avito',
     tone: 'Экспертный — как специалист', rubrics: [],
     checks: { disk: true, channel: true, secrets: true, config: true, test: true, paid: true }
@@ -1003,7 +996,7 @@ const DATA = [
     cta: 'Пробное занятие — запись в сообщениях.',
     limits: ['Гарантии результата', 'Медицинские советы и диагнозы'],
     topics: ['Советы и полезное', 'Частые вопросы'], photoQueue: 0, active: false,
-    startedAt: d(2026, 8, 22), paidAt: null, nextPay: null,
+    startedAt: d(2026, 8, 22), nextPay: null,
     lastPostDate: '—', lastPostStatus: 'Не запущен', source: 'Telegram', checks: {}
   })
 ];
@@ -1055,11 +1048,10 @@ const SETTINGS = [
     hint: 'В виде owner/repo. Туда уходит clients/{id}.json и оттуда запускается тестовый прогон.' },
   { key: 'ROUTERAI_KEY', label: 'Ключ RouterAI',
     hint: 'Анализ стиля, контент-план и примеры постов. Модель google/gemini-3.1-pro-preview.' },
-  { key: 'TG_BOT_TOKEN', label: 'Telegram-токен для уведомлений',
-    hint: 'Бот, который присылает уведомления о новых брифах и напоминания об оплате.' },
-  { key: 'TG_CHAT_ID', label: 'Chat ID для уведомлений',
-    hint: 'Куда бот шлёт уведомления. Несколько получателей — через запятую.' }
 ];
+
+// Telegram-бот и чат заданы константами в Apps Script (учёт оплат) —
+// отдельных свойств для них нет, поэтому в настройках их не показываем.
 
 const SETTING_HINT_LOCKED = 'Секреты задаются в Apps Script: Настройки проекта → Свойства скрипта. В браузер они не передаются.';
 const PING_NAMES = { sheet: 'Таблица', github: 'GitHub', routerai: 'RouterAI', telegram: 'Telegram' };
@@ -1293,7 +1285,6 @@ class Component extends DCLogic {
       this.patch(c.id, { [key]: arr });
     };
 
-    const isPaid = c.pay === 'paid';
     const doneCount = CHECKS.filter(k => c.checks[k.key]).length;
     const styleFilled = c.styleAnswers.filter(a => a.trim()).length;
     const maxSlots = c.tariff === 'СТАРТ' ? 1 : 2;
@@ -1416,7 +1407,7 @@ class Component extends DCLogic {
             this.flash('Строка добавлена в лист «Клиенты» · client_id: ' + created.id);
           }),
           () => {
-            const created = client(Object.assign({ id: this.uniqueId(this.translit(f.business) || 'client'), startedAt: TODAY, paidAt: null, nextPay: null }, draft, { startedAt: TODAY }));
+            const created = client(Object.assign({ id: this.uniqueId(this.translit(f.business) || 'client'), startedAt: TODAY, nextPay: null }, draft, { startedAt: TODAY }));
             openCreated(created);
             this.flash('Демо: строка не ушла в таблицу — задайте WEBAPP_URL в настройках');
           });
@@ -1432,24 +1423,14 @@ class Component extends DCLogic {
           nextPay: fmt(x.nextPay),
           due: days === null ? 'бриф не обработан' : days < 0 ? 'просрочка ' + Math.abs(days) + ' дн.' : days === 0 ? 'сегодня' : 'через ' + days + ' дн.',
           payLabel: payOf(x.pay).label, payStyle: pillOf(x.pay),
-          confirmLabel: busy === 'pay-' + x.id ? '…' : x.pay === 'paid' ? 'Оплачено ✓' : 'Подтвердить',
-          confirmStyle: 'font-size: 11.5px; font-weight: 500; padding: 5px 9px; border-radius: 4px; ' + (x.pay === 'paid'
-            ? 'border: 1px solid #c3e3d1; background: #e6f4ec; color: #136c41; cursor: default;'
-            : 'border: 1px solid ' + accent + '; background: ' + accent + '; color: #fff; cursor: pointer;'),
-          // POST action=pay -> статус «Оплачено» и дата оплаты +1 месяц
+          confirmLabel: 'В таблицу →',
+          confirmStyle: 'font-size: 11.5px; font-weight: 500; padding: 5px 9px; border-radius: 4px; ' +
+            'border: 1px solid #d9d9d4; background: #fff; color: #14171a; cursor: pointer;',
+          // оплата отмечается дропдауном в листе — открываем нужную строку
           onConfirm: e => {
             if (e && e.stopPropagation) e.stopPropagation();
-            if (x.pay === 'paid') return;
-            this.act('pay-' + x.id,
-              () => apiPost(conn, 'pay', { id: x.id }).then(r => {
-                this.applyClient(r.client);
-                this.flash(x.business + ' — оплата принята, следующий платёж ' + fmtLong(parseDate(r.nextPay)));
-              }),
-              () => {
-                const base = x.nextPay || TODAY;
-                this.patch(x.id, { pay: 'paid', paidAt: base, nextPay: addMonth(base), checks: Object.assign({}, x.checks, { paid: true }) });
-                this.flash('Демо: оплата не записана в таблицу');
-              });
+            if (!x.rowUrl) return this.flash('Нет ссылки на строку — задайте WEBAPP_URL в настройках');
+            try { window.open(x.rowUrl, '_blank'); } catch (err) { this.flash('Не удалось открыть таблицу'); }
           },
           onOpen: () => this.setState({ view: 'card', current: x.id, tab: 'payments' })
         };
@@ -1487,7 +1468,7 @@ class Component extends DCLogic {
                 id, business: b.business, name: b.name, niche: b.niche, city: b.city,
                 tariff: b.tariff, pay: 'brief', slots: [], phone: '—', tg: b.tg, email: '—',
                 about: b.about, audience: '', source: 'Google Форма', active: true,
-                startedAt: TODAY, paidAt: null, nextPay: null, topics: [], limits: []
+                startedAt: TODAY, nextPay: null, topics: [], limits: []
               })]),
               briefs: s.briefs.filter(x => x.fid !== b.fid),
               view: 'card', current: id, tab: 'brief'
@@ -1594,7 +1575,7 @@ class Component extends DCLogic {
         about: c.about, audience: c.audience, tone: c.tone, holidays: c.holidays,
         faq: c.faq, cta: c.cta, limitsText: c.limitsText,
         phone: c.phone, tg: c.tg, email: c.email, source: c.source,
-        startedAt: fmtLong(c.startedAt), paidAt: c.paidAt ? fmtLong(c.paidAt) : 'нет',
+        startedAt: fmtLong(c.startedAt),
         nextPay: c.nextPay ? fmtLong(c.nextPay) : 'не назначен',
         photoQueue: c.photoQueue + ' шт',
         lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
@@ -1828,42 +1809,19 @@ class Component extends DCLogic {
           this.flash('Демо: коммита не было — задайте WEBAPP_URL');
         }),
 
-      // Пока оплата подтверждена, подтвердить ещё раз нельзя: каждый лишний
-      // клик сдвигал бы дату на месяц. Сначала «Отменить оплату».
-      isPaid,
-      payBtnLabel: busy === 'pay' ? 'Обновляю…' : 'Подтвердить оплату',
-      payBtnStyle: isPaid || busy ? this.btn('off', ' flex: 1;') : this.btn('primary', ' flex: 1;'),
-      payHint: isPaid
-        ? 'Оплата подтверждена. Ошиблись — «Отменить оплату» вернёт дату на ' + fmt(c.prevPay || c.paidAt) + ' и статус «Ждёт оплаты».'
-        : 'Подтверждение сдвигает дату на месяц и перекрашивает строку в списке.',
-      // POST action=pay -> дата оплаты сдвигается на месяц вперёд
-      confirmPayment: () => {
-        if (isPaid) return this.flash('Оплата уже подтверждена — сначала отмените её');
-        this.act('pay',
-          () => apiPost(conn, 'pay', { id: c.id }).then(r => {
-            this.applyClient(r.client);
-            this.flash('Оплата принята, следующий платёж ' + fmtLong(parseDate(r.nextPay)));
-          }),
-          () => {
-            const base = c.nextPay || TODAY;
-            this.patch(c.id, { pay: 'paid', paidAt: base, prevPay: base, nextPay: addMonth(base), checks: Object.assign({}, c.checks, { paid: true }) });
-            this.flash('Демо: оплата не записана в таблицу');
-          });
+      // Оплатами управляет дропдаун в листе «Клиенты» (Apps Script сам
+      // сдвигает дату и красит статус), поэтому здесь только ссылка на
+      // нужную строку — открывается сразу на ячейке статуса.
+      payRaw: c.payRaw || '—',
+      sheetBtnLabel: 'Открыть строку в таблице',
+      sheetBtnStyle: this.btn('primary', ' width: 100%; margin-top: 14px;'),
+      payHint: 'Оплату отмечайте дропдауном в колонке «Статус»: «Оплачено N мес» сдвигает дату, «Отменить оплату» возвращает назад.',
+      openRow: () => {
+        if (!c.rowUrl) return this.flash(st.demo
+          ? 'Демо-режим: задайте WEBAPP_URL, чтобы открыть строку в таблице'
+          : 'Для этого клиента нет ссылки на строку — обновите список');
+        try { window.open(c.rowUrl, '_blank'); } catch (e) { this.flash('Не удалось открыть таблицу'); }
       },
-
-      unpayLabel: busy === 'unpay' ? 'Отменяю…' : 'Отменить оплату',
-      unpayBtnStyle: busy ? this.btn('off', ' flex: none;') : this.btn('danger', ' flex: none;'),
-      // POST action=unpay -> дата возвращается из «Предыдущая дата оплаты»
-      cancelPayment: () => this.act('unpay',
-        () => apiPost(conn, 'unpay', { id: c.id }).then(r => {
-          this.applyClient(r.client);
-          this.flash('Оплата отменена, дата платежа снова ' + fmtLong(parseDate(r.nextPay)));
-        }),
-        () => {
-          const back = c.prevPay || c.paidAt || c.nextPay;
-          this.patch(c.id, { pay: 'due', paidAt: null, prevPay: null, nextPay: back, checks: Object.assign({}, c.checks, { paid: false }) });
-          this.flash('Демо: откат только в интерфейсе');
-        }),
       reminders,
       hasToast: !!st.toast, toast: st.toast
     };

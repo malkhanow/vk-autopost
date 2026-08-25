@@ -1,21 +1,265 @@
-/**
- * CRM подписного SMM-сервиса — бэкенд на Google Apps Script.
- *
- * Web App отдаёт данные интерфейсу «Клиенты.dc.html» и является
- * единственным местом, где живут секреты: GitHub PAT, ключ RouterAI и
- * токен Telegram-бота хранятся в Script Properties и никогда не уходят
- * в браузер.
- *
- * Развёртывание, свойства скрипта и триггеры — см. crm/README.md.
- */
+// ═══════════════════════════════════════════════════════════════
+//  Custom Studio — Учёт клиентов автопостинга
+//  Google Apps Script v4
+//
+//  ЛОГИКА:
+//  1. "Оплачено 1/3/6/12 мес" → дата +N месяцев, статус "Оплачено"
+//  2. "Отменить оплату"       → откат на столько же месяцев назад
+//  3. Каждое утро в 9:00:
+//     за 3 дня / за 1 день → уведомление, статус не трогаем
+//     в день оплаты        → "Ожидает оплаты" + уведомление
+//     дата прошла          → "Просрочено" + уведомление
+//
+//  Дата сдвигается по календарю: 21.09 → 21.10 → 21.11
+//  Если в месяце нет такого числа (31.01 + 1 мес) — берётся последний день
+// ═══════════════════════════════════════════════════════════════
+
+// ── НАСТРОЙКИ ────────────────────────────────────────────────
+// Репозиторий публичный, поэтому здесь заглушки. Рабочие значения стоят
+// в проекте Apps Script — при обновлении файла не потеряйте их.
+// sendTelegram сам молча выключается, пока стоит "ВСТАВЬ".
+const TELEGRAM_BOT_TOKEN = "ВСТАВЬ_ТОКЕН_БОТА";
+const TELEGRAM_CHAT_ID   = "ВСТАВЬ_CHAT_ID";
+
+const SHEET_NAME    = "Клиенты";
+const COL_NAME      = 2;   // B — Клиент
+const COL_TARIFF    = 3;   // C — Тариф
+const COL_PRICE     = 4;   // D — Цена
+const COL_DATE_NEXT = 5;   // E — Дата оплаты
+const COL_STATUS    = 6;   // F — Статус
+const COL_CONTACT   = 7;   // G — Контакт
+
+const DATA_START_ROW = 2;
+
+const ST_WAITING = "Ожидает оплаты";
+const ST_PAID    = "Оплачено";
+const ST_CANCEL  = "Отменить оплату";
+const ST_OVERDUE = "Просрочено";
+
+// Варианты оплаты: текст в списке → на сколько месяцев сдвинуть
+const PAY_OPTIONS = {
+  "Оплачено 1 мес":  1,
+  "Оплачено 3 мес":  3,
+  "Оплачено 6 мес":  6,
+  "Оплачено 12 мес": 12,
+};
+// ─────────────────────────────────────────────────────────────
+
+
+// ═══════════════════════════════════════════════════════════════
+//  РЕАКЦИЯ НА ИЗМЕНЕНИЕ СТАТУСА
+//  Простой триггер — работает сам, устанавливать не нужно
+// ═══════════════════════════════════════════════════════════════
+function onEdit(e) {
+  if (!e || !e.range) return;
+
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== SHEET_NAME) return;
+
+  const row = e.range.getRow();
+  if (e.range.getColumn() !== COL_STATUS) return;
+  if (row < DATA_START_ROW) return;
+
+  const newStatus = e.range.getValue();
+  const oldStatus = e.oldValue;
+
+  const dateCell  = sheet.getRange(row, COL_DATE_NEXT);
+  const dateValue = dateCell.getValue();
+  if (!dateValue) return;
+
+  // ── Отметили оплату ──────────────────────────────────────
+  if (PAY_OPTIONS.hasOwnProperty(newStatus)) {
+    // Сдвигаем, только если раньше не было отмечено оплаты.
+    // Защищает от повторного сдвига, работает при досрочной оплате.
+    if (!PAY_OPTIONS.hasOwnProperty(oldStatus)) {
+      const months = PAY_OPTIONS[newStatus];
+      shiftMonths(dateCell, dateValue, months);
+      // Запоминаем срок, чтобы корректно откатить
+      dateCell.setNote("Оплачено на " + months + " мес");
+    }
+    paintStatus(sheet, row, newStatus);
+    return;
+  }
+
+  // ── Откатили оплату ──────────────────────────────────────
+  if (newStatus === ST_CANCEL) {
+    if (PAY_OPTIONS.hasOwnProperty(oldStatus)) {
+      shiftMonths(dateCell, dateValue, -PAY_OPTIONS[oldStatus]);
+      dateCell.clearNote();
+    }
+    paintStatus(sheet, row, ST_WAITING);
+    return;
+  }
+
+  // ── Статус поставлен вручную — дату не трогаем ───────────
+  paintStatus(sheet, row, newStatus);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  ЕЖЕДНЕВНАЯ ПРОВЕРКА — каждое утро в 9:00
+// ═══════════════════════════════════════════════════════════════
+function checkPayments() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  if (!sheet) return;
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < DATA_START_ROW) return;
+
+  const today  = startOfDay(new Date());
+  const alerts = [];
+
+  for (let row = DATA_START_ROW; row <= lastRow; row++) {
+    const name = sheet.getRange(row, COL_NAME).getValue();
+    if (!name) continue;
+
+    const dateValue = sheet.getRange(row, COL_DATE_NEXT).getValue();
+    if (!dateValue) continue;
+
+    const status  = sheet.getRange(row, COL_STATUS).getValue();
+    const tariff  = sheet.getRange(row, COL_TARIFF).getValue();
+    const price   = sheet.getRange(row, COL_PRICE).getValue();
+    const contact = sheet.getRange(row, COL_CONTACT).getValue();
+
+    const payDate  = startOfDay(new Date(dateValue));
+    const diffDays = Math.round((payDate - today) / 86400000);
+
+    const card = `👤 ${name}\n💰 ${price} руб — ${tariff}\n📞 ${contact}`;
+
+    if (diffDays < 0) {
+      if (status !== ST_OVERDUE) paintStatus(sheet, row, ST_OVERDUE);
+      alerts.push(`🔴 ПРОСРОЧЕНО (${Math.abs(diffDays)} дн)\n${card}`);
+
+    } else if (diffDays === 0) {
+      if (status !== ST_WAITING) paintStatus(sheet, row, ST_WAITING);
+      alerts.push(`🟡 СЕГОДНЯ ОПЛАТА\n${card}`);
+
+    } else if (diffDays === 1) {
+      alerts.push(`⚠️ ЗАВТРА ОПЛАТА\n${card}`);
+
+    } else if (diffDays === 3) {
+      alerts.push(`🔔 ЧЕРЕЗ 3 ДНЯ оплата\n${card}`);
+    }
+  }
+
+  if (alerts.length > 0) {
+    sendTelegram("💼 *Custom Studio — Автопостинг*\n\n" + alerts.join("\n\n─────────────\n\n"));
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  НАСТРОЙКА — запустить по одному разу
+// ═══════════════════════════════════════════════════════════════
+
+function addDropdown() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const range = sheet.getRange(DATA_START_ROW, COL_STATUS, 100, 1);
+
+  const options = [ST_WAITING]
+    .concat(Object.keys(PAY_OPTIONS))
+    .concat([ST_CANCEL, ST_OVERDUE]);
+
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(options, true)
+    .setAllowInvalid(false)
+    .build();
+
+  range.setDataValidation(rule);
+  Logger.log("Список обновлён: " + options.join(" · "));
+}
+
+function createTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger("checkPayments")
+    .timeBased()
+    .everyDays(1)
+    .atHour(9)
+    .create();
+
+  Logger.log("Готово. checkPayments — каждый день в 9:00");
+  Logger.log("onEdit работает сам, вручную добавлять не нужно");
+}
+
+function testTelegram() {
+  sendTelegram("✅ Проверка связи — уведомления работают");
+  Logger.log("Отправлено");
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  ВСПОМОГАТЕЛЬНЫЕ
+// ═══════════════════════════════════════════════════════════════
+
+// Сдвиг по календарю. 31.01 + 1 мес = 28.02, а не 03.03
+function shiftMonths(cell, currentValue, months) {
+  const d   = new Date(currentValue);
+  const day = d.getDate();
+
+  d.setDate(1);                    // защита от переполнения
+  d.setMonth(d.getMonth() + months);
+
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+
+  cell.setValue(d);
+  cell.setNumberFormat("DD.MM.YYYY");
+}
+
+function paintStatus(sheet, row, status) {
+  const cell = sheet.getRange(row, COL_STATUS);
+  if (cell.getValue() !== status) cell.setValue(status);
+
+  let color = "#FFFFFF";
+  if (status === ST_WAITING)                     color = "#FFF3CD";  // жёлтый
+  else if (PAY_OPTIONS.hasOwnProperty(status))   color = "#D4EDDA";  // зелёный
+  else if (status === ST_OVERDUE)                color = "#F8D7DA";  // красный
+
+  cell.setBackground(color);
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function sendTelegram(text) {
+  if (!TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN.indexOf("ВСТАВЬ") === 0) return;
+
+  UrlFetchApp.fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({
+      chat_id: TELEGRAM_CHAT_ID,
+      text: text,
+      parse_mode: "Markdown",
+    }),
+    muteHttpExceptions: true,
+  });
+}
+
+
+
+/* ########################################################################
+ * ##                                                                    ##
+ * ##   ЧАСТЬ 2 — CRM: Web App для интерфейса «Клиенты.dc.html»          ##
+ * ##                                                                    ##
+ * ##   Всё, что выше, — рабочий код учёта оплат. Ничего из него         ##
+ * ##   здесь не переопределяется: оплаты остаются за дропдауном в       ##
+ * ##   листе, уведомления уходят через sendTelegram с теми же           ##
+ * ##   константами TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID.               ##
+ * ##                                                                    ##
+ * ######################################################################## */
 
 /* ========================================================================
  *  НАСТРОЙКИ
  * ==================================================================== */
 
-var SHEET_CLIENTS = 'Клиенты';
-var SHEET_BRIEFS  = 'Брифы';
-var SHEET_LOG     = 'Лог';
+// Лист клиентов — тот же, что у учёта оплат (константа SHEET_NAME выше).
+var SHEET_BRIEFS = 'Брифы';
+var SHEET_LOG    = 'Лог';
 
 /** Обязательные колонки листа «Клиенты» — ровно в этом порядке. */
 var HEAD_CLIENTS = [
@@ -29,9 +273,8 @@ var HEAD_CLIENTS = [
 
 /** Служебные колонки CRM. Дописываются справа, если их ещё нет. */
 var HEAD_CLIENTS_EXTRA = [
-  'Ниша', 'Темы', 'Последняя оплата', 'Предыдущая дата оплаты',
-  'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации', 'Фото в очереди',
-  'Последний пост', 'Статус последнего поста', 'Обновлено'
+  'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
+  'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -40,7 +283,14 @@ var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Ста
 var BRIEF_CLIENT_COL = 'client_id';
 var BRIEF_STATE_COL  = 'Обработан';
 
-/** Поле объекта клиента -> заголовок колонки. */
+/**
+ * Поле объекта клиента -> заголовок колонки.
+ *
+ * Колонки ищутся по названию заголовка, поэтому CRM садится на уже
+ * существующий лист учёта оплат: «Клиент» — это ФИО, «Тариф», «Дата
+ * оплаты» и «Статус» — те самые колонки, которыми управляет дропдаун.
+ * Синонимы перечислены в F_ALIAS, первый найденный выигрывает.
+ */
 var F = {
   id: 'client_id', name: 'ФИО', phone: 'Телефон', email: 'Email', tg: 'Telegram',
   tariff: 'Тариф', business: 'Название бизнеса', about: 'О бизнесе',
@@ -50,12 +300,23 @@ var F = {
   limitsText: 'Ограничения текст', cta: 'Заглушка', source: 'Источник',
   startedAt: 'Дата подключения', nextPay: 'Дата оплаты', pay: 'Статус оплаты',
   active: 'Активен', stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
-  niche: 'Ниша', topics: 'Темы', paidAt: 'Последняя оплата',
-  prevPay: 'Предыдущая дата оплаты',
+  niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
   iterations: 'Итерации', photoQueue: 'Фото в очереди',
   lastPostDate: 'Последний пост', lastPostStatus: 'Статус последнего поста',
   updatedAt: 'Обновлено'
+};
+
+/**
+ * Синонимы заголовков. Порядок = приоритет: колонки рабочего листа
+ * учёта оплат идут первыми, чтобы CRM читала живые данные, а не пустые
+ * колонки-дубли.
+ */
+var F_ALIAS = {
+  name:    ['Клиент', 'ФИО'],
+  pay:     ['Статус', 'Статус оплаты'],
+  nextPay: ['Дата оплаты'],
+  tariff:  ['Тариф']
 };
 
 var PAY_LABELS = {
@@ -256,7 +517,31 @@ function table_(name, headers) {
   };
 }
 
-/** Дописывает недостающие служебные колонки справа. */
+/** Все допустимые заголовки поля: сначала синонимы, потом основной. */
+function headersOf_(field) {
+  var names = (F_ALIAS[field] || []).slice();
+  var main = colOf_(field);
+  if (main && names.indexOf(main) < 0) names.push(main);
+  return names;
+}
+
+/** Номер колонки поля в этом листе или -1, если её нет. */
+function colIndex_(t, field) {
+  var names = headersOf_(field);
+  for (var i = 0; i < names.length; i++) {
+    var idx = t.idx[norm_(names[i])];
+    if (idx !== undefined) return idx;
+  }
+  return -1;
+}
+
+/** Значение поля в строке. */
+function val_(t, row, field) {
+  var i = colIndex_(t, field);
+  return i < 0 ? '' : row[i];
+}
+
+/** Дописывает недостающие колонки справа. */
 function ensureHeaders_(sh, headers) {
   var width = Math.max(sh.getLastColumn(), 1);
   var head = sh.getRange(1, 1, 1, width).getValues()[0].map(norm_);
@@ -266,10 +551,44 @@ function ensureHeaders_(sh, headers) {
   return true;
 }
 
-/** Однократная подготовка таблицы: три листа с нужными заголовками. */
+/** Каких колонок CRM не хватает в листе клиентов (с учётом синонимов). */
+function missingClientColumns_(sh) {
+  var width = Math.max(sh.getLastColumn(), 1);
+  var head = sh.getRange(1, 1, 1, width).getValues()[0].map(norm_);
+  var present = {};
+  head.forEach(function (h) { if (h) present[h] = true; });
+
+  var fieldOf = {};
+  Object.keys(F).forEach(function (field) { fieldOf[norm_(colOf_(field))] = field; });
+
+  var missing = [];
+  HEAD_CLIENTS.concat(HEAD_CLIENTS_EXTRA).forEach(function (title) {
+    var field = fieldOf[norm_(title)];
+    var names = field ? headersOf_(field) : [title];
+    var found = names.some(function (n) { return present[norm_(n)]; });
+    if (!found) {
+      missing.push(title);
+      present[norm_(title)] = true;
+    }
+  });
+  return missing;
+}
+
+/**
+ * Однократная подготовка таблицы — запускать руками из редактора.
+ *
+ * Колонки CRM дописываются справа от существующих: учёт оплат работает
+ * по фиксированным колонкам B–G, их это не сдвигает и не трогает.
+ * Автоматически, во время запросов из браузера, колонки НЕ добавляются —
+ * рабочий лист не должен меняться сам по себе.
+ */
 function setupSheets() {
-  var clients = sheet_(SHEET_CLIENTS, HEAD_CLIENTS);
-  ensureHeaders_(clients, HEAD_CLIENTS.concat(HEAD_CLIENTS_EXTRA));
+  var clients = sheet_(SHEET_NAME, HEAD_CLIENTS);
+  var missing = missingClientColumns_(clients);
+  if (missing.length) {
+    var width = Math.max(clients.getLastColumn(), 1);
+    clients.getRange(1, width + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+  }
   clients.setFrozenRows(1);
 
   var briefs = sheet_(SHEET_BRIEFS, ['Отметка времени']);
@@ -279,13 +598,38 @@ function setupSheets() {
   ensureHeaders_(log, HEAD_LOG);
   log.setFrozenRows(1);
 
-  return 'Готово: листы «' + SHEET_CLIENTS + '», «' + SHEET_BRIEFS + '», «' + SHEET_LOG + '» на месте';
+  SpreadsheetApp.flush();
+  return 'Готово. Листы «' + SHEET_NAME + '», «' + SHEET_BRIEFS + '», «' + SHEET_LOG + '» на месте' +
+    (missing.length ? '. Добавлены колонки: ' + missing.join(', ') : '. Новых колонок не потребовалось');
 }
 
 function clientsTable_() {
-  var sh = sheet_(SHEET_CLIENTS, HEAD_CLIENTS);
-  if (ensureHeaders_(sh, HEAD_CLIENTS.concat(HEAD_CLIENTS_EXTRA))) SpreadsheetApp.flush();
-  return table_(SHEET_CLIENTS, HEAD_CLIENTS);
+  var sh = sheet_(SHEET_NAME, HEAD_CLIENTS);
+  var t = table_(SHEET_NAME, HEAD_CLIENTS);
+  if (colIndex_(t, 'id') < 0) {
+    throw new Error('В листе «' + SHEET_NAME + '» нет колонки client_id — запустите setupSheets один раз из редактора Apps Script');
+  }
+  t.url = ss_().getUrl();
+  t.gid = sh.getSheetId();
+  return t;
+}
+
+/** Ссылка на строку клиента — прямо на ячейку статуса с дропдауном. */
+function rowLink_(t, rowNumber) {
+  if (!t.url) return '';
+  var col = colIndex_(t, 'pay');
+  var cell = (col < 0 ? '' : colLetter_(col + 1)) + rowNumber;
+  return t.url + '#gid=' + t.gid + '&range=' + cell;
+}
+
+function colLetter_(n) {
+  var s = '';
+  while (n > 0) {
+    var rest = (n - 1) % 26;
+    s = String.fromCharCode(65 + rest) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
 }
 
 /* ========================================================================
@@ -384,15 +728,20 @@ function slotDef_(key) {
   return null;
 }
 
+/**
+ * Статус из листа -> ключ для интерфейса. Понимает и словарь CRM,
+ * и статусы дропдауна учёта оплат: «Оплачено 3 мес», «Ожидает оплаты»,
+ * «Просрочено», «Отменить оплату».
+ */
 function payIn_(v) {
   var s = norm_(v);
-  for (var key in PAY_LABELS) if (norm_(PAY_LABELS[key]) === s || key === s) return key;
   if (!s) return 'brief';
-  if (s.indexOf('оплач') === 0) return 'paid';
-  if (s.indexOf('просроч') === 0) return 'overdue';
+  for (var key in PAY_LABELS) if (norm_(PAY_LABELS[key]) === s || key === s) return key;
+  if (s.indexOf('оплач') === 0) return 'paid';        // «Оплачено», «Оплачено 3 мес»
+  if (s.indexOf('просроч') === 0) return 'overdue';   // «Просрочено»
   if (s.indexOf('тест') === 0) return 'test';
   if (s.indexOf('бриф') >= 0 || s.indexOf('нов') === 0) return 'brief';
-  return 'due';
+  return 'due';                                       // «Ожидает оплаты», «Отменить оплату»
 }
 
 function tariffIn_(v) {
@@ -456,65 +805,73 @@ function pickList_(v, known) {
  *  КЛИЕНТ: СТРОКА <-> ОБЪЕКТ
  * ==================================================================== */
 
-/** Строка листа «Клиенты» -> объект в том виде, в каком его ждёт интерфейс. */
+/** Строка листа клиентов -> объект в том виде, в каком его ждёт интерфейс. */
 function rowToClient_(t, row, rowNumber) {
-  var startedAt = parseDate_(t.at(row, F.startedAt));
-  var nextPay = parseDate_(t.at(row, F.nextPay));
-  var paidAt = parseDate_(t.at(row, F.paidAt));
-  var stored = payIn_(t.at(row, F.pay));
-  var photo = t.at(row, F.photoQueue);
+  var startedAt = parseDate_(val_(t, row, 'startedAt'));
+  var nextPay = parseDate_(val_(t, row, 'nextPay'));
+  var payRaw = str_(val_(t, row, 'pay'));
+  var activeCol = colIndex_(t, 'active');
 
   return {
     row: rowNumber,
-    id: str_(t.at(row, F.id)),
-    name: str_(t.at(row, F.name)),
-    phone: str_(t.at(row, F.phone)),
-    email: str_(t.at(row, F.email)),
-    tg: str_(t.at(row, F.tg)),
-    tariff: tariffIn_(t.at(row, F.tariff)),
-    business: str_(t.at(row, F.business)),
-    about: str_(t.at(row, F.about)),
-    audience: str_(t.at(row, F.audience)),
-    city: str_(t.at(row, F.city)),
-    networks: pickList_(t.at(row, F.networks), NETWORKS_KNOWN),
-    links: str_(t.at(row, F.links)),
-    tone: str_(t.at(row, F.tone)),
-    slots: slotsIn_(t.at(row, F.slots)),
-    hasPhoto: bool_(t.at(row, F.hasPhoto)),
-    rubrics: normRubrics_(jsonCell_(t.at(row, F.rubrics), [])),
-    holidays: str_(t.at(row, F.holidays)),
-    faq: str_(t.at(row, F.faq)),
-    limits: pickList_(t.at(row, F.limits), LIMITS_KNOWN),
-    limitsText: str_(t.at(row, F.limitsText)),
-    cta: str_(t.at(row, F.cta)),
-    source: str_(t.at(row, F.source)),
+    rowUrl: rowLink_(t, rowNumber),
+    id: str_(val_(t, row, 'id')),
+    name: str_(val_(t, row, 'name')),
+    phone: str_(val_(t, row, 'phone')),
+    email: str_(val_(t, row, 'email')),
+    tg: str_(val_(t, row, 'tg')),
+    tariff: tariffIn_(val_(t, row, 'tariff')),
+    business: str_(val_(t, row, 'business')),
+    about: str_(val_(t, row, 'about')),
+    audience: str_(val_(t, row, 'audience')),
+    city: str_(val_(t, row, 'city')),
+    networks: pickList_(val_(t, row, 'networks'), NETWORKS_KNOWN),
+    links: str_(val_(t, row, 'links')),
+    tone: str_(val_(t, row, 'tone')),
+    slots: slotsIn_(val_(t, row, 'slots')),
+    hasPhoto: bool_(val_(t, row, 'hasPhoto')),
+    rubrics: normRubrics_(jsonCell_(val_(t, row, 'rubrics'), [])),
+    holidays: str_(val_(t, row, 'holidays')),
+    faq: str_(val_(t, row, 'faq')),
+    limits: pickList_(val_(t, row, 'limits'), LIMITS_KNOWN),
+    limitsText: str_(val_(t, row, 'limitsText')),
+    cta: str_(val_(t, row, 'cta')),
+    source: str_(val_(t, row, 'source')),
     startedAt: dateOut_(startedAt),
+    // оплатами управляет дропдаун в листе — CRM их только показывает
     nextPay: dateOut_(nextPay),
-    paidAt: dateOut_(paidAt),
-    prevPay: dateOut_(parseDate_(t.at(row, F.prevPay))),
-    pay: payState_(stored, nextPay),
-    payStored: stored,
-    active: t.has(F.active) ? bool_(t.at(row, F.active)) : true,
-    stylePrompt: str_(t.at(row, F.stylePrompt)),
-    configPushed: str_(t.at(row, F.pushed)),
-    niche: str_(t.at(row, F.niche)),
-    topics: pickList_(t.at(row, F.topics), TOPICS_KNOWN),
-    styleAnswers: padAnswers_(jsonCell_(t.at(row, F.styleAnswers), [])),
-    checks: jsonCell_(t.at(row, F.checks), {}),
-    iterations: num_(t.at(row, F.iterations)),
-    photoQueue: num_(photo),
-    lastPostDate: str_(t.at(row, F.lastPostDate)) || '—',
-    lastPostStatus: str_(t.at(row, F.lastPostStatus)) || 'Не запущен'
+    pay: payState_(payIn_(payRaw), nextPay),
+    payRaw: payRaw,
+    active: activeCol < 0 ? true : bool_(row[activeCol]),
+    stylePrompt: str_(val_(t, row, 'stylePrompt')),
+    configPushed: str_(val_(t, row, 'pushed')),
+    niche: str_(val_(t, row, 'niche')),
+    topics: pickList_(val_(t, row, 'topics'), TOPICS_KNOWN),
+    styleAnswers: padAnswers_(jsonCell_(val_(t, row, 'styleAnswers'), [])),
+    checks: jsonCell_(val_(t, row, 'checks'), {}),
+    iterations: num_(val_(t, row, 'iterations')),
+    photoQueue: num_(val_(t, row, 'photoQueue')),
+    lastPostDate: str_(val_(t, row, 'lastPostDate')) || '—',
+    lastPostStatus: str_(val_(t, row, 'lastPostStatus')) || 'Не запущен'
   };
 }
 
 /** Просрочка считается на лету: дата оплаты в прошлом и оплата не подтверждена. */
+/**
+ * Статус для интерфейса. Главное — то, что стоит в листе: его ведут
+ * дропдаун и checkPayments. Дата уточняет только те случаи, когда лист
+ * ещё не пересчитан (проверка идёт раз в сутки в 9:00) или статус пуст.
+ */
 function payState_(stored, nextPay) {
-  if (stored === 'test') return 'test';
-  if (!nextPay) return stored === 'paid' ? 'paid' : 'brief';
-  if (nextPay < today_()) return 'overdue';
-  return stored === 'paid' ? 'paid' : 'due';
+  if (stored === 'test' || stored === 'overdue') return stored;
+  var stale = nextPay && nextPay < today_();
+  if (stored === 'paid') return stale ? 'overdue' : 'paid';
+  if (stored === 'brief') return nextPay ? (stale ? 'overdue' : 'due') : 'brief';
+  return stale ? 'overdue' : 'due';
 }
+
+/** Поля, которыми распоряжается учёт оплат: CRM их читает, но не пишет. */
+var PAY_FIELDS = ['pay', 'nextPay'];
 
 function normRubrics_(v) {
   if (!Array.isArray(v)) return [];
@@ -561,10 +918,7 @@ var TO_CELL = {
   cta:           function (v) { return str_(v); },
   source:        function (v) { return str_(v); },
   startedAt:     function (v) { return parseDate_(v); },
-  nextPay:       function (v) { return parseDate_(v); },
-  paidAt:        function (v) { return parseDate_(v); },
-  prevPay:       function (v) { return parseDate_(v); },
-  pay:           function (v) { return PAY_LABELS[v] || PAY_LABELS[payIn_(v)] || v; },
+  // pay / nextPay сюда не входят: статус и дату оплаты ведёт дропдаун
   active:        function (v) { return bool_(v); },
   stylePrompt:   function (v) { return str_(v); },
   configPushed:  function (v) { return str_(v); },
@@ -595,10 +949,8 @@ function writeRow_(t, rowNumber, patch) {
   var touched = false;
 
   Object.keys(patch).forEach(function (field) {
-    var col = colOf_(field);
-    if (!col) return;
-    var i = t.idx[norm_(col)];
-    if (i === undefined) return;
+    var i = colIndex_(t, field);
+    if (i < 0) return;
     var conv = TO_CELL[field];
     if (!conv) return;
     var value = conv(patch[field]);
@@ -606,8 +958,9 @@ function writeRow_(t, rowNumber, patch) {
     touched = true;
   });
 
-  if (t.has(F.updatedAt)) {
-    row[t.idx[norm_(F.updatedAt)]] = new Date();
+  var stamp = colIndex_(t, 'updatedAt');
+  if (stamp >= 0) {
+    row[stamp] = new Date();
     touched = true;
   }
   if (touched) range.setValues([row]);
@@ -617,14 +970,14 @@ function writeRow_(t, rowNumber, patch) {
 function findRow_(t, id) {
   var needle = str_(id);
   for (var i = 0; i < t.rows.length; i++) {
-    if (str_(t.at(t.rows[i], F.id)) === needle) return i + 2; // +1 заголовок, +1 нумерация с 1
+    if (str_(val_(t, t.rows[i], 'id')) === needle) return i + 2; // +1 заголовок, +1 нумерация с 1
   }
   return 0;
 }
 
 function readClient_(t, id) {
   var rowNumber = findRow_(t, id);
-  if (!rowNumber) throw new Error('Клиент ' + id + ' не найден в листе «' + SHEET_CLIENTS + '»');
+  if (!rowNumber) throw new Error('Клиент ' + id + ' не найден в листе «' + SHEET_NAME + '»');
   return rowToClient_(t, t.rows[rowNumber - 2], rowNumber);
 }
 
@@ -645,7 +998,7 @@ var GET_ACTIONS = {
     var t = clientsTable_();
     var out = [];
     for (var i = 0; i < t.rows.length; i++) {
-      if (!str_(t.at(t.rows[i], F.id))) continue;
+      if (!str_(val_(t, t.rows[i], 'id'))) continue;
       out.push(rowToClient_(t, t.rows[i], i + 2));
     }
     return { clients: out };
@@ -781,65 +1134,9 @@ var POST_ACTIONS = {
     });
   },
 
-  /**
-   * action=pay — подтвердить оплату и сдвинуть дату платежа на месяц.
-   * Дата до сдвига уходит в «Предыдущая дата оплаты» — по ней работает
-   * откат. Повторное подтверждение отклоняется: иначе каждый лишний клик
-   * сдвигал бы дату ещё на месяц.
-   */
-  pay: function (req) {
-    var id = str_(req.id || (req.client && req.client.id));
-    if (!id) throw new Error('Не передан client_id');
-    return withLock_(function () {
-      var t = clientsTable_();
-      var rowNumber = findRow_(t, id);
-      if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
-      var c = rowToClient_(t, t.rows[rowNumber - 2], rowNumber);
-      if (c.pay === 'paid') {
-        throw new Error('Оплата уже подтверждена до ' + (c.nextPay || '—') + ' — сначала отмените её');
-      }
-      var base = parseDate_(c.nextPay) || today_();
-      var next = addMonth_(base);
-      var checks = c.checks || {};
-      checks.paid = true;
-      writeRow_(t, rowNumber, {
-        pay: 'paid', paidAt: base, prevPay: base, nextPay: next, checks: checks
-      });
-      SpreadsheetApp.flush();
-      return {
-        client: refetchClient_(id),
-        paidAt: dateOut_(base),
-        nextPay: dateOut_(next)
-      };
-    });
-  },
-
-  /**
-   * action=unpay — откат ошибочного подтверждения: дата возвращается из
-   * «Предыдущая дата оплаты», статус — «Ждёт оплаты», галочка «Оплата
-   * получена» снимается.
-   */
-  unpay: function (req) {
-    var id = str_(req.id || (req.client && req.client.id));
-    if (!id) throw new Error('Не передан client_id');
-    return withLock_(function () {
-      var t = clientsTable_();
-      var rowNumber = findRow_(t, id);
-      if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
-      var c = rowToClient_(t, t.rows[rowNumber - 2], rowNumber);
-      if (c.payStored !== 'paid') throw new Error('Оплата не подтверждена — отменять нечего');
-      // строки, оплаченные до появления колонки отката, чинит запасной вариант
-      var back = parseDate_(c.prevPay) || parseDate_(c.paidAt);
-      if (!back) throw new Error('Не сохранена предыдущая дата оплаты — поправьте дату в таблице руками');
-      var checks = c.checks || {};
-      checks.paid = false;
-      writeRow_(t, rowNumber, {
-        pay: 'due', paidAt: '', prevPay: '', nextPay: back, checks: checks
-      });
-      SpreadsheetApp.flush();
-      return { client: refetchClient_(id), nextPay: dateOut_(back) };
-    });
-  },
+  // action=pay и action=unpay убраны намеренно: оплаты живут в дропдауне
+  // листа «Клиенты», их ведут onEdit и checkPayments. Интерфейс на кнопке
+  // «Оплата» открывает нужную строку листа по ссылке client.rowUrl.
 
   /** action=new — создать клиента вручную (или из брифа). */
   'new': function (req) {
@@ -920,7 +1217,7 @@ function withLock_(fn) {
 /** Создаёт строку в листе «Клиенты» и возвращает готовый объект клиента. */
 function createClient_(src) {
   var t = clientsTable_();
-  var taken = t.rows.map(function (r) { return str_(t.at(r, F.id)); }).filter(String);
+  var taken = t.rows.map(function (r) { return str_(val_(t, r, 'id')); }).filter(String);
   var id = str_(src.id) && taken.indexOf(str_(src.id)) < 0
     ? str_(src.id)
     : uniqueId_(translit_(src.business || src.name) || 'client', taken);
@@ -949,9 +1246,7 @@ function createClient_(src) {
     cta: str_(src.cta),
     source: str_(src.source) || 'Вручную',
     startedAt: src.startedAt ? parseDate_(src.startedAt) : today_(),
-    nextPay: src.nextPay ? parseDate_(src.nextPay) : '',
-    paidAt: src.paidAt ? parseDate_(src.paidAt) : '',
-    pay: src.pay ? payIn_(src.pay) : 'brief',
+    // дату оплаты и статус проставляет Владимир дропдауном в листе
     active: src.active === undefined ? true : bool_(src.active),
     stylePrompt: str_(src.stylePrompt),
     configPushed: '',
@@ -1402,10 +1697,10 @@ function saveRubrics_(id, rubrics) {
  *  СВОЙСТВА И ПРОВЕРКА ПОДКЛЮЧЕНИЙ
  * ==================================================================== */
 
+// Telegram сюда не входит: бот и чат заданы константами в первой части файла.
 var PROP_KEYS = [
   'API_TOKEN', 'SPREADSHEET_ID', 'GITHUB_TOKEN', 'GITHUB_REPO', 'GITHUB_BRANCH',
-  'GITHUB_WORKFLOW', 'CONFIG_DIR', 'ROUTERAI_KEY', 'ROUTERAI_MODEL',
-  'TG_BOT_TOKEN', 'TG_CHAT_ID'
+  'GITHUB_WORKFLOW', 'CONFIG_DIR', 'ROUTERAI_KEY', 'ROUTERAI_MODEL'
 ];
 
 /** Какие свойства заданы. Значения наружу не отдаются — только да/нет. */
@@ -1419,8 +1714,10 @@ function pingAll_() {
   return {
     sheet: check_(function () {
       var t = clientsTable_();
-      var n = t.rows.filter(function (r) { return str_(t.at(r, F.id)); }).length;
-      return 'лист «' + SHEET_CLIENTS + '»: ' + n + ' клиент(ов)';
+      var n = t.rows.filter(function (r) { return str_(val_(t, r, 'id')); }).length;
+      var missing = missingClientColumns_(t.sheet);
+      return 'лист «' + SHEET_NAME + '»: ' + n + ' клиент(ов)' +
+        (missing.length ? '; не хватает колонок (' + missing.join(', ') + ') — запустите setupSheets' : '');
     }),
     github: check_(function () {
       var repo = ghRepo_();
@@ -1445,13 +1742,12 @@ function pingAll_() {
       return 'ключ принят, модель ' + (prop_('ROUTERAI_MODEL') || ROUTERAI_MODEL_DEFAULT);
     }),
     telegram: check_(function () {
-      var token = prop_('TG_BOT_TOKEN', true);
-      var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getMe',
+      if (!TELEGRAM_BOT_TOKEN) throw new Error('не задан TELEGRAM_BOT_TOKEN');
+      var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/getMe',
         { muteHttpExceptions: true });
       var body = JSON.parse(res.getContentText());
       if (!body.ok) throw new Error(body.description || 'getMe вернул ошибку');
-      var chat = prop_('TG_CHAT_ID');
-      return '@' + body.result.username + (chat ? ', чат задан' : ', TG_CHAT_ID не задан');
+      return '@' + body.result.username + ', чат ' + TELEGRAM_CHAT_ID;
     })
   };
 }
@@ -1468,32 +1764,30 @@ function check_(fn) {
  *  TELEGRAM
  * ==================================================================== */
 
-/** Уведомления владельцу сервиса. Токен и чат — только из Script Properties. */
+/**
+ * Уведомления владельцу сервиса. Отправка — существующим sendTelegram,
+ * с теми же TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID: второго бота и второй
+ * пары ключей здесь нет.
+ */
 function tgNotify_(text) {
-  var token = prop_('TG_BOT_TOKEN');
-  var chats = list_(prop_('TG_CHAT_ID'));
-  if (!token || !chats.length) {
-    console.warn('Telegram не настроен (TG_BOT_TOKEN / TG_CHAT_ID) — уведомление пропущено');
+  try {
+    sendTelegram(mdEscape_(text));
+    return true;
+  } catch (err) {
+    console.error('Telegram: ' + err);
     return false;
   }
-  var sent = 0;
-  chats.forEach(function (chat) {
-    try {
-      var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify({
-          chat_id: chat, text: text, disable_web_page_preview: true
-        }),
-        muteHttpExceptions: true
-      });
-      if (res.getResponseCode() === 200) sent++;
-      else console.error('Telegram ' + chat + ': ' + res.getContentText().slice(0, 200));
-    } catch (err) {
-      console.error('Telegram ' + chat + ': ' + err);
-    }
-  });
-  return sent > 0;
+}
+
+/**
+ * sendTelegram отправляет с parse_mode: Markdown, а в наших сообщениях
+ * попадаются @имена_с_подчёркиваниями — Telegram на них отвечает 400 и
+ * сообщение теряется. Экранируем разметку в своём тексте, чужой код при
+ * этом не трогаем.
+ */
+function mdEscape_(text) {
+  return String(text === null || text === undefined ? '' : text)
+    .replace(/([_*`\[\]])/g, '\\$1');
 }
 
 /* ========================================================================
@@ -1618,51 +1912,21 @@ function detectTariff_(raw, answers) {
  *  ТРИГГЕРЫ И НАПОМИНАНИЯ
  * ==================================================================== */
 
-/** Ставит триггеры: ответ формы и ежедневная проверка оплат в 10:00. */
+/**
+ * Ставит триггер на ответы формы. Чужие триггеры не трогает — только свой.
+ *
+ * ВАЖНО: createTrigger() из первой части удаляет ВСЕ триггеры проекта,
+ * включая этот. Порядок запуска: сначала createTrigger, потом
+ * installTriggers.
+ */
 function installTriggers() {
   var book = ss_();
-  var existing = ScriptApp.getProjectTriggers();
-  existing.forEach(function (t) {
-    if (['onFormSubmit', 'dailyPaymentReminders'].indexOf(t.getHandlerFunction()) >= 0) {
-      ScriptApp.deleteTrigger(t);
-    }
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'onFormSubmit') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('onFormSubmit').forSpreadsheet(book).onFormSubmit().create();
-  ScriptApp.newTrigger('dailyPaymentReminders').timeBased().atHour(10).everyDays(1).create();
-  return 'Триггеры установлены: onFormSubmit, dailyPaymentReminders (10:00)';
+  return 'Триггер onFormSubmit установлен. checkPayments ставится через createTrigger';
 }
 
-/**
- * Ежедневная проверка оплат: напоминания за 3 дня, за 1 день, в день
- * оплаты и каждый день просрочки. Просроченным проставляется статус.
- */
-function dailyPaymentReminders() {
-  var t = clientsTable_();
-  var now = today_();
-  var soon = [], late = [];
-
-  for (var i = 0; i < t.rows.length; i++) {
-    var row = t.rows[i];
-    if (!str_(t.at(row, F.id))) continue;
-    var c = rowToClient_(t, row, i + 2);
-    if (!c.active || !c.nextPay || c.pay === 'test') continue;
-    var due = parseDate_(c.nextPay);
-    var days = Math.round((due - now) / 86400000);
-    var line = c.business + ' · ' + c.tariff + ' · ' + c.tg;
-    if (days < 0) {
-      late.push(line + ' — просрочка ' + Math.abs(days) + ' дн.');
-      if (c.pay !== 'overdue') writeRow_(t, i + 2, { pay: 'overdue' });
-    } else if (c.pay !== 'paid' || days <= 3) {
-      if (days === 0) soon.push(line + ' — сегодня');
-      else if (days === 1) soon.push(line + ' — завтра');
-      else if (days === 3) soon.push(line + ' — через 3 дня');
-    }
-  }
-
-  if (!soon.length && !late.length) return 'Напоминать не о чем';
-  var text = 'Оплаты на ' + Utilities.formatDate(now, tz_(), 'dd.MM') + ':';
-  if (late.length) text += '\n\nПросрочка:\n' + late.join('\n');
-  if (soon.length) text += '\n\nСкоро:\n' + soon.join('\n');
-  tgNotify_(text);
-  return text;
-}
+// Ежедневных напоминаний об оплате здесь нет: их шлёт checkPayments
+// из первой части файла, по своему триггеру в 9:00.
