@@ -1,0 +1,62 @@
+name: Clients Post
+
+# Три расписания — по слотам публикации, которые клиент выбирает на
+# сайте (Утро/День/Вечер). Совпадают с cron из SLOT_DEF в Code.gs.
+# Ручной запуск с client_id — кнопка "Сохранить и запустить" в CRM:
+# публикует одному клиенту сразу, не дожидаясь расписания.
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC — слот "Утро"
+    - cron: '0 11 * * *'  # 11:00 UTC — слот "День"
+    - cron: '0 16 * * *'  # 16:00 UTC — слот "Вечер"
+  workflow_dispatch:
+    inputs:
+      client_id:
+        description: 'client_id для тестового поста (пусто — по расписанию)'
+        required: false
+        default: ''
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Determine slot from schedule
+        id: slot
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 7 * * *" ]; then echo "slot=morning" >> "$GITHUB_OUTPUT";
+          elif [ "${{ github.event.schedule }}" = "0 11 * * *" ]; then echo "slot=midday" >> "$GITHUB_OUTPUT";
+          elif [ "${{ github.event.schedule }}" = "0 16 * * *" ]; then echo "slot=evening" >> "$GITHUB_OUTPUT";
+          else echo "slot=" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Run clients post
+        env:
+          ROUTERAI_KEY: ${{ secrets.ROUTERAI_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CLIENT_TOKENS: ${{ secrets.CLIENT_TOKENS }}
+          YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
+          SLOT: ${{ steps.slot.outputs.slot }}
+          TEST_CLIENT_ID: ${{ github.event.inputs.client_id }}
+          PYTHONUNBUFFERED: "1"
+        run: python clients_post.py
+
+      - name: Commit and push state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add clients_state.json
+          git diff --staged --quiet || git commit -m "update clients state [skip ci]"
+          git push
