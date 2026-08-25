@@ -1398,7 +1398,7 @@ function ghPushConfig_(c, dispatch) {
 
 /** Тестовый прогон: workflow_dispatch по имени файла воркфлоу. */
 function ghDispatch_(repo, branch, clientId) {
-  var wf = prop_('GITHUB_WORKFLOW') || 'post.yml';
+  var wf = prop_('GITHUB_WORKFLOW') || 'daily-post.yml';
   var url = 'https://api.github.com/repos/' + repo + '/actions/workflows/' +
     encodeURIComponent(wf) + '/dispatches';
 
@@ -1723,7 +1723,7 @@ function pingAll_() {
       var repo = ghRepo_();
       var res = gh_('https://api.github.com/repos/' + repo, 'get');
       if (res.code !== 200) throw new Error(ghError_(repo, res));
-      var wf = prop_('GITHUB_WORKFLOW') || 'post.yml';
+      var wf = prop_('GITHUB_WORKFLOW') || 'daily-post.yml';
       var w = gh_('https://api.github.com/repos/' + repo + '/actions/workflows/' +
         encodeURIComponent(wf), 'get');
       return repo + ': доступ есть, воркфлоу ' + wf +

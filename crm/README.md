@@ -132,7 +132,7 @@ client_id | ФИО | Телефон | Email | Telegram | Тариф | Назва
 | `GITHUB_REPO` | для коммитов | `owner/repo`, например `malkhanow/vk-autopost` |
 | `ROUTERAI_KEY` | для генерации | ключ RouterAI |
 | `GITHUB_BRANCH` | нет | ветка, по умолчанию `main` |
-| `GITHUB_WORKFLOW` | нет | файл воркфлоу для тестового прогона, по умолчанию `post.yml` |
+| `GITHUB_WORKFLOW` | нет | файл воркфлоу для тестового прогона, по умолчанию `daily-post.yml` |
 | `CONFIG_DIR` | нет | папка конфигов, по умолчанию `clients` |
 | `ROUTERAI_MODEL` | нет | по умолчанию `google/gemini-3.1-pro-preview` |
 | `SPREADSHEET_ID` | нет | если скрипт не привязан к таблице |
