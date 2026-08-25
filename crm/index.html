@@ -1,0 +1,2131 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SMM-сервис · CRM</title>
+<!--
+  Файл собран из «Клиенты.dc.html» скриптом crm/build_page.py — руками не правьте.
+  Меняйте холст и пересобирайте:  python3 crm/build_page.py
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'IBM Plex Sans', system-ui, sans-serif; background: #f2f2ef; color: #14171a; -webkit-font-smoothing: antialiased; }
+  a { color: #2b4acf; text-decoration: none; }
+  a:hover { color: #14171a; text-decoration: underline; }
+  input, textarea, button, select { font-family: inherit; font-size: inherit; color: inherit; }
+  input:focus, textarea:focus { outline: 2px solid #c8d1f7; outline-offset: -1px; }
+  *::placeholder { color: #a3a7ac; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #d6d6d1; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<div id="crm-root"></div>
+
+<template id="crm-template">
+<div style="display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #f2f2ef">
+
+  <header style="display: flex; align-items: center; gap: 18px; height: 50px; flex: none; padding: 0 18px; background: #14171a; color: #f4f4f1">
+    <div style="display: flex; align-items: baseline; gap: 8px">
+      <span style="font-weight: 700; font-size: 14px; letter-spacing: -0.01em">SMM-сервис</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8b9098; text-transform: uppercase; letter-spacing: 0.08em">crm</span>
+    </div>
+    <div style="flex: 1"></div>
+    <div style="display: flex; align-items: center; gap: 14px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8b9098">
+      <span>Таблица: <span style="color: #d8dbdf">Клиенты</span></span>
+      <span>Синхронизация: <span style="color: #d8dbdf">{{ syncedAt }}</span></span>
+    </div>
+    <div style="width: 26px; height: 26px; border-radius: 50%; background: #3d434b; color: #f4f4f1; display: grid; place-items: center; font-size: 11px; font-weight: 600">ВМ</div>
+  </header>
+
+  <div style="display: flex; flex: 1; min-height: 0">
+
+    <nav style="width: 194px; flex: none; background: #fbfbf9; border-right: 1px solid #e3e3df; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="5">
+        <button onClick="{{ n.onClick }}" style="{{ n.style }}">
+          <span>{{ n.label }}</span>
+          <span style="{{ n.badgeStyle }}">{{ n.badge }}</span>
+        </button>
+      </sc-for>
+      <div style="flex: 1"></div>
+      <div style="border-top: 1px solid #e9e9e5; padding: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; line-height: 1.7; color: #9a9ea4">
+        <div>Apps Script Web App</div>
+        <div>монорепо: vk-autopost</div>
+      </div>
+    </nav>
+
+    <main style="flex: 1; min-width: 0; overflow-y: auto">
+
+      <sc-if value="{{ isList }}" hint-placeholder-val="{{ true }}">
+        <div style="padding: 20px 22px 40px; max-width: 1240px">
+
+          <div style="display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px">
+            <div>
+              <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Клиенты</h1>
+              <p style="margin: 4px 0 0; font-size: 12.5px; color: #6b7078">Подписки, оплаты и статус ведения. Клик по строке — карточка клиента.</p>
+            </div>
+            <div style="flex: 1"></div>
+            <button onClick="{{ openNew }}" style="border: 1px solid #14171a; background: #14171a; color: #fbfbf9; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="background: #2b3138; border-color: #2b3138">Новый клиент вручную</button>
+          </div>
+
+          <sc-if value="{{ showStats }}" hint-placeholder-val="{{ true }}">
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px">
+              <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 500">Активных</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; margin-top: 5px">{{ statActive }}</div>
+              </div>
+              <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 500">MRR</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; margin-top: 5px">{{ statMrr }}</div>
+              </div>
+              <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 500">Ждут оплаты</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; margin-top: 5px; color: #8a5a00">{{ statDue }}</div>
+              </div>
+              <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 500">Просрочка</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; margin-top: 5px; color: #b3261e">{{ statOverdue }}</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
+            <input type="text" placeholder="Поиск: имя, бизнес, город, client_id" value="{{ q }}" onChange="{{ onSearch }}" style="width: 300px; padding: 7px 10px; border: 1px solid #d9d9d4; border-radius: 5px; background: #fff; font-size: 12.5px" />
+            <div style="display: flex; gap: 4px; background: #eaeae6; padding: 3px; border-radius: 6px">
+              <sc-for list="{{ filters }}" as="f" hint-placeholder-count="5">
+                <button onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</button>
+              </sc-for>
+            </div>
+            <div style="flex: 1"></div>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">{{ shownCount }} из {{ totalCount }}</span>
+          </div>
+
+          <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; overflow-x: auto">
+            <div style="display: grid; grid-template-columns: minmax(150px, 2fr) 62px 100px 88px minmax(104px, 1fr) 58px; gap: 10px; min-width: 620px; padding: 9px 14px; border-bottom: 1px solid #e3e3df; background: #f8f8f5; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+              <div>Клиент</div>
+              <div>Тариф</div>
+              <div>Оплата</div>
+              <div>Платёж</div>
+              <div>Последний пост</div>
+              <div style="text-align: right">Вкл.</div>
+            </div>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+              <div onClick="{{ r.onOpen }}" style="{{ r.rowStyle }}" style-hover="background: #f7f8fd">
+                <div style="min-width: 0">
+                  <div style="font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.business }}</div>
+                  <div style="font-size: 11.5px; color: #767b83; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px">{{ r.sub }}</div>
+                </div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; padding-top: 2px">{{ r.tariff }}</div>
+                <div style="padding-top: 1px"><span style="{{ r.payStyle }}">{{ r.payLabel }}</span></div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding-top: 3px">{{ r.nextPay }}</div>
+                <div style="min-width: 0; padding-top: 3px">
+                  <div style="font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.lastPost }}</div>
+                  <div style="font-size: 11px; color: #8a8f96; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px">{{ r.slots }}</div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; padding-top: 1px">
+                  <button onClick="{{ r.onToggle }}" style="{{ r.toggleStyle }}"><span style="{{ r.knobStyle }}"></span></button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <p style="margin: 12px 2px 0; font-size: 11.5px; color: #8a8f96">Карточки создаются автоматически из Google Формы через <span style="font-family: 'IBM Plex Mono', monospace">onFormSubmit</span>. Даты оплаты сдвигаются на месяц после подтверждения.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isCard }}" hint-placeholder-val="{{ true }}">
+        <div>
+
+          <div style="background: #fff; border-bottom: 1px solid #e3e3df; padding: 14px 22px 0">
+            <button onClick="{{ back }}" style="border: none; background: none; padding: 0; font-size: 12px; color: #6b7078; cursor: pointer" style-hover="color: #14171a">← Все клиенты</button>
+            <div style="display: flex; align-items: flex-start; gap: 14px; margin-top: 8px; flex-wrap: wrap">
+              <div style="min-width: 0; flex: 1 1 320px">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+                  <h1 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.015em; min-width: 0">{{ c.business }}</h1>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7c8189; background: #f2f2ef; border: 1px solid #e3e3df; padding: 2px 6px; border-radius: 4px">{{ c.id }}</span>
+                  <span style="{{ c.payStyle }}">{{ c.payLabel }}</span>
+                </div>
+                <div style="display: flex; gap: 6px 14px; margin-top: 6px; font-size: 12px; color: #6b7078; flex-wrap: wrap">
+                  <span style="white-space: nowrap">{{ c.name }}</span>
+                  <span style="white-space: nowrap">{{ c.niche }}, {{ c.city }}</span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; white-space: nowrap">{{ c.tariff }} · {{ c.price }} ₽/мес</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto">
+                <button onClick="{{ onSave }}" style="border: 1px solid #d9d9d4; background: #fff; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">{{ saveLabel }}</button>
+                <button onClick="{{ onPush }}" style="{{ btnPush }}" style-hover="opacity: 0.88">{{ pushLabel }}</button>
+              </div>
+            </div>
+            <div style="display: flex; gap: 2px; margin-top: 14px; flex-wrap: wrap">
+              <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+                <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="padding: 18px 22px 60px; max-width: 1180px">
+
+            <sc-if value="{{ tabBrief }}" hint-placeholder-val="{{ true }}">
+              <div style="display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; align-items: start">
+
+                <div style="display: flex; flex-direction: column; gap: 14px">
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Бизнес и аудитория</h2>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px">
+                      <label style="display: block">
+                        <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Название бизнеса / бренда</span>
+                        <input type="text" value="{{ c.business }}" onChange="{{ set.business }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px" />
+                      </label>
+                      <label style="display: block">
+                        <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Город / регион</span>
+                        <input type="text" value="{{ c.city }}" onChange="{{ set.city }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px" />
+                      </label>
+                    </div>
+                    <label style="display: block; margin-top: 10px">
+                      <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Чем занимаетесь и что продаёте</span>
+                      <textarea rows="3" value="{{ c.about }}" onChange="{{ set.about }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical"></textarea>
+                    </label>
+                    <label style="display: block; margin-top: 10px">
+                      <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Типичный клиент</span>
+                      <textarea rows="2" value="{{ c.audience }}" onChange="{{ set.audience }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical"></textarea>
+                    </label>
+                  </section>
+
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Контент</h2>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px">
+                      <label style="display: block">
+                        <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Тон общения</span>
+                        <select value="{{ c.tone }}" onChange="{{ set.tone }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px">
+                          <option>Простой и дружелюбный — как друг</option>
+                          <option>Экспертный — как специалист</option>
+                          <option>Деловой — как компания</option>
+                        </select>
+                      </label>
+                      <label style="display: block">
+                        <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Праздничные посты</span>
+                        <select value="{{ c.holidays }}" onChange="{{ set.holidays }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px">
+                          <option>Да, со скидками</option>
+                          <option>Да, но без упоминания скидок</option>
+                          <option>Не нужны</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div style="margin-top: 12px">
+                      <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Рубрики из брифа</span>
+                      <div style="display: flex; flex-wrap: wrap; gap: 6px">
+                        <sc-for list="{{ topicChips }}" as="t" hint-placeholder-count="5">
+                          <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <label style="display: block; margin-top: 12px">
+                      <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">FAQ — вопрос / ответ</span>
+                      <textarea rows="3" value="{{ c.faq }}" onChange="{{ set.faq }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical"></textarea>
+                    </label>
+                    <label style="display: block; margin-top: 10px">
+                      <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Заглушка — призыв к действию в конце поста</span>
+                      <textarea rows="2" value="{{ c.cta }}" onChange="{{ set.cta }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical"></textarea>
+                    </label>
+                  </section>
+
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Ограничения</h2>
+                    <p style="margin: 0 0 10px; font-size: 11.5px; color: #8a8f96">Уходит в промпт как жёсткий запрет. Для ниш с риском — недвижимость, страхование, медицина — обязательно.</p>
+                    <div style="display: flex; flex-direction: column; gap: 7px">
+                      <sc-for list="{{ limitBoxes }}" as="l" hint-placeholder-count="5">
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer">
+                          <input type="checkbox" checked="{{ l.checked }}" onChange="{{ l.onToggle }}" style="width: 14px; height: 14px; accent-color: #14171a; margin: 0" />
+                          <span>{{ l.label }}</span>
+                        </label>
+                      </sc-for>
+                    </div>
+                    <label style="display: block; margin-top: 11px">
+                      <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Что ещё нельзя упоминать</span>
+                      <textarea rows="2" value="{{ c.limitsText }}" onChange="{{ set.limitsText }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical"></textarea>
+                    </label>
+                  </section>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 14px">
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Контакты</h2>
+                    <div style="display: flex; flex-direction: column; gap: 10px">
+                      <label style="display: block">
+                        <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">ФИО</span>
+                        <input type="text" value="{{ c.name }}" onChange="{{ set.name }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px" />
+                      </label>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+                        <label style="display: block">
+                          <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Телефон</span>
+                          <input type="text" value="{{ c.phone }}" onChange="{{ set.phone }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
+                        </label>
+                        <label style="display: block">
+                          <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Telegram</span>
+                          <input type="text" value="{{ c.tg }}" onChange="{{ set.tg }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
+                        </label>
+                      </div>
+                      <label style="display: block">
+                        <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Email</span>
+                        <input type="text" value="{{ c.email }}" onChange="{{ set.email }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
+                      </label>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 4px; border-top: 1px solid #eeeeea">
+                        <div>
+                          <div style="font-size: 11.5px; color: #6b7078">Источник</div>
+                          <div style="font-size: 13px; margin-top: 3px">{{ c.source }}</div>
+                        </div>
+                        <div>
+                          <div style="font-size: 11.5px; color: #6b7078">Дата подключения</div>
+                          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; margin-top: 3px">{{ c.startedAt }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Публикация</h2>
+                    <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Слоты — {{ slotsHint }}</div>
+                    <div style="display: flex; flex-direction: column; gap: 6px">
+                      <sc-for list="{{ slotRows }}" as="s" hint-placeholder-count="3">
+                        <button onClick="{{ s.onToggle }}" style="{{ s.style }}">
+                          <span style="font-weight: 500">{{ s.label }}</span>
+                          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #7c8189">{{ s.times }}</span>
+                        </button>
+                      </sc-for>
+                    </div>
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #eeeeea">
+                      <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Соцсети</div>
+                      <div style="display: flex; gap: 6px">
+                        <sc-for list="{{ networkChips }}" as="n" hint-placeholder-count="3">
+                          <button onClick="{{ n.onClick }}" style="{{ n.style }}">{{ n.label }}</button>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #eeeeea; display: flex; justify-content: space-between; align-items: center">
+                      <span style="font-size: 12.5px; color: #4f545b">Фото в очереди <span style="font-family: 'IBM Plex Mono', monospace">to_post/</span></span>
+                      <span style="{{ queueStyle }}">{{ c.photoQueue }}</span>
+                    </div>
+                  </section>
+
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 10px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Ссылки</h2>
+                    <div style="display: flex; flex-direction: column; gap: 7px; font-size: 12.5px">
+                      <a href="#" style="{{ linkStyle }}">Конфиг в монорепо → clients/{{ c.id }}.json</a>
+                      <a href="#" style="{{ linkStyle }}">Папка на Яндекс.Диске</a>
+                      <a href="#" style="{{ linkStyle }}">Telegram-канал</a>
+                      <a href="#" style="{{ linkStyle }}">Сообщество ВКонтакте</a>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ tabOnboarding }}" hint-placeholder-val="{{ true }}">
+              <div style="display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; align-items: start">
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: baseline; justify-content: space-between">
+                    <h2 style="margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Чеклист онбординга</h2>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4f545b">{{ doneCount }}/6</span>
+                  </div>
+                  <div style="height: 4px; background: #eeeeea; border-radius: 3px; margin: 10px 0 14px; overflow: hidden">
+                    <div style="{{ progressStyle }}"></div>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <sc-for list="{{ checklist }}" as="k" hint-placeholder-count="6">
+                      <label style="display: flex; align-items: flex-start; gap: 9px; padding: 8px 8px; border-radius: 5px; cursor: pointer" style-hover="background: #f7f8fd">
+                        <input type="checkbox" checked="{{ k.checked }}" onChange="{{ k.onToggle }}" style="width: 15px; height: 15px; accent-color: #2b4acf; margin: 1px 0 0" />
+                        <span style="min-width: 0">
+                          <span style="display: block; font-size: 13px; font-weight: 500">{{ k.label }}</span>
+                          <span style="display: block; font-size: 11.5px; color: #8a8f96; margin-top: 2px">{{ k.hint }}</span>
+                        </span>
+                      </label>
+                    </sc-for>
+                  </div>
+                </section>
+
+                <div style="display: flex; flex-direction: column; gap: 14px">
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 10px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Состояние постинга</h2>
+                    <div style="display: flex; flex-direction: column; gap: 9px; font-size: 12.5px">
+                      <div style="display: flex; justify-content: space-between; gap: 10px">
+                        <span style="color: #6b7078">Последний пост</span>
+                        <span style="font-family: 'IBM Plex Mono', monospace">{{ c.lastPostDate }}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; gap: 10px">
+                        <span style="color: #6b7078">Результат</span>
+                        <span style="{{ lastStatusStyle }}">{{ c.lastPostStatus }}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; gap: 10px">
+                        <span style="color: #6b7078">Workflow</span>
+                        <span style="font-family: 'IBM Plex Mono', monospace">{{ c.workflow }}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; gap: 10px">
+                        <span style="color: #6b7078">Фото в to_post/</span>
+                        <span style="font-family: 'IBM Plex Mono', monospace">{{ c.photoQueue }}</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                    <h2 style="margin: 0 0 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Секрет для GitHub</h2>
+                    <p style="margin: 0 0 9px; font-size: 11.5px; color: #8a8f96">Добавляется руками в <span style="font-family: 'IBM Plex Mono', monospace">CLIENT_TOKENS</span>. Скопируйте блок и вставьте в секрет репозитория.</p>
+                    <pre style="margin: 0; padding: 10px; background: #14171a; color: #e5e7ea; border-radius: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.6; overflow-x: auto">{{ secretJson }}</pre>
+                    <button onClick="{{ copySecret }}" style="margin-top: 9px; border: 1px solid #d9d9d4; background: #fff; font-size: 12px; font-weight: 500; padding: 6px 11px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">{{ copySecretLabel }}</button>
+                  </section>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ tabContent }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; flex-direction: column; gap: 14px">
+
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: baseline; gap: 10px">
+                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Блок А — стиль клиента</h2>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">{{ styleFilled }}/5 ответов</span>
+                    <div style="flex: 1"></div>
+                    <button onClick="{{ analyzeStyle }}" style="{{ analyzeBtn }}">{{ analyzeLabel }}</button>
+                  </div>
+                  <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Копируете тему, отправляете клиенту в Telegram, его ответ вставляете обратно. Пять текстов → style_prompt.</p>
+                  <div style="display: flex; flex-direction: column; gap: 8px">
+                    <sc-for list="{{ styleTasks }}" as="s" hint-placeholder-count="5">
+                      <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
+                        <div style="display: flex; gap: 9px">
+                          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96; padding-top: 2px">{{ s.num }}</span>
+                          <div style="min-width: 0">
+                            <div style="font-size: 12.5px; line-height: 1.5">{{ s.task }}</div>
+                            <button onClick="{{ s.onCopy }}" style="margin-top: 7px; border: 1px solid #dedeD9; background: #fff; font-size: 11.5px; padding: 4px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a">{{ s.copyLabel }}</button>
+                          </div>
+                        </div>
+                        <textarea rows="3" placeholder="Ответ клиента" value="{{ s.answer }}" onChange="{{ s.onChange }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.5; resize: vertical"></textarea>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ hasStylePrompt }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #eeeeea">
+                      <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px">
+                        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">style_prompt</span>
+                        <span style="font-size: 11px; color: #8a8f96">Gemini 3.1 Pro · правится руками, уходит в конфиг</span>
+                      </div>
+                      <textarea rows="4" value="{{ c.stylePrompt }}" onChange="{{ set.stylePrompt }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                    </div>
+                  </sc-if>
+                </section>
+
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
+                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Блок Б — рубрики и примеры</h2>
+                    <div style="flex: 1"></div>
+                    <button onClick="{{ buildPlan }}" style="{{ planBtn }}">{{ planLabel }}</button>
+                    <button onClick="{{ genExamples }}" style="{{ examplesBtn }}">{{ examplesLabel }}</button>
+                  </div>
+                  <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Бриф → Gemini → рубрики с расписанием и промптами. Примеры постов клиенту не публикуются — только на согласование.</p>
+                  <sc-if value="{{ hasRubrics }}" hint-placeholder-val="{{ true }}">
+                    <div style="border: 1px solid #ebebe7; border-radius: 5px; overflow: hidden">
+                      <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+                        <div>Рубрика</div>
+                        <div>Дни</div>
+                        <div>Промпт</div>
+                        <div>Пример поста</div>
+                        <div></div>
+                      </div>
+                      <sc-for list="{{ rubrics }}" as="r" hint-placeholder-count="5">
+                        <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start">
+                          <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
+                          <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
+                          <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
+                          <div style="min-width: 0">
+                            <div style="font-size: 12px; line-height: 1.5; color: #3e434a; white-space: pre-wrap">{{ r.example }}</div>
+                            <button onClick="{{ r.onCopy }}" style="{{ r.copyBtn }}">{{ r.copyLabel }}</button>
+                          </div>
+                          <button onClick="{{ r.onRemove }}" style="border: 1px solid #e6e6e1; background: #fff; color: #8a8f96; font-size: 13px; line-height: 1; padding: 5px 0; border-radius: 4px; cursor: pointer" style-hover="border-color: #b3261e; color: #b3261e">×</button>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <button onClick="{{ addRubric }}" style="margin-top: 9px; border: 1px dashed #d2d2cc; background: none; font-size: 12px; color: #6b7078; padding: 6px 11px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a; color: #14171a">+ Рубрика вручную</button>
+                  </sc-if>
+                </section>
+
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: baseline; gap: 10px">
+                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Блок В — правки клиента</h2>
+                    <div style="flex: 1"></div>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">итераций: {{ c.iterations }}</span>
+                  </div>
+                  <p style="margin: 6px 0 10px; font-size: 11.5px; color: #8a8f96">Правки из Telegram вставляете сюда. Gemini обновляет промпты рубрик и перегенерирует примеры.</p>
+                  <textarea rows="3" placeholder="Например: меньше формальности, не начинать посты с вопроса, добавить про доставку" value="{{ c.edits }}" onChange="{{ set.edits }}" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.5; resize: vertical"></textarea>
+                  <div style="display: flex; align-items: center; gap: 9px; margin-top: 10px">
+                    <button onClick="{{ applyEdits }}" style="{{ applyBtn }}">{{ applyLabel }}</button>
+                    <button onClick="{{ onLaunch }}" style="border: 1px solid #14171a; background: #14171a; color: #fbfbf9; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="background: #2b3138">{{ launchLabel }}</button>
+                    <span style="font-size: 11.5px; color: #8a8f96">Конфиг соберётся и уйдёт в <span style="font-family: 'IBM Plex Mono', monospace">clients/{{ c.id }}.json</span></span>
+                  </div>
+
+                  <div style="margin-top: 14px; padding-top: 13px; border-top: 1px solid #eeeeea">
+                    <div style="display: flex; align-items: baseline; gap: 9px; margin-bottom: 7px">
+                      <span style="font-size: 12px; font-weight: 600">Сборка конфига</span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">PUT /repos/vk-autopost/contents/clients/{{ c.id }}.json</span>
+                      <div style="flex: 1"></div>
+                      <span style="{{ deployStyle }}">{{ deployLabel }}</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start">
+                      <pre style="margin: 0; padding: 10px; background: #14171a; color: #e5e7ea; border-radius: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; line-height: 1.55; max-height: 260px; overflow: auto">{{ configJson }}</pre>
+                      <div style="display: flex; flex-direction: column; gap: 6px">
+                        <sc-for list="{{ deploySteps }}" as="s" hint-placeholder-count="5">
+                          <div style="display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
+                            <span style="{{ s.dot }}"></span>
+                            <span style="min-width: 0">
+                              <span style="display: block; font-size: 12px; font-weight: 500">{{ s.label }}</span>
+                              <span style="display: block; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8a8f96; margin-top: 2px">{{ s.detail }}</span>
+                            </span>
+                          </div>
+                        </sc-for>
+                        <button onClick="{{ copyConfig }}" style="align-self: flex-start; border: 1px solid #d9d9d4; background: #fff; font-size: 11.5px; font-weight: 500; padding: 5px 10px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a">{{ copyConfigLabel }}</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ tabPayments }}" hint-placeholder-val="{{ true }}">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start">
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <h2 style="margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Подписка</h2>
+                  <div style="display: flex; align-items: flex-end; gap: 12px; margin-bottom: 14px">
+                    <div>
+                      <div style="font-size: 11.5px; color: #6b7078">Тариф</div>
+                      <div style="font-size: 15px; font-weight: 600; margin-top: 3px">{{ c.tariff }} · {{ c.price }} ₽/мес</div>
+                    </div>
+                    <div style="flex: 1"></div>
+                    <span style="{{ c.payStyle }}">{{ c.payLabel }}</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; padding-top: 12px; border-top: 1px solid #eeeeea">
+                    <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Дата подключения</span><span style="font-family: 'IBM Plex Mono', monospace">{{ c.startedAt }}</span></div>
+                    <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Статус в таблице</span><span style="font-family: 'IBM Plex Mono', monospace">{{ payRaw }}</span></div>
+                    <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Следующий платёж</span><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{ c.nextPay }}</span></div>
+                  </div>
+                  <button onClick="{{ openRow }}" style="{{ sheetBtnStyle }}" style-hover="opacity: 0.88">{{ sheetBtnLabel }}</button>
+                  <p style="margin: 9px 0 0; font-size: 11.5px; color: #8a8f96">{{ payHint }}</p>
+                </section>
+
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <h2 style="margin: 0 0 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Напоминания в Telegram</h2>
+                  <p style="margin: 0 0 11px; font-size: 11.5px; color: #8a8f96">Ежедневный триггер Apps Script, отправка Владимиру.</p>
+                  <div style="display: flex; flex-direction: column; gap: 7px">
+                    <sc-for list="{{ reminders }}" as="n" hint-placeholder-count="4">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
+                        <span style="font-size: 12.5px">{{ n.label }}</span>
+                        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #6b7078">{{ n.date }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </section>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isPayments }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 20px 22px 40px; max-width: 1100px">
+          <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Оплаты</h1>
+          <p style="margin: 4px 0 16px; font-size: 12.5px; color: #6b7078">Все подписки и даты платежей. Клик по строке — карточка клиента; подтверждение сдвигает дату на месяц.</p>
+
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px">
+            <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
+              <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 500">Ожидается в этом месяце</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; margin-top: 5px">{{ payExpected }} ₽</div>
+            </div>
+            <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
+              <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 500">Получено</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; margin-top: 5px; color: #136c41">{{ payReceived }} ₽</div>
+            </div>
+            <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
+              <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 500">Просрочено</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600; margin-top: 5px; color: #b3261e">{{ payLate }} ₽</div>
+            </div>
+          </div>
+
+          <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; overflow-x: auto">
+            <div style="display: grid; grid-template-columns: minmax(130px, 1.8fr) 58px 74px minmax(88px, 1fr) 112px 100px; gap: 9px; min-width: 600px; padding: 9px 14px; border-bottom: 1px solid #e3e3df; background: #f8f8f5; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+              <div>Клиент</div>
+              <div>Тариф</div>
+              <div style="text-align: right">Сумма</div>
+              <div>Платёж</div>
+              <div>Статус</div>
+              <div></div>
+            </div>
+            <sc-for list="{{ payRows }}" as="p" hint-placeholder-count="6">
+              <div onClick="{{ p.onOpen }}" style="display: grid; grid-template-columns: minmax(130px, 1.8fr) 58px 74px minmax(88px, 1fr) 112px 100px; gap: 9px; min-width: 600px; padding: 10px 14px; border-bottom: 1px solid #f1f1ed; align-items: center; cursor: pointer" style-hover="background: #f7f8fd">
+                <div style="min-width: 0">
+                  <div style="font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ p.business }}</div>
+                  <div style="font-size: 11px; color: #8a8f96; font-family: 'IBM Plex Mono', monospace">{{ p.id }}</div>
+                </div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500">{{ p.tariff }}</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-align: right">{{ p.price }}</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+                  <div>{{ p.nextPay }}</div>
+                  <div style="font-size: 10.5px; color: #8a8f96; font-family: 'IBM Plex Sans', sans-serif">{{ p.due }}</div>
+                </div>
+                <div style="min-width: 0"><span style="{{ p.payStyle }}">{{ p.payLabel }}</span></div>
+                <div style="display: flex; justify-content: flex-end; min-width: 0">
+                  <button onClick="{{ p.onConfirm }}" style="{{ p.confirmStyle }}">{{ p.confirmLabel }}</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isBriefs }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 20px 22px 40px; max-width: 1000px">
+          <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Брифы</h1>
+          <p style="margin: 4px 0 16px; font-size: 12.5px; color: #6b7078">Новые ответы из Google Формы, для которых ещё не создана карточка клиента.</p>
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{ briefs }}" as="b" hint-placeholder-count="2">
+              <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px">
+                <div style="display: flex; align-items: flex-start; gap: 12px">
+                  <div style="min-width: 0">
+                    <div style="display: flex; align-items: center; gap: 9px">
+                      <span style="font-size: 14.5px; font-weight: 600">{{ b.business }}</span>
+                      <span style="{{ b.tagStyle }}">{{ b.tag }}</span>
+                    </div>
+                    <div style="font-size: 12px; color: #6b7078; margin-top: 4px">{{ b.name }} · {{ b.niche }} · {{ b.city }}</div>
+                  </div>
+                  <div style="flex: 1"></div>
+                  <div style="text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">
+                    <div>{{ b.at }}</div>
+                    <div>{{ b.tg }}</div>
+                  </div>
+                </div>
+                <p style="margin: 10px 0 0; font-size: 12.5px; line-height: 1.55; color: #3e434a">{{ b.about }}</p>
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #f1f1ed">
+                  <button onClick="{{ b.onCreate }}" style="{{ b.createStyle }}">{{ b.createLabel }}</button>
+                  <button onClick="{{ b.onDismiss }}" style="border: 1px solid #e2e2dd; background: #fff; color: #5d636b; font-size: 12px; padding: 7px 11px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a; color: #14171a">Отложить</button>
+                  <div style="flex: 1"></div>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">тариф из формы: {{ b.tariff }}</span>
+                </div>
+              </section>
+            </sc-for>
+            <sc-if value="{{ briefsEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="background: #fff; border: 1px dashed #d9d9d4; border-radius: 6px; padding: 28px; text-align: center; font-size: 12.5px; color: #8a8f96">Необработанных брифов нет. Новые появятся автоматически после отправки формы.</div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isLog }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 20px 22px 40px; max-width: 1100px">
+          <div style="display: flex; align-items: flex-end; gap: 14px; margin-bottom: 14px">
+            <div>
+              <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Лог публикаций</h1>
+              <p style="margin: 4px 0 0; font-size: 12.5px; color: #6b7078">Записи из листа «Лог» — пишет workflow после каждого слота.</p>
+            </div>
+            <div style="flex: 1"></div>
+            <div style="display: flex; gap: 4px; background: #eaeae6; padding: 3px; border-radius: 6px">
+              <sc-for list="{{ logFilters }}" as="f" hint-placeholder-count="3">
+                <button onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; overflow-x: auto">
+            <div style="display: grid; grid-template-columns: minmax(140px, 1.6fr) 92px 54px minmax(120px, 1.2fr) minmax(130px, 1.4fr); gap: 10px; min-width: 620px; padding: 9px 14px; border-bottom: 1px solid #e3e3df; background: #f8f8f5; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+              <div>Клиент</div>
+              <div>Дата</div>
+              <div>Время</div>
+              <div>Рубрика</div>
+              <div>Статус</div>
+            </div>
+            <sc-for list="{{ logRows }}" as="l" hint-placeholder-count="8">
+              <div style="display: grid; grid-template-columns: minmax(140px, 1.6fr) 92px 54px minmax(120px, 1.2fr) minmax(130px, 1.4fr); gap: 10px; min-width: 620px; padding: 9px 14px; border-bottom: 1px solid #f1f1ed; align-items: center">
+                <div style="font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ l.business }}</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{ l.date }}</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{ l.time }}</div>
+                <div style="font-size: 12px; color: #4f545b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ l.rubric }}</div>
+                <div><span style="{{ l.style }}">{{ l.status }}</span></div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 20px 22px 40px; max-width: 720px">
+          <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Настройки</h1>
+          <p style="margin: 4px 0 16px; font-size: 12.5px; color: #6b7078">Адрес Web App и токен доступа хранятся в этом браузере. Секреты — только в Script Properties: интерфейс видит лишь, заданы они или нет.</p>
+          <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+            <div style="display: flex; flex-direction: column; gap: 12px">
+              <sc-for list="{{ settingFields }}" as="s" hint-placeholder-count="4">
+                <label style="display: block">
+                  <span style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px">
+                    <span style="font-size: 12.5px; font-weight: 500">{{ s.label }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8a8f96">{{ s.key }}</span>
+                    <span style="flex: 1"></span>
+                    <span style="{{ s.stateStyle }}">{{ s.state }}</span>
+                  </span>
+                  <input type="text" value="{{ s.value }}" onChange="{{ s.onChange }}" placeholder="{{ s.placeholder }}" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; font-family: 'IBM Plex Mono', monospace" />
+                  <span style="display: block; font-size: 11px; color: #8a8f96; margin-top: 4px">{{ s.hint }}</span>
+                </label>
+              </sc-for>
+            </div>
+            <div style="display: flex; align-items: center; gap: 9px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #eeeeea">
+              <button onClick="{{ saveSettings }}" style="border: 1px solid #14171a; background: #14171a; color: #fbfbf9; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="background: #2b3138">{{ saveSettingsLabel }}</button>
+              <button onClick="{{ testSettings }}" style="border: 1px solid #d9d9d4; background: #fff; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">{{ testSettingsLabel }}</button>
+            </div>
+          </section>
+        </div>
+      </sc-if>
+    </main>
+  </div>
+
+  <sc-if value="{{ showNew }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; inset: 0; background: rgba(20,23,26,0.42); display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px; overflow-y: auto; z-index: 50">
+      <div style="width: 560px; max-width: 100%; background: #fbfbf9; border: 1px solid #d9d9d4; border-radius: 8px; box-shadow: 0 18px 50px rgba(0,0,0,0.28)">
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 15px 18px; border-bottom: 1px solid #e9e9e5">
+          <div>
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600">Новый клиент вручную</h2>
+            <p style="margin: 3px 0 0; font-size: 11.5px; color: #8a8f96">Создаёт строку в листе «Клиенты». Бриф заполняется потом в карточке.</p>
+          </div>
+          <div style="flex: 1"></div>
+          <button onClick="{{ closeNew }}" style="border: 1px solid #e2e2dd; background: #fff; color: #6b7078; font-size: 14px; line-height: 1; padding: 5px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a; color: #14171a">×</button>
+        </div>
+        <div style="padding: 16px 18px">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 11px 12px">
+            <sc-for list="{{ newFields }}" as="f" hint-placeholder-count="7">
+              <label style="{{ f.wrap }}">
+                <span style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px">
+                  <span style="font-size: 11.5px; color: #6b7078">{{ f.label }}</span>
+                  <span style="{{ f.reqStyle }}">обязательно</span>
+                </span>
+                <input type="text" value="{{ f.value }}" onChange="{{ f.onChange }}" placeholder="{{ f.placeholder }}" style="{{ f.inputStyle }}" />
+              </label>
+            </sc-for>
+            <label style="display: block">
+              <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Тариф</span>
+              <select value="{{ newTariff }}" onChange="{{ setNewTariff }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px">
+                <option>СТАРТ</option>
+                <option>ПРО</option>
+                <option>БИЗНЕС</option>
+              </select>
+            </label>
+            <label style="display: block">
+              <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Источник</span>
+              <select value="{{ newSource }}" onChange="{{ setNewSource }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px">
+                <option>Avito</option>
+                <option>ВКонтакте</option>
+                <option>Telegram</option>
+                <option>Порекомендовали знакомые</option>
+              </select>
+            </label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 13px; border-top: 1px solid #eeeeea">
+            <span style="font-size: 11.5px; color: #8a8f96">client_id: <span style="font-family: 'IBM Plex Mono', monospace; color: #4f545b">{{ newId }}</span></span>
+            <div style="flex: 1"></div>
+            <button onClick="{{ closeNew }}" style="border: 1px solid #d9d9d4; background: #fff; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">Отмена</button>
+            <button onClick="{{ createClient }}" style="{{ createBtn }}">{{ createBtnLabel }}</button>
+          </div>
+          <p style="margin: 10px 0 0; font-size: 11px; color: #a3a7ac">{{ newHint }}</p>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #14171a; color: #f4f4f1; font-size: 12.5px; padding: 9px 15px; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.18)">{{ toast }}</div>
+  </sc-if>
+</div>
+</template>
+
+<script>
+/**
+ * Мини-рантайм шаблонов вместо support.js.
+ *
+ * Понимает ровно то, что использует разметка карточки клиентов:
+ *   {{ путь.к.значению }}   — в тексте и в значениях атрибутов
+ *   <sc-for list="{{ … }}" as="имя">   — повтор детей по списку
+ *   <sc-if value="{{ … }}">            — вывод детей по условию
+ *   onClick / onChange                 — обработчики из renderVals
+ *   style-hover                        — стиль при наведении
+ *
+ * Узлы не пересоздаются, а обновляются на месте — поэтому фокус и
+ * каретка в поле ввода не сбрасываются на каждом нажатии клавиши.
+ */
+(function (global) {
+  'use strict';
+
+  /* ---- вычисление выражений ---- */
+
+  function lookup(expr, scope, values) {
+    var path = String(expr).trim();
+    if (path === 'true') return true;
+    if (path === 'false') return false;
+    if (path === 'null' || path === '') return null;
+
+    var parts = path.split('.');
+    var cur = parts[0] in scope ? scope[parts[0]] : values[parts[0]];
+    for (var i = 1; i < parts.length; i++) {
+      if (cur === null || cur === undefined) return undefined;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+
+  var TOKEN = /\{\{([^}]*)\}\}/g;
+  var ONLY_TOKEN = /^\s*\{\{([^}]*)\}\}\s*$/;
+
+  /** Строка целиком из одного выражения возвращается как есть — функцией, массивом, числом. */
+  function interpolate(text, scope, values) {
+    var single = ONLY_TOKEN.exec(text);
+    if (single) return lookup(single[1], scope, values);
+    if (text.indexOf('{{') < 0) return text;
+    return text.replace(TOKEN, function (_, expr) {
+      var value = lookup(expr, scope, values);
+      return value === null || value === undefined ? '' : String(value);
+    });
+  }
+
+  /* ---- разметка -> дерево описаний ---- */
+
+  function build(node, scope, values, out) {
+    if (node.nodeType === 3) {
+      var raw = node.nodeValue;
+      var text = raw.indexOf('{{') < 0 ? raw : String(interpolate(raw, scope, values) || '');
+      out.push({ text: text });
+      return;
+    }
+    if (node.nodeType !== 1) return;
+
+    var tag = node.tagName.toLowerCase();
+
+    if (tag === 'sc-for') {
+      var list = interpolate(node.getAttribute('list') || '', scope, values);
+      if (!Array.isArray(list)) return;
+      var alias = node.getAttribute('as') || 'item';
+      for (var i = 0; i < list.length; i++) {
+        var inner = Object.create(scope);
+        inner[alias] = list[i];
+        inner.$index = i;
+        buildChildren(node, inner, values, out);
+      }
+      return;
+    }
+
+    if (tag === 'sc-if') {
+      if (interpolate(node.getAttribute('value') || '', scope, values)) {
+        buildChildren(node, scope, values, out);
+      }
+      return;
+    }
+
+    var vnode = { tag: tag, attrs: {}, events: {}, children: [] };
+    for (var a = 0; a < node.attributes.length; a++) {
+      var attr = node.attributes[a];
+      var name = attr.name.toLowerCase();
+      if (name.indexOf('hint-') === 0) continue;      // подсказки редактора холста
+      var value = interpolate(attr.value, scope, values);
+      if (name === 'onclick') vnode.events.click = value;
+      else if (name === 'onchange') vnode.events.change = value;
+      else if (name === 'oninput') vnode.events.input = value;
+      else vnode.attrs[name] = value;
+    }
+    buildChildren(node, scope, values, vnode.children);
+    out.push(vnode);
+  }
+
+  function buildChildren(node, scope, values, out) {
+    for (var i = 0; i < node.childNodes.length; i++) {
+      build(node.childNodes[i], scope, values, out);
+    }
+  }
+
+  /* ---- дерево описаний -> DOM ---- */
+
+  function hover(el) {
+    if (el.__hoverBound) return;
+    el.__hoverBound = true;
+    el.addEventListener('mouseenter', function () {
+      if (el.__hoverStyle) el.style.cssText = (el.__baseStyle || '') + ';' + el.__hoverStyle;
+    });
+    el.addEventListener('mouseleave', function () {
+      el.style.cssText = el.__baseStyle || '';
+    });
+  }
+
+  function applyAttrs(el, oldAttrs, attrs) {
+    Object.keys(oldAttrs).forEach(function (name) {
+      if (name in attrs) return;
+      if (name === 'style') el.style.cssText = el.__baseStyle = '';
+      else if (name === 'checked') el.checked = false;
+      else el.removeAttribute(name);
+    });
+
+    Object.keys(attrs).forEach(function (name) {
+      var value = attrs[name];
+
+      if (name === 'style') {
+        var css = value === null || value === undefined ? '' : String(value);
+        if (el.__baseStyle !== css) {
+          el.__baseStyle = css;
+          el.style.cssText = css;
+        }
+        return;
+      }
+      if (name === 'style-hover') {
+        el.__hoverStyle = value === null || value === undefined ? '' : String(value);
+        hover(el);
+        return;
+      }
+      if (name === 'value' && ('value' in el)) {
+        var next = value === null || value === undefined ? '' : String(value);
+        if (el.value !== next) el.value = next;   // не трогаем поле, если значение то же
+        return;
+      }
+      if (name === 'checked') {
+        el.checked = !!value;
+        return;
+      }
+      if (value === false || value === null || value === undefined) {
+        el.removeAttribute(name);
+        return;
+      }
+      var str = String(value);
+      if (el.getAttribute(name) !== str) el.setAttribute(name, str);
+    });
+  }
+
+  var EVENTS = { click: 'click', change: 'input', input: 'input' };
+
+  function bindEvents(el, events) {
+    el.__handlers = events;
+    Object.keys(EVENTS).forEach(function (kind) {
+      if (!events[kind] || el['__bound_' + kind]) return;
+      el['__bound_' + kind] = true;
+      el.addEventListener(EVENTS[kind], function (e) {
+        var handler = el.__handlers && el.__handlers[kind];
+        if (typeof handler === 'function') handler(e);
+      });
+    });
+  }
+
+  function create(vnode) {
+    if (vnode.text !== undefined) {
+      vnode.el = document.createTextNode(vnode.text);
+      return vnode.el;
+    }
+    var el = document.createElement(vnode.tag);
+    vnode.el = el;
+    // дети раньше атрибутов: <select value="…"> должен видеть свои <option>
+    vnode.children.forEach(function (child) { el.appendChild(create(child)); });
+    applyAttrs(el, {}, vnode.attrs);
+    bindEvents(el, vnode.events);
+    return el;
+  }
+
+  function sameKind(a, b) {
+    if (a.text !== undefined || b.text !== undefined) {
+      return a.text !== undefined && b.text !== undefined;
+    }
+    return a.tag === b.tag;
+  }
+
+  function patchNode(oldVnode, vnode) {
+    var el = vnode.el = oldVnode.el;
+    if (vnode.text !== undefined) {
+      if (el.nodeValue !== vnode.text) el.nodeValue = vnode.text;
+      return;
+    }
+    applyAttrs(el, oldVnode.attrs, vnode.attrs);
+    bindEvents(el, vnode.events);
+    patchChildren(el, oldVnode.children, vnode.children);
+  }
+
+  function patchChildren(parent, oldList, list) {
+    var count = Math.max(oldList.length, list.length);
+    for (var i = 0; i < count; i++) {
+      var was = oldList[i];
+      var now = list[i];
+
+      if (!now) {
+        if (was && was.el && was.el.parentNode === parent) parent.removeChild(was.el);
+      } else if (!was) {
+        parent.appendChild(create(now));
+      } else if (sameKind(was, now)) {
+        patchNode(was, now);
+      } else {
+        parent.replaceChild(create(now), was.el);
+      }
+    }
+  }
+
+  /* ---- компонент ---- */
+
+  function Logic() {
+    this.props = {};
+  }
+
+  Logic.prototype.setState = function (updater) {
+    var patch = typeof updater === 'function' ? updater(this.state) : updater;
+    this.state = Object.assign({}, this.state, patch);
+    if (this.__onChange) this.__onChange();
+  };
+
+  /**
+   * mount(template, Component, props, root) — собирает страницу и держит её
+   * в актуальном состоянии. Перерисовка откладывается в микрозадачу, чтобы
+   * несколько setState подряд давали один проход.
+   */
+  function mount(template, Component, props, root) {
+    var component = new Component();
+    component.props = props || {};
+
+    var vnodes = [];
+    var scheduled = false;
+
+    function draw() {
+      scheduled = false;
+      var values;
+      try {
+        values = component.renderVals();
+      } catch (err) {
+        console.error('Ошибка renderVals:', err);
+        return;
+      }
+      var next = [];
+      var scope = Object.create(null);
+      for (var i = 0; i < template.childNodes.length; i++) {
+        build(template.childNodes[i], scope, values, next);
+      }
+      try {
+        patchChildren(root, vnodes, next);
+        vnodes = next;
+      } catch (err) {
+        console.error('Ошибка отрисовки:', err);
+      }
+    }
+
+    component.__onChange = function () {
+      if (scheduled) return;
+      scheduled = true;
+      Promise.resolve().then(draw);
+    };
+
+    draw();
+    return component;
+  }
+
+  global.DCLogic = Logic;
+  global.mountPage = mount;
+})(window);
+</script>
+
+<script>
+const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const PRICE = { 'СТАРТ': 1900, 'ПРО': 3900, 'БИЗНЕС': 6900 };
+const SLOTS = [
+  { key: 'morning', label: 'Утро', times: '07:00 UTC · 10:00 МСК' },
+  { key: 'midday', label: 'День', times: '11:00 UTC · 14:00 МСК' },
+  { key: 'evening', label: 'Вечер', times: '16:00 UTC · 19:00 МСК' }
+];
+const LIMITS = ['Цены и стоимость услуг', 'Конкретные сроки выполнения', 'Проценты, ставки, доходность', 'Гарантии результата', 'Медицинские советы и диагнозы'];
+const TOPICS = ['Фото работ', 'Советы и полезное', 'Частые вопросы', 'Идеи и вдохновение', 'Отзывы и результаты'];
+const NETWORKS = ['VK', 'Telegram', 'MAX'];
+const TASKS = [
+  'Напишите пост про то, как вы провели вчерашний вечер',
+  'Напишите пост про что-то, что вас недавно удивило или порадовало',
+  'Напишите пост про вашу любимую еду или кафе',
+  'Напишите пост про то, что вас раздражает в людях',
+  'Напишите пост про что-то, чему вы недавно научились или что попробовали впервые'
+];
+const CHECKS = [
+  { key: 'disk', label: 'Создана папка на Яндекс.Диске', hint: 'clients/{id}/to_post, posted, archive' },
+  { key: 'channel', label: 'Создан Telegram-канал', hint: 'бот добавлен админом' },
+  { key: 'secrets', label: 'Добавлены секреты в GitHub', hint: 'CLIENT_TOKENS — руками' },
+  { key: 'config', label: 'Конфиг сгенерирован и закоммичен', hint: 'clients/{id}.json через Contents API' },
+  { key: 'test', label: 'Тестовый запуск прошёл успешно', hint: 'workflow_dispatch, один пост' },
+  { key: 'paid', label: 'Оплата получена', hint: 'статус в листе Клиенты' }
+];
+
+function d(y, m, day) { return new Date(y, m - 1, day); }
+function fmt(dt) { return dt ? dt.getDate() + ' ' + MONTHS[dt.getMonth()].slice(0, 3) + ' ' + String(dt.getFullYear()).slice(2) : '—'; }
+function fmtLong(dt) { return dt ? dt.getDate() + ' ' + MONTHS[dt.getMonth()] + ' ' + dt.getFullYear() : '—'; }
+function addMonth(dt) { const n = new Date(dt); n.setMonth(n.getMonth() + 1); return n; }
+function shift(dt, days) { const n = new Date(dt); n.setDate(n.getDate() + days); return n; }
+const NOW = new Date();
+const TODAY = d(NOW.getFullYear(), NOW.getMonth() + 1, NOW.getDate());
+const priceOf = t => PRICE[t] || 0;
+
+function client(o) {
+  return Object.assign({
+    tone: 'Простой и дружелюбный — как друг', holidays: 'Да, но без упоминания скидок',
+    faq: '', cta: '', limits: [], limitsText: '', networks: ['VK', 'Telegram', 'MAX'],
+    topics: ['Фото работ', 'Советы и полезное'], photoQueue: 0, workflow: 'post.yml',
+    styleAnswers: ['', '', '', '', ''], stylePrompt: '', rubrics: [], edits: '', iterations: 0,
+    checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
+    tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
+    lastPostDate: '—', lastPostStatus: 'Не запущен'
+  }, o);
+}
+
+/* ====================================================================
+ *  ПОДКЛЮЧЕНИЕ К APPS SCRIPT WEB APP
+ *
+ *  Все обращения к таблице, GitHub и RouterAI идут через Web App:
+ *  секреты лежат в Script Properties и в браузер не попадают.
+ *  Здесь хранится только адрес Web App и токен доступа к нему —
+ *  в localStorage этого браузера.
+ * ================================================================== */
+
+const CONN_KEY = 'smm-crm.connection';
+
+function loadConn() {
+  const empty = { WEBAPP_URL: '', API_TOKEN: '' };
+  try {
+    const raw = window.localStorage.getItem(CONN_KEY);
+    return raw ? Object.assign(empty, JSON.parse(raw)) : empty;
+  } catch (e) { return empty; }
+}
+
+function storeConn(conn) {
+  try { window.localStorage.setItem(CONN_KEY, JSON.stringify(conn)); } catch (e) {}
+}
+
+function readBody(res) {
+  return res.text().then(function (text) {
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) {
+      throw new Error('Web App ответил не JSON (HTTP ' + res.status + '). Проверьте, что деплой открыт «Все, у кого есть ссылка».');
+    }
+    if (data.ok === false) throw new Error(data.error || 'ошибка Web App');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return data;
+  });
+}
+
+function apiGet(conn, action, params) {
+  if (!conn.WEBAPP_URL) return Promise.reject(new Error('не задан WEBAPP_URL — откройте Настройки'));
+  const qs = ['action=' + encodeURIComponent(action)];
+  Object.keys(params || {}).forEach(k => qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k])));
+  if (conn.API_TOKEN) qs.push('token=' + encodeURIComponent(conn.API_TOKEN));
+  const url = conn.WEBAPP_URL + (conn.WEBAPP_URL.indexOf('?') >= 0 ? '&' : '?') + qs.join('&');
+  return fetch(url, { method: 'GET', redirect: 'follow' }).then(readBody);
+}
+
+function apiPost(conn, action, body) {
+  if (!conn.WEBAPP_URL) return Promise.reject(new Error('не задан WEBAPP_URL — откройте Настройки'));
+  const payload = Object.assign({ action: action, token: conn.API_TOKEN || '' }, body || {});
+  // Content-Type: text/plain — «простой» запрос без preflight:
+  // Apps Script не отвечает на OPTIONS, поэтому application/json здесь не годится.
+  return fetch(conn.WEBAPP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload),
+    redirect: 'follow'
+  }).then(readBody);
+}
+
+function parseDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? d(Number(m[1]), Number(m[2]), Number(m[3])) : null;
+}
+
+function isoDate(dt) {
+  if (!dt) return '';
+  const p = n => (n < 10 ? '0' : '') + n;
+  return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate());
+}
+
+function padAnswers(v) {
+  const arr = (Array.isArray(v) ? v : []).map(x => String(x || ''));
+  while (arr.length < 5) arr.push('');
+  return arr.slice(0, 5);
+}
+
+/** Ответ Web App -> объект клиента для интерфейса. */
+function fromApi(o) {
+  const clean = {};
+  Object.keys(o || {}).forEach(k => { if (o[k] !== null && o[k] !== undefined) clean[k] = o[k]; });
+  return client(Object.assign(clean, {
+    startedAt: parseDate(o.startedAt),
+    nextPay: parseDate(o.nextPay),
+    active: o.active !== false,
+    styleAnswers: padAnswers(o.styleAnswers),
+    checks: o.checks || {},
+    rubrics: (o.rubrics || []).map(r => ({
+      name: String(r.name || ''), days: String(r.days || ''),
+      prompt: String(r.prompt || ''), example: String(r.example || '')
+    })),
+    edits: ''
+  }));
+}
+
+/** Объект клиента -> тело запроса save. */
+function toApi(c) {
+  return {
+    id: c.id, name: c.name, phone: c.phone, email: c.email, tg: c.tg,
+    tariff: c.tariff, business: c.business, about: c.about, audience: c.audience,
+    city: c.city, networks: c.networks, links: c.links || '', tone: c.tone,
+    slots: c.slots, hasPhoto: !!c.hasPhoto || c.photoQueue > 0, rubrics: c.rubrics,
+    holidays: c.holidays, faq: c.faq, limits: c.limits, limitsText: c.limitsText,
+    cta: c.cta, source: c.source, startedAt: isoDate(c.startedAt),
+    // pay и nextPay не отправляем: ими распоряжается дропдаун в таблице
+    active: c.active !== false, stylePrompt: c.stylePrompt, niche: c.niche,
+    topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
+    iterations: c.iterations, photoQueue: c.photoQueue,
+    lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus
+  };
+}
+
+const BLANK = client({
+  id: '—', business: 'Клиентов пока нет', name: '', niche: '', city: '',
+  phone: '', tg: '', email: '', about: '', audience: '',
+  startedAt: null, nextPay: null
+});
+
+/* ====================================================================
+ *  ДЕМО-ДАННЫЕ
+ *
+ *  Показываются, только пока в настройках не задан WEBAPP_URL:
+ *  чтобы макет можно было открыть и посмотреть без бэкенда.
+ *  Как только адрес Web App задан, всё берётся из таблицы.
+ * ================================================================== */
+
+const DATA = [
+  client({
+    id: 'beauty-bar', business: 'Beauty BAR', name: 'Екатерина Лаврова', niche: 'салон красоты',
+    city: 'Санкт-Петербург', tariff: 'ПРО', pay: 'test', slots: ['morning', 'evening'],
+    phone: '+7 921 344-18-02', tg: '@beautybar_spb', email: 'beautybar.spb@ya.ru',
+    about: 'Салон красоты в Приморском районе: окрашивание, стрижки, уход за волосами, брови и ресницы. Работают четыре мастера.',
+    audience: 'Женщины 25–45 лет из района, ходят к мастеру постоянно, ценят предсказуемый результат и удобное время.',
+    faq: 'Нужна ли запись? — Да, лучше за 2–3 дня.\nСколько длится окрашивание? — От 2 до 4 часов.',
+    cta: 'Записаться — в сообщения сообщества или по телефону в описании.',
+    limits: ['Цены и стоимость услуг', 'Гарантии результата'], limitsText: 'Не сравнивать с конкурентами по именам.',
+    topics: ['Фото работ', 'Советы и полезное', 'Отзывы и результаты'], photoQueue: 14,
+    startedAt: d(2026, 5, 12), nextPay: d(2026, 9, 1),
+    lastPostDate: '24.08.2026 10:00', lastPostStatus: 'Опубликован',
+    stylePrompt: 'Короткие предложения, 8–14 слов. Обращение на «вы», без канцелярита. Часто начинает с наблюдения, заканчивает приглашением. Любит уменьшительные формы, не использует эмодзи в начале строки.',
+    styleAnswers: TASKS.map(function (t, i) { return i < 5 ? 'Ответ клиента получен ' + (12 + i) + '.08' : ''; }),
+    rubrics: [
+      { name: 'Фото работ', days: 'пн, чт', prompt: 'Пост по фото из to_post: что делали, какой был запрос, чем закончилось. Без цен.', example: 'Тёплый русый на длину — три часа работы и ни одного лишнего оттенка. Клиентка пришла с отросшим окрашиванием, ушла с ровным цветом от корней.' },
+      { name: 'Советы по уходу', days: 'вт', prompt: 'Один короткий совет по домашнему уходу за волосами. Без медицинских утверждений.', example: 'Полотенцем волосы не трут, а промакивают. Одна привычка — и ломкости к весне заметно меньше.' },
+      { name: 'Частые вопросы', days: 'ср', prompt: 'Ответ на вопрос из FAQ, живым языком, 3–4 предложения.', example: 'Записываться лучше за два-три дня. В пятницу и субботу окошки уходят первыми — особенно вечерние.' },
+      { name: 'Отзывы и результаты', days: 'сб', prompt: 'Пересказ отзыва без имён, с акцентом на результат.', example: 'Пришли на консультацию, остались на уход. Через месяц вернулись — говорят, кончики впервые за год не секутся.' }
+    ],
+    checks: { disk: true, channel: true, secrets: true, config: true, test: true }, iterations: 2
+  }),
+  client({
+    id: 'olga-realty', business: 'Ольга — недвижимость и страхование', name: 'Ольга Терехова',
+    niche: 'недвижимость и страхование', city: 'Санкт-Петербург', tariff: 'ПРО', pay: 'paid',
+    slots: ['morning', 'evening'], phone: '+7 911 208-77-41', tg: '@olga_spb_realty', email: 'o.terehova@mail.ru',
+    about: 'Частный риелтор и страховой агент. Сделки с вторичкой, сопровождение ипотеки, полисы ОСАГО и страхование квартир.',
+    audience: 'Семьи 30–50 лет, покупают первую или вторую квартиру, боятся ошибиться в документах.',
+    faq: 'Берёте предоплату? — Нет, оплата по факту сделки.\nРаботаете с ипотекой? — Да, с шестью банками.',
+    cta: 'Вопрос по квартире или полису — напишите в личные сообщения.',
+    limits: ['Проценты, ставки, доходность', 'Гарантии результата', 'Конкретные сроки выполнения'],
+    limitsText: 'Не называть конкретные банки и условия их продуктов.',
+    topics: ['Советы и полезное', 'Частые вопросы', 'Идеи и вдохновение'], photoQueue: 3,
+    startedAt: d(2026, 7, 28), nextPay: d(2026, 8, 28),
+    lastPostDate: '24.08.2026 10:00', lastPostStatus: 'Опубликован', source: 'Avito',
+    styleAnswers: ['Вчера доделала документы к сделке, вечером просто гуляла у Смольного.', 'Удивил клиент — принёс торт после сделки.', 'Люблю простую пасту в кафе на Восстания.', '', ''],
+    rubrics: [], checks: { disk: true, channel: true, secrets: true, config: true, test: true, paid: true }, iterations: 0
+  }),
+  client({
+    id: 'stolyar-nord', business: 'Мастерская «Норд»', name: 'Артём Гусев', niche: 'столярная мастерская',
+    city: 'Санкт-Петербург', tariff: 'СТАРТ', pay: 'due', slots: ['midday'],
+    phone: '+7 981 455-12-90', tg: '@nord_wood', email: 'nord.wood@gmail.com',
+    about: 'Мебель на заказ из массива: столы, стеллажи, кухонные столешницы. Мастерская на Обводном.',
+    audience: 'Пары 28–45, ремонт в новостройке, ищут не типовое, готовы ждать изготовление.',
+    cta: 'Замер и расчёт — напишите в личные сообщения.',
+    limits: ['Цены и стоимость услуг', 'Конкретные сроки выполнения'],
+    topics: ['Фото работ', 'Идеи и вдохновение'], photoQueue: 7,
+    startedAt: d(2026, 6, 26), nextPay: d(2026, 8, 26),
+    lastPostDate: '23.08.2026 14:00', lastPostStatus: 'Опубликован', source: 'ВКонтакте',
+    rubrics: [], checks: { disk: true, channel: true, secrets: true, config: true, test: true, paid: true }
+  }),
+  client({
+    id: 'zoya-flowers', business: 'Цветы «Зоя»', name: 'Зоя Панкратова', niche: 'цветочная мастерская',
+    city: 'Пушкин', tariff: 'СТАРТ', pay: 'overdue', slots: ['midday'],
+    phone: '+7 962 711-30-55', tg: '@zoya_flowers', email: 'zoya.flowers@ya.ru',
+    about: 'Букеты и композиции, доставка по Пушкину и Павловску. Работает вдвоём с помощницей.',
+    audience: 'Мужчины 25–50, покупают к дате; плюс постоянные заказчицы на подарки.',
+    cta: 'Заказать букет — в сообщения или по телефону.',
+    limits: ['Цены и стоимость услуг'], topics: ['Фото работ', 'Идеи и вдохновение'], photoQueue: 0,
+    startedAt: d(2026, 4, 15), nextPay: d(2026, 8, 15),
+    lastPostDate: '19.08.2026 14:00', lastPostStatus: 'Ошибка: нет фото в to_post/', source: 'Порекомендовали знакомые',
+    rubrics: [], checks: { disk: true, channel: true, secrets: true, config: true, test: true }
+  }),
+  client({
+    id: 'auto-praktika', business: 'Автосервис «Практика»', name: 'Игорь Демин', niche: 'автосервис',
+    city: 'Колпино', tariff: 'БИЗНЕС', pay: 'paid', slots: ['morning', 'midday'],
+    phone: '+7 903 122-64-08', tg: '@praktika_service', email: 'praktika.auto@mail.ru',
+    about: 'Ремонт и диагностика легковых авто, шиномонтаж, подбор запчастей. Три подъёмника.',
+    audience: 'Мужчины 30–55 на машинах 5–15 лет, ищут сервис рядом и без навязывания.',
+    cta: 'Записаться на диагностику — по телефону или в сообщения.',
+    limits: ['Цены и стоимость услуг', 'Гарантии результата'],
+    topics: ['Советы и полезное', 'Частые вопросы', 'Фото работ'], photoQueue: 21,
+    startedAt: d(2026, 3, 9), nextPay: d(2026, 9, 9),
+    lastPostDate: '24.08.2026 10:00', lastPostStatus: 'Опубликован', source: 'Avito',
+    tone: 'Экспертный — как специалист', rubrics: [],
+    checks: { disk: true, channel: true, secrets: true, config: true, test: true, paid: true }
+  }),
+  client({
+    id: 'kids-orbita', business: 'Детский центр «Орбита»', name: 'Марина Соколова', niche: 'детский центр',
+    city: 'Санкт-Петербург', tariff: 'ПРО', pay: 'brief', slots: [],
+    phone: '+7 905 288-41-16', tg: '@orbita_kids', email: 'orbita.kids@ya.ru',
+    about: 'Развивающие занятия для детей 3–7 лет, подготовка к школе, логопед.',
+    audience: 'Мамы 28–40 из соседних кварталов, выбирают по отзывам и удобству расписания.',
+    cta: 'Пробное занятие — запись в сообщениях.',
+    limits: ['Гарантии результата', 'Медицинские советы и диагнозы'],
+    topics: ['Советы и полезное', 'Частые вопросы'], photoQueue: 0, active: false,
+    startedAt: d(2026, 8, 22), nextPay: null,
+    lastPostDate: '—', lastPostStatus: 'Не запущен', source: 'Telegram', checks: {}
+  })
+];
+
+const BRIEFS = [
+  {
+    fid: 'f-2408-01', business: 'Пекарня «Тесто и дело»', name: 'Данила Кириллов', niche: 'пекарня',
+    city: 'Санкт-Петербург', tariff: 'ПРО', tg: '@testoidelo', at: '24.08 · 18:22', tag: 'новый',
+    about: 'Пекарня полного цикла на Васильевском: хлеб на закваске, выпечка, кофе с собой. Хотят посты про новинки и утреннюю выпечку.'
+  },
+  {
+    fid: 'f-2308-02', business: 'Студия «Керамика на Мойке»', name: 'Алиса Ремизова', niche: 'керамическая студия',
+    city: 'Санкт-Петербург', tariff: 'СТАРТ', tg: '@keramika_moika', at: '23.08 · 11:07', tag: 'ждёт 2 дня',
+    about: 'Мастер-классы по гончарному кругу и ручной лепке, обжиг чужих изделий. Основной поток — подарочные сертификаты.'
+  }
+];
+
+const LOG = [
+  { id: 'beauty-bar', date: '24.08.2026', time: '10:00', rubric: 'Фото работ', ok: true },
+  { id: 'auto-praktika', date: '24.08.2026', time: '10:00', rubric: 'Советы по эксплуатации', ok: true },
+  { id: 'olga-realty', date: '24.08.2026', time: '10:00', rubric: 'Частые вопросы', ok: true },
+  { id: 'beauty-bar', date: '24.08.2026', time: '19:00', rubric: 'Отзывы и результаты', ok: true },
+  { id: 'stolyar-nord', date: '23.08.2026', time: '14:00', rubric: 'Фото работ', ok: true },
+  { id: 'auto-praktika', date: '23.08.2026', time: '14:00', rubric: 'Частые вопросы', ok: true },
+  { id: 'zoya-flowers', date: '22.08.2026', time: '14:00', rubric: 'Идеи и вдохновение', ok: false, err: 'Нет фото в to_post/' },
+  { id: 'olga-realty', date: '22.08.2026', time: '19:00', rubric: 'Полезное по теме', ok: true },
+  { id: 'zoya-flowers', date: '21.08.2026', time: '14:00', rubric: 'Фото работ', ok: false, err: 'RouterAI: 429 rate limit' },
+  { id: 'beauty-bar', date: '21.08.2026', time: '10:00', rubric: 'Советы по уходу', ok: true }
+];
+
+/* ====================================================================
+ *  НАСТРОЙКИ ПОДКЛЮЧЕНИЯ
+ *
+ *  local: true  — хранится в localStorage браузера (адрес и токен доступа).
+ *  local: false — секрет, который живёт только в Script Properties.
+ *                 Интерфейс показывает лишь «задан / не задан».
+ * ================================================================== */
+
+const SETTINGS = [
+  { key: 'WEBAPP_URL', local: true, label: 'URL Apps Script Web App',
+    placeholder: 'https://script.google.com/macros/s/…/exec',
+    hint: 'Точка входа этого интерфейса. Меняется при каждом новом деплое. Хранится в этом браузере.' },
+  { key: 'API_TOKEN', local: true, label: 'Токен доступа к Web App',
+    placeholder: 'длинная случайная строка',
+    hint: 'Должен совпадать со свойством API_TOKEN в Apps Script. Без него ссылку на Web App сможет открыть кто угодно.' },
+  { key: 'GITHUB_TOKEN', label: 'Токен GitHub',
+    hint: 'Права contents:write и actions:write на монорепо. Через него коммитятся конфиги клиентов.' },
+  { key: 'GITHUB_REPO', label: 'Репозиторий с конфигами',
+    hint: 'В виде owner/repo. Туда уходит clients/{id}.json и оттуда запускается тестовый прогон.' },
+  { key: 'ROUTERAI_KEY', label: 'Ключ RouterAI',
+    hint: 'Анализ стиля, контент-план и примеры постов. Модель google/gemini-3.1-pro-preview.' },
+];
+
+// Telegram-бот и чат заданы константами в Apps Script (учёт оплат) —
+// отдельных свойств для них нет, поэтому в настройках их не показываем.
+
+const SETTING_HINT_LOCKED = 'Секреты задаются в Apps Script: Настройки проекта → Свойства скрипта. В браузер они не передаются.';
+const PING_NAMES = { sheet: 'Таблица', github: 'GitHub', routerai: 'RouterAI', telegram: 'Telegram' };
+
+const PAY = {
+  paid: { label: 'Оплачено', bg: '#e6f4ec', fg: '#136c41', bd: '#c3e3d1' },
+  due: { label: 'Ждёт оплаты', bg: '#fbf0da', fg: '#8a5a00', bd: '#eddcb4' },
+  overdue: { label: 'Просрочка', bg: '#fbe9e7', fg: '#a91f18', bd: '#f0cdc9' },
+  test: { label: 'Тест без оплаты', bg: '#eef1fe', fg: '#2b4acf', bd: '#d3dbfa' },
+  brief: { label: 'Новый бриф', bg: '#f1f1ed', fg: '#5d636b', bd: '#e2e2dd' }
+};
+const PILL = 'display: inline-block; font-size: 11.5px; font-weight: 500; padding: 3px 8px; border-radius: 4px; white-space: nowrap;';
+
+class Component extends DCLogic {
+  state = {
+    view: 'list', current: '', tab: 'brief', q: '', filter: 'Все',
+    clients: [], busy: null, copied: null, toast: null, saved: false, pushed: false,
+    briefs: [], log: [], logFilter: 'Все',
+    conn: loadConn(), props: {}, demo: false, loading: true, syncAt: 'загрузка…',
+    settingsSaved: false, tested: null, deployed: {},
+    showNew: false, form: { business: '', name: '', phone: '', email: '', tg: '', city: 'Санкт-Петербург' },
+    newTariff: 'ПРО', newSource: 'Avito'
+  };
+
+  /* ---- загрузка данных ------------------------------------------- */
+
+  /** Первая загрузка — из renderVals, чтобы не зависеть от жизненного цикла. */
+  bootOnce() {
+    if (this._booted) return;
+    this._booted = true;
+    setTimeout(() => this.boot(), 0);
+  }
+
+  /** GET clients + briefs + log + settings. Без WEBAPP_URL — демо-режим. */
+  boot(silent) {
+    const conn = this.state.conn;
+    if (!conn.WEBAPP_URL) {
+      this.setState({
+        clients: DATA.map(c => Object.assign({}, c, { active: c.active !== false })),
+        briefs: BRIEFS.map(b => Object.assign({}, b)), log: LOG.slice(),
+        demo: true, loading: false, syncAt: 'демо-данные', props: {},
+        current: DATA[0] ? DATA[0].id : ''
+      });
+      return;
+    }
+    if (!silent) this.setState({ loading: true, syncAt: 'загрузка…' });
+    Promise.all([
+      apiGet(conn, 'clients'),
+      apiGet(conn, 'briefs'),
+      apiGet(conn, 'log'),
+      apiGet(conn, 'settings')
+    ]).then(res => {
+      const clients = (res[0].clients || []).map(fromApi);
+      this.setState(s => ({
+        clients: clients,
+        briefs: res[1].briefs || [],
+        log: res[2].log || [],
+        props: res[3].props || {},
+        demo: false, loading: false, syncAt: res[0].at || '—',
+        current: clients.some(c => c.id === s.current) ? s.current : (clients[0] ? clients[0].id : '')
+      }));
+    }).catch(err => {
+      this.setState({ loading: false, demo: false, syncAt: 'нет связи' });
+      this.flash('Не удалось загрузить данные: ' + err.message);
+    });
+  }
+
+  /**
+   * Одно действие за раз: remote() уходит в Web App, local() — то же
+   * самое «на месте», когда бэкенд не подключён (демо-режим).
+   */
+  act(key, remote, local) {
+    if (this.state.busy) return;
+    this.setState({ busy: key });
+    const done = () => this.setState({ busy: null });
+    if (this.state.demo) {
+      setTimeout(() => { done(); if (local) local(); }, 500);
+      return;
+    }
+    remote().then(done, err => {
+      done();
+      this.flash('Ошибка: ' + ((err && err.message) || err));
+    });
+  }
+
+  /** Ответ Web App -> состояние. edits — поле интерфейса, его не трогаем. */
+  applyClient(raw, extra) {
+    if (!raw) return;
+    const next = fromApi(raw);
+    this.setState(s => ({
+      clients: s.clients.map(x => (x.id === next.id
+        ? Object.assign({}, next, { edits: x.edits }, extra || {})
+        : x)),
+      syncAt: s.syncAt
+    }));
+  }
+
+  /** Тихо сохраняет изменение одного-двух полей (переключатели, чек-лист). */
+  quietSave(id, changes, revert) {
+    if (this.state.demo) return;
+    apiPost(this.state.conn, 'save', { client: Object.assign({ id: id }, changes) })
+      .catch(err => {
+        if (revert) this.patch(id, revert);
+        this.flash('Не сохранилось: ' + err.message);
+      });
+  }
+
+  uniqueId(base) {
+    const taken = this.state.clients.map(c => c.id);
+    let id = base || 'client';
+    let n = 2;
+    while (taken.indexOf(id) >= 0) { id = base + '-' + n; n++; }
+    return id;
+  }
+
+  translit(s) {
+    const M = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+    return (s || '').toLowerCase().split('').map(ch => (M[ch] !== undefined ? M[ch] : /[a-z0-9]/.test(ch) ? ch : '-'))
+      .join('').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+  }
+
+  flash(msg) {
+    clearTimeout(this._t);
+    this.setState({ toast: msg });
+    this._t = setTimeout(() => this.setState({ toast: null }), 3200);
+  }
+
+  patch(id, changes) {
+    this.setState(s => ({ clients: s.clients.map(c => (c.id === id ? Object.assign({}, c, changes) : c)) }));
+  }
+
+  cur() { return this.state.clients.find(c => c.id === this.state.current) || this.state.clients[0] || BLANK; }
+
+  copy(text, key, msg) {
+    try { navigator.clipboard && navigator.clipboard.writeText(text); } catch (e) {}
+    clearTimeout(this._c);
+    this.setState({ copied: key });
+    this._c = setTimeout(() => this.setState({ copied: null }), 1600);
+    if (msg) this.flash(msg);
+  }
+
+  btn(kind, extra) {
+    const accent = this.props.accent || '#2b4acf';
+    const base = 'font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer; ';
+    if (kind === 'primary') return base + 'border: 1px solid ' + accent + '; background: ' + accent + '; color: #fff;' + (extra || '');
+    if (kind === 'ghost') return base + 'border: 1px solid #d9d9d4; background: #fff;' + (extra || '');
+    if (kind === 'danger') return base + 'border: 1px solid #a91f18; background: #a91f18; color: #fff;' + (extra || '');
+    return base + 'border: 1px solid #e2e2dd; background: #f4f4f1; color: #9a9ea4; cursor: not-allowed;' + (extra || '');
+  }
+
+  renderVals() {
+    this.bootOnce();
+
+    const st = this.state;
+    const conn = st.conn;
+    const accent = this.props.accent || '#2b4acf';
+    const dense = (this.props.density || 'Обычная') === 'Плотная';
+    const rowPad = dense ? '8px 14px' : '12px 14px';
+    const cs = st.clients;
+    const c = this.cur();
+    const busy = st.busy;
+
+    const payOf = k => PAY[k] || PAY.brief;
+    const pillOf = k => PILL + 'background: ' + payOf(k).bg + '; color: ' + payOf(k).fg + '; border: 1px solid ' + payOf(k).bd + ';';
+    const slotLabel = c2 => (c2.slots.length ? c2.slots.map(k => (SLOTS.find(s => s.key === k) || { label: k }).label).join(' + ') : '—');
+
+    const q = st.q.trim().toLowerCase();
+    const filtered = cs.filter(x => {
+      const matchQ = !q || [x.business, x.name, x.city, x.id, x.niche].join(' ').toLowerCase().indexOf(q) >= 0;
+      const f = st.filter;
+      const matchF = f === 'Все' ? true
+        : f === 'Неактивные' ? !x.active
+        : f === 'Оплачено' ? x.pay === 'paid'
+        : f === 'Ждут' ? x.pay === 'due' || x.pay === 'brief'
+        : x.pay === 'overdue';
+      return matchQ && matchF;
+    });
+
+    const rows = filtered.map(x => ({
+      business: x.business,
+      sub: x.name + ' · ' + x.niche + ' · ' + x.city,
+      tariff: x.tariff, slots: slotLabel(x),
+      payLabel: payOf(x.pay).label, payStyle: pillOf(x.pay),
+      nextPay: fmt(x.nextPay),
+      lastPost: x.lastPostStatus.indexOf('Ошибка') === 0 ? '⚠ ' + x.lastPostDate : x.lastPostDate,
+      rowStyle: 'display: grid; grid-template-columns: minmax(150px, 2fr) 62px 100px 88px minmax(104px, 1fr) 58px; gap: 10px; min-width: 620px; padding: ' + rowPad + '; border-bottom: 1px solid #f1f1ed; cursor: pointer; align-items: start; opacity: ' + (x.active ? 1 : 0.55) + ';',
+      toggleStyle: 'width: 34px; height: 19px; border-radius: 10px; border: none; padding: 2px; cursor: pointer; display: flex; justify-content: ' + (x.active ? 'flex-end' : 'flex-start') + '; background: ' + (x.active ? accent : '#cfd0cc') + ';',
+      knobStyle: 'display: block; width: 15px; height: 15px; border-radius: 50%; background: #fff;',
+      onOpen: () => this.setState({ view: 'card', current: x.id, tab: 'brief' }),
+      // переключатель «активен» сохраняется сразу, с откатом при ошибке
+      onToggle: e => {
+        e.stopPropagation();
+        const next = !x.active;
+        this.patch(x.id, { active: next });
+        this.quietSave(x.id, { active: next }, { active: x.active });
+      }
+    }));
+
+    const filters = ['Все', 'Оплачено', 'Ждут', 'Просрочка', 'Неактивные'].map(f => ({
+      label: f,
+      onClick: () => this.setState({ filter: f }),
+      style: 'border: none; cursor: pointer; font-size: 12px; font-weight: 500; padding: 5px 10px; border-radius: 4px; ' +
+        (st.filter === f ? 'background: #fff; color: #14171a; box-shadow: 0 1px 2px rgba(0,0,0,0.07);' : 'background: none; color: #6b7078;')
+    }));
+
+    const tabs = [
+      { key: 'brief', label: 'Бриф' },
+      { key: 'onboarding', label: 'Онбординг' },
+      { key: 'content', label: 'Согласование контента' },
+      { key: 'payments', label: 'Оплаты' }
+    ].map(t => ({
+      label: t.label,
+      onClick: () => this.setState({ tab: t.key }),
+      style: 'border: none; background: none; cursor: pointer; font-size: 13px; padding: 9px 12px; margin-bottom: -1px; ' +
+        (st.tab === t.key
+          ? 'font-weight: 600; color: #14171a; border-bottom: 2px solid ' + accent + ';'
+          : 'font-weight: 500; color: #6b7078; border-bottom: 2px solid transparent;')
+    }));
+
+    const setter = key => e => this.patch(c.id, { [key]: e.target.value, });
+    const set = {};
+    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'edits'].forEach(k => { set[k] = setter(k); });
+
+    const chip = (on, label, onClick) => ({
+      label, onClick,
+      style: 'border: 1px solid ' + (on ? accent : '#dedeD9') + '; background: ' + (on ? '#eef1fe' : '#fff') + '; color: ' + (on ? accent : '#5d636b') + '; font-size: 12px; font-weight: 500; padding: 5px 10px; border-radius: 14px; cursor: pointer;'
+    });
+
+    const toggleIn = (key, val) => {
+      const arr = c[key].indexOf(val) >= 0 ? c[key].filter(v => v !== val) : c[key].concat([val]);
+      this.patch(c.id, { [key]: arr });
+    };
+
+    const doneCount = CHECKS.filter(k => c.checks[k.key]).length;
+    const styleFilled = c.styleAnswers.filter(a => a.trim()).length;
+    const maxSlots = c.tariff === 'СТАРТ' ? 1 : 2;
+
+    const reminders = c.nextPay ? [
+      { label: 'За 3 дня', date: fmt(shift(c.nextPay, -3)) },
+      { label: 'За 1 день', date: fmt(shift(c.nextPay, -1)) },
+      { label: 'В день оплаты', date: fmt(c.nextPay) },
+      { label: 'При просрочке — ежедневно', date: 'с ' + fmt(shift(c.nextPay, 1)) }
+    ] : [{ label: 'Оплата не назначена — бриф не обработан', date: '—' }];
+
+    const dep = st.deployed[c.id] || (c.configPushed ? { sha: String(c.configPushed).split(' · ')[0], prevSha: '—', at: String(c.configPushed).split(' · ')[1] || '' } : null);
+    // тот же конфиг, что соберёт Web App перед коммитом в GitHub
+    const cfg = JSON.stringify({
+      client_id: c.id,
+      business: c.business,
+      city: c.city,
+      tariff: c.tariff,
+      networks: c.networks.map(n => n.toLowerCase()),
+      slots: c.slots.map(k => ({ name: k, cron: (SLOTS.find(s => s.key === k) || { times: '' }).times.split(' ')[0] })),
+      style_prompt: c.stylePrompt || null,
+      tone: c.tone,
+      holidays: c.holidays,
+      forbidden: c.limits.concat(c.limitsText ? [c.limitsText] : []),
+      cta: c.cta,
+      faq: c.faq ? c.faq.split('\n') : [],
+      rubrics: c.rubrics.map(r => ({ name: r.name, days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt })),
+      yandex_folder: 'clients/' + c.id,
+      iterations: c.iterations
+    }, null, 2);
+    const cfgBytes = new Blob([cfg]).size;
+
+    return {
+      syncedAt: st.demo ? 'демо-данные' : st.loading ? 'загрузка…' : st.syncAt,
+      isList: st.view === 'list', isCard: st.view === 'card',
+      isPayments: st.view === 'payments', isBriefs: st.view === 'briefs',
+      isLog: st.view === 'log', isSettings: st.view === 'settings',
+      navItems: [
+        { key: 'list', label: 'Клиенты', badge: String(cs.length), tone: 'plain' },
+        { key: 'payments', label: 'Оплаты', badge: cs.filter(x => x.pay === 'overdue').length ? String(cs.filter(x => x.pay === 'overdue').length) : '', tone: 'red' },
+        { key: 'briefs', label: 'Брифы', badge: st.briefs.length ? String(st.briefs.length) : '', tone: 'amber' },
+        { key: 'log', label: 'Лог публикаций', badge: '', tone: 'plain' },
+        { key: 'settings', label: 'Настройки', badge: st.demo || !conn.WEBAPP_URL ? '!' : '', tone: 'red' }
+      ].map(n => {
+        const on = st.view === n.key || (n.key === 'list' && st.view === 'card');
+        const tones = {
+          plain: 'background: #eeeeea; color: #6b7078;',
+          amber: 'background: #fbf0da; color: #8a5a00;',
+          red: 'background: #fbe9e7; color: #a91f18;'
+        };
+        return {
+          label: n.label, badge: n.badge,
+          // повторный клик по текущему разделу — перезагрузка данных из таблицы
+          onClick: () => {
+            if (st.view === n.key && n.key !== 'settings') { this.boot(true); this.flash('Обновляю из таблицы…'); }
+            else this.setState({ view: n.key });
+          },
+          style: 'display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: none; padding: 8px 10px; border-radius: 5px; font-size: 13px; cursor: pointer; font-family: inherit; ' +
+            (on ? 'background: #14171a; color: #fbfbf9; font-weight: 600;' : 'background: none; color: #5d636b; font-weight: 400;'),
+          badgeStyle: n.badge
+            ? 'font-family: \'IBM Plex Mono\', monospace; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; ' + (on ? 'background: rgba(255,255,255,0.16); color: #f4f4f1;' : tones[n.tone])
+            : 'display: none;'
+        };
+      }),
+
+      showNew: st.showNew,
+      openNew: () => this.setState({ showNew: true }),
+      closeNew: () => this.setState({ showNew: false }),
+      newTariff: st.newTariff, newSource: st.newSource,
+      setNewTariff: e => this.setState({ newTariff: e.target.value }),
+      setNewSource: e => this.setState({ newSource: e.target.value }),
+      newId: st.form.business.trim()
+        ? (function (base, taken) {
+            const uniq = (function () { let id = base || 'client', n = 2; while (taken.indexOf(id) >= 0) { id = base + '-' + n; n++; } return id; })();
+            return uniq === base ? uniq : uniq + '  (базовый ' + base + ' уже занят)';
+          })(this.translit(st.form.business) || 'client', cs.map(x => x.id))
+        : '—',
+      newFields: [
+        { k: 'business', label: 'Название бизнеса', ph: 'Пекарня «Тесто и дело»', req: true, wide: true },
+        { k: 'name', label: 'ФИО', ph: 'Данила Кириллов', req: true },
+        { k: 'city', label: 'Город / регион', ph: 'Санкт-Петербург', req: false },
+        { k: 'phone', label: 'Телефон', ph: '+7 921 000-00-00', req: true, mono: true },
+        { k: 'tg', label: 'Telegram', ph: '@username', req: true, mono: true },
+        { k: 'email', label: 'Email', ph: 'client@mail.ru', req: false, mono: true, wide: true }
+      ].map(f => ({
+        label: f.label, value: st.form[f.k], placeholder: f.ph,
+        wrap: 'display: block;' + (f.wide ? ' grid-column: 1 / -1;' : ''),
+        reqStyle: f.req ? 'font-size: 10px; color: #b3261e;' : 'display: none;',
+        inputStyle: 'width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid ' +
+          (f.req && !st.form[f.k].trim() ? '#e8c9c6' : '#dedeD9') + '; border-radius: 4px; background: #fff; font-size: 13px;' +
+          (f.mono ? ' font-family: \'IBM Plex Mono\', monospace;' : ''),
+        onChange: e => this.setState(s => ({ form: Object.assign({}, s.form, { [f.k]: e.target.value }) }))
+      })),
+      createBtnLabel: busy === 'create' ? 'Создаю строку…' : 'Создать клиента',
+      createBtn: (!st.form.business.trim() || !st.form.name.trim() || !st.form.phone.trim() || !st.form.tg.trim() || busy)
+        ? this.btn('off') : this.btn('primary'),
+      newHint: (!st.form.business.trim() || !st.form.name.trim() || !st.form.phone.trim() || !st.form.tg.trim())
+        ? 'Заполните бизнес, ФИО, телефон и Telegram — остальное можно позже.'
+        : 'Появится в списке со статусом «Новый бриф» и пустым брифом — заполните его в карточке.',
+
+      // POST action=new -> новая строка в листе «Клиенты», client_id выдаёт Web App
+      createClient: () => {
+        const f = st.form;
+        if (!f.business.trim() || !f.name.trim() || !f.phone.trim() || !f.tg.trim()) return this.flash('Не хватает обязательных полей');
+        const draft = {
+          business: f.business.trim(), name: f.name.trim(), city: f.city.trim() || 'Санкт-Петербург',
+          phone: f.phone.trim(), tg: f.tg.trim(), email: f.email.trim(),
+          tariff: st.newTariff, source: st.newSource, niche: 'не указана',
+          pay: 'brief', startedAt: isoDate(TODAY), active: true, slots: [], topics: [], limits: []
+        };
+        const openCreated = created => this.setState(s => ({
+          clients: s.clients.concat([created]),
+          showNew: false, view: 'card', current: created.id, tab: 'brief',
+          form: { business: '', name: '', phone: '', email: '', tg: '', city: 'Санкт-Петербург' }
+        }));
+        this.act('create',
+          () => apiPost(conn, 'new', { client: draft }).then(r => {
+            const created = fromApi(r.client);
+            openCreated(created);
+            this.flash('Строка добавлена в лист «Клиенты» · client_id: ' + created.id);
+          }),
+          () => {
+            const created = client(Object.assign({ id: this.uniqueId(this.translit(f.business) || 'client'), startedAt: TODAY, nextPay: null }, draft, { startedAt: TODAY }));
+            openCreated(created);
+            this.flash('Демо: строка не ушла в таблицу — задайте WEBAPP_URL в настройках');
+          });
+      },
+
+      payExpected: cs.filter(x => x.active && x.nextPay).reduce((s, x) => s + priceOf(x.tariff), 0).toLocaleString('ru-RU'),
+      payReceived: cs.filter(x => x.pay === 'paid').reduce((s, x) => s + priceOf(x.tariff), 0).toLocaleString('ru-RU'),
+      payLate: cs.filter(x => x.pay === 'overdue').reduce((s, x) => s + priceOf(x.tariff), 0).toLocaleString('ru-RU'),
+      payRows: cs.slice().sort((a, b) => (a.nextPay ? a.nextPay.getTime() : 9e15) - (b.nextPay ? b.nextPay.getTime() : 9e15)).map(x => {
+        const days = x.nextPay ? Math.round((x.nextPay - TODAY) / 86400000) : null;
+        return {
+          id: x.id, business: x.business, tariff: x.tariff, price: priceOf(x.tariff).toLocaleString('ru-RU'),
+          nextPay: fmt(x.nextPay),
+          due: days === null ? 'бриф не обработан' : days < 0 ? 'просрочка ' + Math.abs(days) + ' дн.' : days === 0 ? 'сегодня' : 'через ' + days + ' дн.',
+          payLabel: payOf(x.pay).label, payStyle: pillOf(x.pay),
+          confirmLabel: 'В таблицу →',
+          confirmStyle: 'font-size: 11.5px; font-weight: 500; padding: 5px 9px; border-radius: 4px; ' +
+            'border: 1px solid #d9d9d4; background: #fff; color: #14171a; cursor: pointer;',
+          // оплата отмечается дропдауном в листе — открываем нужную строку
+          onConfirm: e => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            if (!x.rowUrl) return this.flash('Нет ссылки на строку — задайте WEBAPP_URL в настройках');
+            try { window.open(x.rowUrl, '_blank'); } catch (err) { this.flash('Не удалось открыть таблицу'); }
+          },
+          onOpen: () => this.setState({ view: 'card', current: x.id, tab: 'payments' })
+        };
+      }),
+
+      briefs: st.briefs.map(b => ({
+        business: b.business, name: b.name, niche: b.niche, city: b.city, tariff: b.tariff,
+        tg: b.tg, at: b.at, about: b.about, tag: b.tag,
+        tagStyle: PILL + (b.tag === 'новый'
+          ? 'background: #eef1fe; color: #2b4acf; border: 1px solid #d3dbfa;'
+          : 'background: #fbf0da; color: #8a5a00; border: 1px solid #eddcb4;'),
+        createLabel: busy === 'brief-' + b.fid ? 'Создаю карточку…' : 'Создать клиента',
+        createStyle: busy ? this.btn('off') : this.btn('primary'),
+        // POST action=new с ответами формы + отметка строки в листе «Брифы»
+        onCreate: () => this.act('brief-' + b.fid,
+          () => apiPost(conn, 'new', {
+            client: Object.assign({ source: 'Google Форма' }, b.answers || {}, {
+              business: b.business, name: b.name, niche: b.niche, city: b.city,
+              tariff: b.tariff, tg: b.tg, about: b.about, pay: 'brief'
+            }),
+            briefRow: b.row
+          }).then(r => {
+            const created = fromApi(r.client);
+            this.setState(s => ({
+              clients: s.clients.concat([created]),
+              briefs: s.briefs.filter(x => x.fid !== b.fid),
+              view: 'card', current: created.id, tab: 'brief'
+            }));
+            this.flash('Карточка создана из брифа · client_id: ' + created.id);
+          }),
+          () => {
+            const id = this.uniqueId(this.translit(b.business) || 'client');
+            this.setState(s => ({
+              clients: s.clients.concat([client({
+                id, business: b.business, name: b.name, niche: b.niche, city: b.city,
+                tariff: b.tariff, pay: 'brief', slots: [], phone: '—', tg: b.tg, email: '—',
+                about: b.about, audience: '', source: 'Google Форма', active: true,
+                startedAt: TODAY, nextPay: null, topics: [], limits: []
+              })]),
+              briefs: s.briefs.filter(x => x.fid !== b.fid),
+              view: 'card', current: id, tab: 'brief'
+            }));
+            this.flash('Демо: карточка создана только в интерфейсе');
+          }),
+        onDismiss: () => {
+          const drop = () => this.setState(s => ({ briefs: s.briefs.filter(x => x.fid !== b.fid) }));
+          if (st.demo) { drop(); this.flash('Демо: бриф скрыт только в интерфейсе'); return; }
+          apiPost(conn, 'brief_dismiss', { row: b.row })
+            .then(() => { drop(); this.flash('Бриф отложен — помечен в листе «Брифы»'); })
+            .catch(err => this.flash('Ошибка: ' + err.message));
+        }
+      })),
+      briefsEmpty: st.briefs.length === 0,
+
+      logFilters: ['Все', 'Опубликованы', 'Ошибки'].map(f => ({
+        label: f,
+        onClick: () => this.setState({ logFilter: f }),
+        style: 'border: none; cursor: pointer; font-size: 12px; font-weight: 500; padding: 5px 10px; border-radius: 4px; ' +
+          (st.logFilter === f ? 'background: #fff; color: #14171a; box-shadow: 0 1px 2px rgba(0,0,0,0.07);' : 'background: none; color: #6b7078;')
+      })),
+      logRows: st.log.filter(l => st.logFilter === 'Все' || (st.logFilter === 'Ошибки' ? !l.ok : l.ok)).map(l => {
+        const owner = cs.find(x => x.id === l.id);
+        return {
+          business: owner ? owner.business : l.id, date: l.date, time: l.time, rubric: l.rubric,
+          status: l.ok ? 'Опубликован' : (l.err || 'Ошибка'),
+          style: PILL + (l.ok
+            ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
+            : 'background: #fbe9e7; color: #a91f18; border: 1px solid #f0cdc9;')
+        };
+      }),
+
+      // Настройки: адрес и токен Web App живут в браузере, секреты — в Script Properties
+      settingFields: SETTINGS.map(s => {
+        const isSet = s.local ? !!String(conn[s.key] || '').trim() : !!st.props[s.key];
+        return {
+          label: s.label, key: s.key,
+          value: s.local ? (conn[s.key] || '') : '',
+          placeholder: s.local ? s.placeholder : (isSet ? '•••••••••••• задан' : 'не задан'),
+          hint: s.local ? s.hint : s.hint + ' ' + SETTING_HINT_LOCKED,
+          state: isSet ? 'задан' : 'не задан',
+          stateStyle: PILL + (isSet
+            ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
+            : 'background: #fbe9e7; color: #a91f18; border: 1px solid #f0cdc9;'),
+          onChange: s.local
+            ? (e => {
+                const v = e.target.value;
+                this.setState(prev => ({ conn: Object.assign({}, prev.conn, { [s.key]: v }) }));
+              })
+            : (() => this.flash(SETTING_HINT_LOCKED))
+        };
+      }),
+      saveSettingsLabel: st.settingsSaved ? 'Сохранено ✓' : 'Сохранить подключение',
+      saveSettings: () => {
+        const url = String(conn.WEBAPP_URL || '').trim();
+        const token = String(conn.API_TOKEN || '').trim();
+        if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/(exec|dev)/.test(url)) {
+          this.flash('Похоже, это не адрес Web App: нужен https://script.google.com/macros/s/…/exec');
+          return;
+        }
+        storeConn({ WEBAPP_URL: url, API_TOKEN: token });
+        this.setState({ conn: { WEBAPP_URL: url, API_TOKEN: token }, settingsSaved: true });
+        setTimeout(() => this.setState({ settingsSaved: false }), 1800);
+        this.flash(url ? 'Подключение сохранено — обновляю данные' : 'Адрес Web App очищен — демо-режим');
+        setTimeout(() => this.boot(), 0);
+      },
+      testSettingsLabel: busy === 'test' ? 'Проверяю…' : st.tested || 'Проверить подключения',
+      // GET action=ping -> Web App проверяет таблицу, GitHub, RouterAI и Telegram
+      testSettings: () => this.act('test',
+        () => apiGet(conn, 'ping').then(r => {
+          const checks = r.checks || {};
+          const keys = Object.keys(checks);
+          const bad = keys.filter(k => !checks[k].ok);
+          this.setState({ tested: bad.length ? 'Ошибки: ' + bad.map(k => PING_NAMES[k] || k).join(', ') : 'Всё отвечает ✓' });
+          this.flash(bad.length
+            ? (PING_NAMES[bad[0]] || bad[0]) + ' — ' + checks[bad[0]].detail
+            : keys.map(k => (PING_NAMES[k] || k) + ': ' + checks[k].detail).join(' · '));
+          setTimeout(() => this.setState({ tested: null }), 6000);
+          return apiGet(conn, 'settings').then(s => this.setState({ props: s.props || {} }));
+        }),
+        () => this.flash('Демо-режим: сначала задайте WEBAPP_URL и сохраните подключение')),
+
+      showStats: this.props.showStats !== false,
+      totalCount: cs.length, shownCount: filtered.length,
+      statActive: cs.filter(x => x.active).length,
+      statMrr: cs.filter(x => x.active && x.pay === 'paid').reduce((s, x) => s + priceOf(x.tariff), 0).toLocaleString('ru-RU'),
+      statDue: cs.filter(x => x.pay === 'due' || x.pay === 'brief').length,
+      statOverdue: cs.filter(x => x.pay === 'overdue').length,
+      q: st.q, onSearch: e => this.setState({ q: e.target.value }),
+      rows, filters, tabs,
+      navActive: 'background: ' + accent + '; color: #fff;',
+      btnPrimary: this.btn('primary', ' width: 100%; margin-top: 14px;'),
+      btnPush: this.btn('primary', ' flex: none;'),
+      linkStyle: 'color: ' + accent + '; font-size: 12.5px;',
+      progressStyle: 'height: 100%; width: ' + (doneCount / 6 * 100) + '%; background: ' + accent + '; transition: width .25s ease;',
+      back: () => this.setState({ view: 'list' }),
+      tabBrief: st.tab === 'brief', tabOnboarding: st.tab === 'onboarding',
+      tabContent: st.tab === 'content', tabPayments: st.tab === 'payments',
+      set,
+      c: {
+        id: c.id, business: c.business, name: c.name, niche: c.niche, city: c.city,
+        tariff: c.tariff, price: priceOf(c.tariff).toLocaleString('ru-RU'),
+        about: c.about, audience: c.audience, tone: c.tone, holidays: c.holidays,
+        faq: c.faq, cta: c.cta, limitsText: c.limitsText,
+        phone: c.phone, tg: c.tg, email: c.email, source: c.source,
+        startedAt: fmtLong(c.startedAt),
+        nextPay: c.nextPay ? fmtLong(c.nextPay) : 'не назначен',
+        photoQueue: c.photoQueue + ' шт',
+        lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
+        stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
+        payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay)
+      },
+      queueStyle: PILL + (c.photoQueue > 0
+        ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
+        : 'background: #fbe9e7; color: #a91f18; border: 1px solid #f0cdc9;') + ' font-family: \'IBM Plex Mono\', monospace;',
+      lastStatusStyle: c.lastPostStatus.indexOf('Ошибка') === 0
+        ? PILL + 'background: #fbe9e7; color: #a91f18; border: 1px solid #f0cdc9;'
+        : PILL + 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;',
+      slotsHint: c.tariff === 'СТАРТ' ? 'СТАРТ: один слот' : c.tariff + ': до двух слотов',
+      slotRows: SLOTS.map(s => {
+        const on = c.slots.indexOf(s.key) >= 0;
+        return {
+          label: s.label, times: s.times,
+          onToggle: () => {
+            if (!on && c.slots.length >= maxSlots) return this.flash('Тариф ' + c.tariff + ' — не больше ' + maxSlots + ' слотов');
+            toggleIn('slots', s.key);
+          },
+          style: 'display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 5px; cursor: pointer; font-size: 12.5px; border: 1px solid ' +
+            (on ? accent : '#e6e6e1') + '; background: ' + (on ? '#eef1fe' : '#fff') + ';'
+        };
+      }),
+      networkChips: NETWORKS.map(n => chip(c.networks.indexOf(n) >= 0, n, () => toggleIn('networks', n))),
+      topicChips: TOPICS.map(t => chip(c.topics.indexOf(t) >= 0, t, () => toggleIn('topics', t))),
+      limitBoxes: LIMITS.map(l => ({
+        label: l, checked: c.limits.indexOf(l) >= 0, onToggle: () => toggleIn('limits', l)
+      })),
+      checklist: CHECKS.map(k => ({
+        label: k.label, hint: k.hint.replace('{id}', c.id), checked: !!c.checks[k.key],
+        onToggle: () => {
+          const checks = Object.assign({}, c.checks, { [k.key]: !c.checks[k.key] });
+          this.patch(c.id, { checks: checks });
+          this.quietSave(c.id, { checks: checks }, { checks: c.checks });
+        }
+      })),
+      doneCount,
+
+      // POST action=save -> строка клиента в листе «Клиенты»
+      saveLabel: busy === 'save' ? 'Сохраняю…' : st.saved ? 'Сохранено ✓' : 'Сохранить в таблицу',
+      onSave: () => this.act('save',
+        () => apiPost(conn, 'save', { client: toApi(c) }).then(r => {
+          this.applyClient(r.client);
+          this.setState({ saved: true, syncAt: r.at });
+          this.flash('Строка обновлена в листе «Клиенты»');
+          setTimeout(() => this.setState({ saved: false }), 1800);
+        }),
+        () => {
+          this.setState({ saved: true });
+          this.flash('Демо: изменения не ушли в таблицу — задайте WEBAPP_URL');
+          setTimeout(() => this.setState({ saved: false }), 1800);
+        }),
+
+      // POST action=push -> GET sha, PUT clients/{id}.json, workflow_dispatch
+      pushLabel: busy === 'push' ? 'Коммит…' : st.pushed ? 'Отправлено ✓' : 'Отправить в репозиторий',
+      onPush: () => this.act('push',
+        () => apiPost(conn, 'push', { id: c.id, client: toApi(c) }).then(r => {
+          this.applyClient(r.client);
+          this.setState(s => ({
+            pushed: true,
+            deployed: Object.assign({}, s.deployed, {
+              [c.id]: { sha: r.sha, prevSha: r.prevSha, at: r.at, note: r.workflowNote || '' }
+            })
+          }));
+          this.flash('PUT ' + r.path + ' — commit ' + r.sha +
+            (r.dispatched ? ', тестовый прогон запущен' : (r.workflowNote ? ' · ' + r.workflowNote : '')));
+          setTimeout(() => this.setState({ pushed: false }), 2500);
+        }),
+        () => {
+          this.setState({ pushed: true });
+          this.flash('Демо: коммита не было — задайте WEBAPP_URL');
+          setTimeout(() => this.setState({ pushed: false }), 2000);
+        }),
+
+      secretJson: '{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "tg_token": "<bot token>",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}',
+      copySecretLabel: st.copied === 'secret' ? 'Скопировано ✓' : 'Скопировать JSON',
+      copySecret: () => this.copy('{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "tg_token": "<bot token>",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}', 'secret'),
+      styleFilled,
+      styleTasks: TASKS.map((t, i) => ({
+        num: String(i + 1).padStart(2, '0'), task: t, answer: c.styleAnswers[i],
+        copyLabel: st.copied === 'task' + i ? 'Скопировано ✓' : 'Скопировать',
+        onCopy: () => this.copy(t, 'task' + i),
+        onChange: e => {
+          const arr = c.styleAnswers.slice();
+          arr[i] = e.target.value;
+          this.patch(c.id, { styleAnswers: arr });
+        }
+      })),
+
+      // RouterAI: анализ стиля по пяти текстам клиента -> style_prompt
+      analyzeLabel: busy === 'style' ? 'Gemini думает…' : c.stylePrompt ? 'Проанализировать заново' : 'Проанализировать стиль',
+      analyzeBtn: styleFilled < 5 || busy ? this.btn('off') : this.btn('primary'),
+      analyzeStyle: () => {
+        if (styleFilled < 5) return this.flash('Нужны все пять ответов клиента');
+        this.act('style',
+          () => apiPost(conn, 'analyze_style', { id: c.id, client: toApi(c), answers: c.styleAnswers }).then(r => {
+            this.applyClient(r.client);
+            this.flash('style_prompt собран и записан в таблицу — проверьте и правьте руками');
+          }),
+          () => {
+            this.patch(c.id, { stylePrompt: 'Средняя длина предложения 9–13 слов, без сложных конструкций. Обращение на «вы». Начинает с бытовой детали, переходит к сути, заканчивает коротким выводом. Разговорная лексика, минимум терминов, без эмодзи.' });
+            this.flash('Демо: style_prompt не от модели');
+          });
+      },
+      hasStylePrompt: !!c.stylePrompt,
+      hasRubrics: c.rubrics.length > 0,
+
+      // RouterAI: контент-план по данным брифа
+      planLabel: busy === 'plan' ? 'Собираю…' : c.rubrics.length ? 'Пересобрать план' : 'Собрать контент-план',
+      planBtn: busy ? this.btn('off') : this.btn('ghost'),
+      buildPlan: () => this.act('plan',
+        () => apiPost(conn, 'build_plan', { id: c.id, client: toApi(c) }).then(r => {
+          this.applyClient(r.client);
+          this.flash((r.rubrics || []).length + ' рубрик получены — правьте промпты руками');
+        }),
+        () => {
+          this.patch(c.id, {
+            rubrics: [
+              { name: 'Полезное по теме', days: 'пн', prompt: 'Образовательный пост по нише без конкретных ставок, сроков и гарантий.', example: '' },
+              { name: 'Частые вопросы', days: 'вт, чт', prompt: 'Ответ на вопрос из FAQ, 3–4 предложения, разговорным языком.', example: '' },
+              { name: 'Фото работ', days: 'ср', prompt: 'Пост по фото из to_post: контекст, что сделали, результат.', example: '' },
+              { name: 'Идеи и вдохновение', days: 'пт', prompt: 'Что можно заказать или сделать — с примерами из практики.', example: '' },
+              { name: 'Отзывы и результаты', days: 'сб', prompt: 'Пересказ отзыва без имён, акцент на пользу для клиента.', example: '' }
+            ]
+          });
+          this.flash('Демо: план не от модели');
+        }),
+
+      // RouterAI: пример поста для каждой рубрики с учётом style_prompt
+      examplesLabel: busy === 'ex' ? 'Пишу примеры…' : 'Сгенерировать примеры',
+      examplesBtn: !c.rubrics.length || busy ? this.btn('off') : this.btn('ghost'),
+      genExamples: () => {
+        if (!c.rubrics.length) return this.flash('Сначала соберите контент-план');
+        this.act('ex',
+          () => apiPost(conn, 'gen_examples', { id: c.id, client: toApi(c) }).then(r => {
+            this.applyClient(r.client);
+            this.flash('Примеры готовы — копируйте клиенту в Telegram');
+          }),
+          () => {
+            this.patch(c.id, {
+              rubrics: c.rubrics.map(r => Object.assign({}, r, {
+                example: r.example || 'Пример поста по рубрике «' + r.name + '» с учётом style_prompt. Короткие фразы, обращение на «вы», в конце — заглушка с призывом.'
+              }))
+            });
+            this.flash('Демо: примеры не от модели');
+          });
+      },
+      rubrics: c.rubrics.map((r, i) => {
+        const upd = (key, val) => this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { [key]: val }) : x)) });
+        return {
+          name: r.name, days: r.days, prompt: r.prompt, example: r.example || '— примера ещё нет',
+          setName: e => upd('name', e.target.value),
+          setDays: e => upd('days', e.target.value),
+          setPrompt: e => upd('prompt', e.target.value),
+          copyLabel: st.copied === 'r' + i ? 'Скопировано ✓' : 'Скопировать',
+          copyBtn: 'margin-top: 6px; border: 1px solid ' + (r.example ? '#dedeD9' : '#eeeeea') + '; background: #fff; color: ' + (r.example ? '#14171a' : '#a3a7ac') + '; font-size: 11.5px; padding: 4px 9px; border-radius: 4px; cursor: pointer;',
+          onCopy: () => { if (r.example) this.copy(r.example, 'r' + i); },
+          onRemove: () => this.patch(c.id, { rubrics: c.rubrics.filter((x, j) => j !== i) }),
+          onCopyPrompt: null
+        };
+      }),
+      addRubric: () => this.patch(c.id, { rubrics: c.rubrics.concat([{ name: 'Новая рубрика', days: 'пн', prompt: '', example: '' }]) }),
+
+      // RouterAI: правки клиента -> обновлённые промпты рубрик
+      applyLabel: busy === 'edits' ? 'Обновляю промпты…' : 'Применить правки',
+      applyBtn: !c.edits.trim() || busy ? this.btn('off') : this.btn('ghost'),
+      applyEdits: () => {
+        if (!c.edits.trim()) return this.flash('Вставьте правки клиента');
+        this.act('edits',
+          () => apiPost(conn, 'apply_edits', { id: c.id, client: toApi(c), edits: c.edits }).then(r => {
+            this.applyClient(r.client, { edits: '' });
+            this.flash('Промпты и примеры обновлены — итерация ' + r.iterations);
+          }),
+          () => {
+            this.patch(c.id, {
+              iterations: c.iterations + 1, edits: '',
+              rubrics: c.rubrics.map(r => Object.assign({}, r, {
+                prompt: r.prompt + ' Учесть правки клиента.',
+                example: 'Обновлённый пример по рубрике «' + r.name + '» с учётом правок клиента.'
+              }))
+            });
+            this.flash('Демо: правки применены только в интерфейсе');
+          });
+      },
+
+      launchLabel: busy === 'launch' ? 'Коммичу конфиг…' : dep ? 'Обновить конфиг' : 'Сохранить и запустить',
+      configJson: cfg,
+      deployLabel: busy === 'launch' ? 'PUT в процессе' : dep ? 'закоммичен · ' + dep.sha : 'не закоммичен',
+      deployStyle: PILL + (busy === 'launch'
+        ? 'background: #eef1fe; color: #2b4acf; border: 1px solid #d3dbfa;'
+        : dep
+          ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
+          : 'background: #f1f1ed; color: #5d636b; border: 1px solid #e2e2dd;') + ' font-family: \'IBM Plex Mono\', monospace;',
+      deploySteps: [
+        { label: 'Конфиг собран из брифа и рубрик', detail: cfgBytes + ' байт · ' + c.rubrics.length + ' рубрик · ' + c.slots.length + ' слотов', ok: !!c.rubrics.length },
+        { label: 'GET sha текущего файла', detail: dep && dep.prevSha && dep.prevSha !== '—' ? 'sha ' + dep.prevSha : 'файла ещё нет — создание', ok: true },
+        { label: 'PUT contents/clients/' + c.id + '.json', detail: dep ? 'commit ' + dep.sha + (dep.at ? ' · ' + dep.at : '') : 'ожидает запуска', ok: !!dep },
+        { label: 'workflow_dispatch post.yml', detail: dep ? (dep.note || 'тестовый прогон запущен') : 'запустится после коммита', ok: !!dep }
+      ].map(s => ({
+        label: s.label, detail: s.detail,
+        dot: 'flex: none; width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; background: ' + (s.ok ? '#136c41' : '#cfd0cc') + ';'
+      })),
+      copyConfigLabel: st.copied === 'cfg' ? 'Скопировано ✓' : 'Скопировать конфиг',
+      copyConfig: () => this.copy(cfg, 'cfg'),
+
+      // то же, что кнопка «Отправить в репозиторий», но из вкладки согласования
+      onLaunch: () => this.act('launch',
+        () => apiPost(conn, 'push', { id: c.id, client: toApi(c) }).then(r => {
+          this.applyClient(r.client);
+          this.setState(s => ({
+            deployed: Object.assign({}, s.deployed, {
+              [c.id]: { sha: r.sha, prevSha: r.prevSha, at: r.at, note: r.workflowNote || '' }
+            })
+          }));
+          this.flash('PUT ' + r.path + ' — commit ' + r.sha +
+            (r.dispatched ? ', workflow запущен' : (r.workflowNote ? ' · ' + r.workflowNote : '')));
+        }),
+        () => {
+          const sha = Math.random().toString(16).slice(2, 9);
+          this.patch(c.id, {
+            checks: Object.assign({}, c.checks, { config: true }),
+            lastPostStatus: c.lastPostStatus === 'Не запущен' ? 'Опубликован' : c.lastPostStatus
+          });
+          this.setState(s => ({
+            deployed: Object.assign({}, s.deployed, {
+              [c.id]: { sha, prevSha: dep ? dep.sha : '—', at: 'демо', note: 'демо-режим' }
+            })
+          }));
+          this.flash('Демо: коммита не было — задайте WEBAPP_URL');
+        }),
+
+      // Оплатами управляет дропдаун в листе «Клиенты» (Apps Script сам
+      // сдвигает дату и красит статус), поэтому здесь только ссылка на
+      // нужную строку — открывается сразу на ячейке статуса.
+      payRaw: c.payRaw || '—',
+      sheetBtnLabel: 'Открыть строку в таблице',
+      sheetBtnStyle: this.btn('primary', ' width: 100%; margin-top: 14px;'),
+      payHint: 'Оплату отмечайте дропдауном в колонке «Статус»: «Оплачено N мес» сдвигает дату, «Отменить оплату» возвращает назад.',
+      openRow: () => {
+        if (!c.rowUrl) return this.flash(st.demo
+          ? 'Демо-режим: задайте WEBAPP_URL, чтобы открыть строку в таблице'
+          : 'Для этого клиента нет ссылки на строку — обновите список');
+        try { window.open(c.rowUrl, '_blank'); } catch (e) { this.flash('Не удалось открыть таблицу'); }
+      },
+      reminders,
+      hasToast: !!st.toast, toast: st.toast
+    };
+  }
+}
+
+mountPage(
+  document.getElementById('crm-template').content,
+  Component,
+  {
+  "density": "Обычная",
+  "showStats": true,
+  "accent": "#2b4acf"
+},
+  document.getElementById('crm-root')
+);
+</script>
+
+</body>
+</html>
