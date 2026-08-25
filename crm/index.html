@@ -1609,7 +1609,9 @@ class Component extends DCLogic {
       cta: c.cta,
       faq: c.faq ? c.faq.split('\n') : [],
       rubrics: c.rubrics.map(r => ({ name: r.name, days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt })),
+      tg_channel: c.tgChannel || null,
       yandex_folder: 'clients/' + c.id,
+      active: c.active !== false,
       iterations: c.iterations
     }, null, 2);
     const cfgBytes = new Blob([cfg]).size;
@@ -1949,9 +1951,9 @@ class Component extends DCLogic {
           setTimeout(() => this.setState({ pushed: false }), 2000);
         }),
 
-      secretJson: '{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "tg_token": "<bot token>",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}',
+      secretJson: '{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}',
       copySecretLabel: st.copied === 'secret' ? 'Скопировано ✓' : 'Скопировать JSON',
-      copySecret: () => this.copy('{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "tg_token": "<bot token>",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}', 'secret'),
+      copySecret: () => this.copy('{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}', 'secret'),
       styleFilled,
       styleTasks: TASKS.map((t, i) => ({
         num: String(i + 1).padStart(2, '0'), task: t.task, example: t.example, answer: c.styleAnswers[i],
