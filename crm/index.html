@@ -1185,7 +1185,7 @@ function toApi(c) {
     holidays: c.holidays, faq: c.faq, limits: c.limits, limitsText: c.limitsText,
     cta: c.cta, source: c.source, startedAt: isoDate(c.startedAt),
     // pay и nextPay не отправляем: ими распоряжается дропдаун в таблице
-    active: c.active !== false, stylePrompt: c.stylePrompt, niche: c.niche,
+    active: c.active !== false, tgChannel: c.tgChannel, stylePrompt: c.stylePrompt, niche: c.niche,
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
     lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus
