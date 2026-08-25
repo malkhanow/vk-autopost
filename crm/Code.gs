@@ -1819,24 +1819,27 @@ function onFormSubmit(e) {
   var brief = briefFromAnswers_(answers);
   brief.tariff = detectTariff_(raw, answers);
 
-  var created = withLock_(function () { return createClient_(brief); });
+  var row = (e && e.range) ? e.range.getRow() : 0;
 
-  if (e && e.range) {
-    try { markBrief_(e.range.getRow(), created.id, 'создан клиент'); } catch (err) {
-      console.warn('Не удалось отметить строку брифа: ' + err);
-    }
+  // Карточку здесь НЕ создаём: бриф попадает в список на сайте, клиент
+  // заводится кнопкой после проверки. Иначе холостые отправки формы
+  // сразу оседают пустыми строками в листе «Клиенты».
+  if (!brief.business && !brief.name) {
+    tgNotify_('Пустой бриф: нет ни названия бизнеса, ни ФИО. ' +
+      'Строка ' + row + ' листа «Брифы», в CRM не показывается.');
+    return null;
   }
 
   tgNotify_(
-    'Новый бриф: ' + (created.name || '—') + ', ' + created.tariff + ', ' + (created.niche || 'ниша не указана') +
-    '\n' + created.business + (created.city ? ' · ' + created.city : '') +
-    (created.tg ? '\n' + created.tg : '') + (created.phone ? ' · ' + created.phone : '') +
-    '\nclient_id: ' + created.id
+    'Новый бриф: ' + (brief.name || '—') + ', ' + brief.tariff + ', ' +
+    (brief.niche || 'ниша не указана') +
+    '\n' + (brief.business || '—') + (brief.city ? ' · ' + brief.city : '') +
+    (brief.tg ? '\n' + brief.tg : '') + (brief.phone ? ' · ' + brief.phone : '') +
+    '\nЖдёт в CRM — создай карточку кнопкой.'
   );
 
-  return created;
+  return brief;
 }
-
 /** Ответы формы -> поля клиента. */
 function briefFromAnswers_(answers) {
   var pick = function (field) { return findAnswer_(answers, FORM_Q[field] || []); };
