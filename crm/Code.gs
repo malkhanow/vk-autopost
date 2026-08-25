@@ -18,8 +18,8 @@
 // Репозиторий публичный, поэтому здесь заглушки. Рабочие значения стоят
 // в проекте Apps Script — при обновлении файла не потеряйте их.
 // sendTelegram сам молча выключается, пока стоит "ВСТАВЬ".
-const TELEGRAM_BOT_TOKEN = "ВСТАВЬ_ТОКЕН_БОТА";
-const TELEGRAM_CHAT_ID   = "ВСТАВЬ_CHAT_ID";
+const TELEGRAM_BOT_TOKEN = PropertiesService.getScriptProperties().getProperty("TELEGRAM_BOT_TOKEN");
+const TELEGRAM_CHAT_ID   = PropertiesService.getScriptProperties().getProperty("TELEGRAM_CHAT_ID");
 
 const SHEET_NAME    = "Клиенты";
 const COL_NAME      = 2;   // B — Клиент
@@ -274,7 +274,8 @@ var HEAD_CLIENTS = [
 /** Служебные колонки CRM. Дописываются справа, если их ещё нет. */
 var HEAD_CLIENTS_EXTRA = [
   'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
-  'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено'
+  'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
+  'Telegram-канал'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -299,7 +300,8 @@ var F = {
   holidays: 'Праздники', faq: 'FAQ', limits: 'Ограничения список',
   limitsText: 'Ограничения текст', cta: 'Заглушка', source: 'Источник',
   startedAt: 'Дата подключения', nextPay: 'Дата оплаты', pay: 'Статус оплаты',
-  active: 'Активен', stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
+  active: 'Активен', tgChannel: 'Telegram-канал',
+  stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
   iterations: 'Итерации', photoQueue: 'Фото в очереди',
@@ -339,28 +341,31 @@ var TARIFF_SLOTS = { 'СТАРТ': 1, 'ПРО': 2, 'БИЗНЕС': 2 };
  * колонки, поэтому вопросы в форме можно переставлять.
  */
 var FORM_Q = {
+  topics:     ['какие темы постов', 'темы постов вам подходят'],
   name:       ['фио', 'ваше имя', 'как вас зовут', 'имя и фамилия'],
-  phone:      ['телефон'],
+  phone:      ['телефон', 'номер телефона'],
   email:      ['email', 'почта', 'e-mail'],
-  tg:         ['telegram', 'телеграм'],
-  business:   ['название бизнеса', 'название компании', 'название проекта', 'название'],
+  tg:         ['telegram', 'телеграм', 'ваш telegram'],
+  business:   ['название вашего бизнеса', 'название бизнеса', 'название компании', 'название проекта', 'название'],
   niche:      ['ниша', 'сфера', 'вид деятельности'],
   city:       ['город', 'регион'],
-  about:      ['о бизнесе', 'расскажите о бизнес', 'опишите бизнес', 'о вашем бизнес', 'чем занимаетесь', 'что продаёте', 'что продаете'],
-  audience:   ['аудитори', 'кто ваши клиенты', 'кто ваш клиент', 'кто ваш типичный клиент', 'типичный клиент', 'целев'],
-  networks:   ['соцсет', 'социальн', 'где публиковать'],
-  links:      ['ссылк'],
-  tone:       ['тон', 'стиль общения'],
-  slots:      ['слот', 'время публикаци', 'когда публиковать'],
-  hasPhoto:   ['есть фото', 'фото работ', 'фотографи', 'фото'],
-  holidays:   ['праздник'],
-  faq:        ['faq', 'частые вопросы', 'вопросы клиентов'],
-  limits:     ['о чём нельзя', 'о чем нельзя', 'нельзя писать', 'запрещ', 'ограничения список'],
-  limitsText: ['что ещё нельзя', 'что еще нельзя', 'ограничения текст',
+  about:      ['чем занимаетесь и что продаёте', 'чем занимаетесь и что продаете',
+               'о бизнесе', 'расскажите о бизнес', 'опишите бизнес', 'о вашем бизнес'],
+  audience:   ['типичного клиента', 'опишите вашего типичного', 'аудитори',
+               'кто ваши клиенты', 'кто ваш клиент', 'целев'],
+  networks:   ['какие соцсети', 'соцсет', 'социальн', 'где публиковать'],
+  links:      ['ссылки на существующие', 'ссылк'],
+  tone:       ['тон общения', 'тон', 'стиль общения'],
+  slots:      ['в какое время публиковать', 'слот', 'время публикаци', 'когда публиковать'],
+  hasPhoto:   ['есть ли у вас фото', 'есть фото', 'фото работ', 'фотографи'],
+  holidays:   ['праздничные посты', 'праздник'],
+  faq:        ['часто задающие вопросы', 'faq', 'частые вопросы', 'вопросы клиентов'],
+  limits:     ['о чём нельзя писать', 'о чем нельзя писать', 'нельзя писать', 'запрещ', 'ограничения список'],
+  limitsText: ['что ещё нельзя упоминать', 'что еще нельзя упоминать', 'что ещё нельзя', 'что еще нельзя',
                'дополнительные ограничени', 'другие ограничени'],
-  cta:        ['заглушка', 'призыв'],
-  tariff:     ['тариф'],
-  source:     ['откуда', 'источник', 'как узнали', 'как вы о нас']
+  cta:        ['призыв к действию', 'заглушка', 'призыв'],
+  tariff:     ['какой тариф', 'тариф'],
+  source:     ['как вы о нас узнали', 'как узнали', 'откуда', 'источник']
 };
 
 
@@ -376,7 +381,7 @@ var TARIFF_MARKERS = { 'СТАРТ': ['СТАРТ'], 'ПРО': ['ПРО'], 'БИ
 var DEFAULT_TARIFF = 'СТАРТ';
 
 var ROUTERAI_URL = 'https://routerai.ru/api/v1/chat/completions';
-var ROUTERAI_MODEL_DEFAULT = 'google/gemini-3.1-pro-preview';
+var ROUTERAI_MODEL_DEFAULT = 'google/gemini-3.1-flash-lite';
 
 /* ========================================================================
  *  СВОЙСТВА СКРИПТА
@@ -488,7 +493,7 @@ function sheet_(name, headers) {
 /** Приводит заголовок к виду, по которому его можно сравнивать. */
 function norm_(s) {
   return String(s === null || s === undefined ? '' : s)
-    .replace(/ /g, ' ').toLowerCase().replace(/ё/g, 'е')
+    .replace(/ /g, ' ').toLowerCase().replace(/ё/g, 'е')
     .replace(/\s+/g, ' ').trim();
 }
 
@@ -704,16 +709,28 @@ function addMonth_(dt) {
   return n;
 }
 
-/** «Утро, Вечер» / «morning,evening» -> ['morning','evening'] */
+/**
+ * Ответ формы -> ключи слотов. Названия ищутся в любом месте строки:
+ * ответы бывают составные — «День и вечер — 14:00 и 19:00 МСК».
+ */
 function slotsIn_(v) {
-  return list_(v).map(function (item) {
-    var s = norm_(item);
-    var hit = null;
-    SLOT_DEF.forEach(function (sl) {
-      if (s === sl.key || s === norm_(sl.label) || s.indexOf(norm_(sl.label)) === 0) hit = sl.key;
-    });
-    return hit;
-  }).filter(Boolean).filter(function (k, i, arr) { return arr.indexOf(k) === i; });
+  if (Array.isArray(v)) v = v.join(', ');
+  var s = norm_(v);
+  if (!s) return [];
+  var out = [];
+  SLOT_DEF.forEach(function (sl) {
+    if (s.indexOf(sl.key) >= 0 || s.indexOf(norm_(sl.label)) >= 0) out.push(sl.key);
+  });
+  return out;
+}
+/** Ответ формы про праздники -> один из вариантов выпадашки на сайте. */
+function holidaysIn_(v) {
+  var s = norm_(v);
+  if (!s) return '';
+  if (s.indexOf('без упоминания') >= 0) return 'Да, но без упоминания скидок';
+  if (s.indexOf('не нужн') >= 0 || s.indexOf('нет') === 0) return 'Не нужны';
+  if (s.indexOf('да') === 0 || s.indexOf('скидк') >= 0) return 'Да, со скидками';
+  return '';
 }
 
 function slotsOut_(keys) {
@@ -774,7 +791,7 @@ function uniqueId_(base, taken) {
 
 var LIMITS_KNOWN = [
   'Цены и стоимость услуг', 'Конкретные сроки выполнения',
-  'Проценты, ставки, доходность', 'Гарантии результата',
+  'Проценты, ставки, доходность',
   'Медицинские советы и диагнозы'
 ];
 var TOPICS_KNOWN = [
@@ -831,7 +848,7 @@ function rowToClient_(t, row, rowNumber) {
     slots: slotsIn_(val_(t, row, 'slots')),
     hasPhoto: bool_(val_(t, row, 'hasPhoto')),
     rubrics: normRubrics_(jsonCell_(val_(t, row, 'rubrics'), [])),
-    holidays: str_(val_(t, row, 'holidays')),
+    holidays: holidaysIn_(val_(t, row, 'holidays')),
     faq: str_(val_(t, row, 'faq')),
     limits: pickList_(val_(t, row, 'limits'), LIMITS_KNOWN),
     limitsText: str_(val_(t, row, 'limitsText')),
@@ -843,6 +860,7 @@ function rowToClient_(t, row, rowNumber) {
     pay: payState_(payIn_(payRaw), nextPay),
     payRaw: payRaw,
     active: activeCol < 0 ? true : bool_(row[activeCol]),
+    tgChannel: str_(val_(t, row, 'tgChannel')),
     stylePrompt: str_(val_(t, row, 'stylePrompt')),
     configPushed: str_(val_(t, row, 'pushed')),
     niche: str_(val_(t, row, 'niche')),
@@ -911,7 +929,7 @@ var TO_CELL = {
   slots:         function (v) { return slotsOut_(Array.isArray(v) ? v : slotsIn_(v)); },
   hasPhoto:      function (v) { return bool_(v) ? 'Да' : 'Нет'; },
   rubrics:       function (v) { return JSON.stringify(normRubrics_(v)); },
-  holidays:      function (v) { return str_(v); },
+  holidays:      function (v) { return holidaysIn_(v) || str_(v); },
   faq:           function (v) { return str_(v); },
   limits:        function (v) { return pickList_(v, LIMITS_KNOWN).join('\n'); },
   limitsText:    function (v) { return str_(v); },
@@ -920,6 +938,7 @@ var TO_CELL = {
   startedAt:     function (v) { return parseDate_(v); },
   // pay / nextPay сюда не входят: статус и дату оплаты ведёт дропдаун
   active:        function (v) { return bool_(v); },
+  tgChannel:     function (v) { return str_(v); },
   stylePrompt:   function (v) { return str_(v); },
   configPushed:  function (v) { return str_(v); },
   niche:         function (v) { return str_(v); },
@@ -1308,6 +1327,7 @@ function buildConfig_(c) {
         prompt: r.prompt
       };
     }),
+tg_channel: c.tgChannel || null,
     yandex_folder: 'clients/' + c.id,
     iterations: c.iterations || 0
   };
@@ -1424,11 +1444,11 @@ function ghError_(what, res) {
  * ==================================================================== */
 
 var STYLE_TASKS = [
-  'Напишите пост про то, как вы провели вчерашний вечер',
-  'Напишите пост про что-то, что вас недавно удивило или порадовало',
-  'Напишите пост про вашу любимую еду или кафе',
-  'Напишите пост про то, что вас раздражает в людях',
-  'Напишите пост про что-то, чему вы недавно научились или что попробовали впервые'
+  'Какая небольшая вещь в повседневной жизни кажется вам сильно недооценённой? Почему?',
+  'Объясните человеку, который совсем не разбирается в теме, одну вещь, которую вы хорошо понимаете. Как бы вы это сделали?',
+  'С каким распространённым мнением вы не согласны? Объясните почему.',
+  'Представьте: вам предлагают возможность, которая может сильно изменить жизнь, но ради неё нужно отказаться от чего-то важного и привычного. Как бы вы принимали такое решение?',
+  'Можно ли одновременно хотеть двух противоположных вещей? Приведите пример и объясните почему вы так думаете.'
 ];
 
 /**
@@ -1446,6 +1466,7 @@ function ai_(messages, opts) {
   };
   if (opts.maxTokens) payload.max_tokens = opts.maxTokens;
   if (opts.json) payload.response_format = { type: 'json_object' };
+    payload.reasoning_effort = opts.reasoningEffort || 'low';
 
   var last = '';
   for (var attempt = 0; attempt < 3; attempt++) {
@@ -1483,15 +1504,21 @@ function parseJsonLoose_(text) {
   s = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
   try { return JSON.parse(s); } catch (e) {}
   var start = s.search(/[\[{]/);
+  var lastErr = null;
   if (start >= 0) {
     var open = s.charAt(start);
     var close = open === '[' ? ']' : '}';
     var end = s.lastIndexOf(close);
     if (end > start) {
-      try { return JSON.parse(s.slice(start, end + 1)); } catch (e2) {}
+      try { return JSON.parse(s.slice(start, end + 1)); } catch (e2) { lastErr = e2; }
     }
   }
-  throw new Error('Модель вернула не JSON: ' + s.slice(0, 200));
+  // Показываем место реальной ошибки, а не начало строки — иначе не видно,
+  // где именно модель сломала JSON (обычно "лишние" кавычки внутри текста).
+  var msg = lastErr ? String(lastErr.message || lastErr) : '';
+  var posMatch = msg.match(/position (\d+)/);
+  var around = posMatch ? s.slice(Math.max(0, Number(posMatch[1]) - 80), Number(posMatch[1]) + 80) : s.slice(0, 200);
+  throw new Error('Модель вернула не JSON (длина ' + s.length + ', ' + msg + '): ' + around);
 }
 
 /** Краткая выжимка брифа — общий контекст для всех промптов. */
@@ -1592,9 +1619,12 @@ function aiBuildPlan_(req) {
         'Рубрики про фото работ добавляй, только если у клиента есть фото. ' +
         'Промпт пиши на русском, 1–3 предложения, без цен, сроков и гарантий, ' +
         'если они в запретах.\n\n' +
-        'Верни JSON: {"rubrics": [{"name": "…", "days": "пн, чт", "prompt": "…"}]}'
+            'Внутри значений JSON никогда не используй двойные кавычки " — ' +
+    'если нужно что-то процитировать, используй «ёлочки». Промпт не должен ' +
+    'обрываться на середине предложения.\n\n' +
+    'Верни JSON: {"rubrics": [{"name": "…", "days": "пн, чт", "prompt": "…"}]}'
     }
-  ], { json: true, temperature: 0.6, maxTokens: 2000 });
+  ], { json: true, temperature: 0.6, maxTokens: 4000 });
 
   var rubrics = normRubrics_(parseJsonLoose_(content).rubrics || []);
   if (!rubrics.length) throw new Error('Модель не вернула ни одной рубрики');
@@ -1616,30 +1646,45 @@ function aiGenExamples_(req) {
     var content = ai_([
       {
         role: 'system',
-        content: 'Ты пишешь посты для соцсетей малого бизнеса от лица владельца. ' +
-          'Пишешь только текст поста, без заголовков «Пост:» и без пояснений.'
-      },
-      {
-        role: 'user',
-        content: ctx +
-          '\n\nРубрика: ' + r.name +
-          '\nИнструкция рубрики: ' + r.prompt +
-          '\n\nНапиши один пример поста по этой рубрике: 60–120 слов, ' +
-          (c.stylePrompt
-            ? 'строго в стиле клиента, описанном выше в style_prompt. '
-            : 'простым разговорным языком. ') +
-          'В конце — призыв к действию клиента, если он задан. ' +
-          'Не выдумывай цены, сроки и гарантии.'
-      }
-    ], { temperature: 0.8, maxTokens: 700 });
-    return {
-      name: r.name, days: r.days, prompt: r.prompt,
-      example: String(content).replace(/^```[\s\S]*?\n|```$/g, '').trim()
-    };
+          content: 'Ты пишешь посты для соцсетей малого бизнеса от лица владельца. ' +
+            'В ответе — только готовый текст поста, ничего больше: ни черновиков, ' +
+            'ни заметок о проверке длины, ни заголовков вроде «Пост:» или «Draft». ' +
+            'Не показывай ход рассуждений — только финальный результат.'
+        },
+        {
+          role: 'user',
+          content: ctx +
+            '\n\nРубрика: ' + r.name +
+            '\nИнструкция рубрики: ' + r.prompt +
+            '\n\nНапиши один пример поста по этой рубрике: 60–120 слов, ' +
+            (c.stylePrompt
+              ? 'строго в стиле клиента, описанном выше в style_prompt. '
+              : 'простым разговорным языком. ') +
+            'В конце — призыв к действию клиента, если он задан. ' +
+            'Не выдумывай цены, сроки и гарантии. Ответь только текстом поста, ' +
+            'без черновиков и пометок о проверке.'
+        }
+      ], { temperature: 0.8, maxTokens: 900 });
+      return {
+        name: r.name, days: r.days, prompt: r.prompt,
+        example: stripModelNoise_(content)
+      };
   });
 
   saveRubrics_(c.id, out);
   return { rubrics: out, client: refetchClient_(c.id) };
+}
+
+/**
+ * Страховка на случай, если модель всё же покажет внутренний черновик
+ * вместо чистого поста («Draft 1», «Checking Constraints», «Word count
+ * check» и т.п.). Промпт это запрещает, но если утечёт — вырезаем.
+ */
+function stripModelNoise_(text) {
+  var s = String(text == null ? '' : text).replace(/^```[\s\S]*?\n|```$/g, '');
+  s = s.replace(/^.*\b(Draft \d+|Checking Constraints?|Word count check)\b.*$/gim, '');
+  s = s.replace(/\n{3,}/g, '\n\n').trim();
+  return s;
 }
 
 /** applyEdits: правки клиента -> обновлённые промпты и примеры рубрик. */
@@ -1799,7 +1844,7 @@ function mdEscape_(text) {
  * Ответы читаются по заголовку вопроса, а не по номеру колонки.
  */
 function onFormSubmit(e) {
-  var raw = {};   // исходный заголовок -> ответ
+  var raw = {};
   if (e && e.namedValues) {
     for (var q in e.namedValues) {
       var v = e.namedValues[q];
@@ -1821,9 +1866,6 @@ function onFormSubmit(e) {
 
   var row = (e && e.range) ? e.range.getRow() : 0;
 
-  // Карточку здесь НЕ создаём: бриф попадает в список на сайте, клиент
-  // заводится кнопкой после проверки. Иначе холостые отправки формы
-  // сразу оседают пустыми строками в листе «Клиенты».
   if (!brief.business && !brief.name) {
     tgNotify_('Пустой бриф: нет ни названия бизнеса, ни ФИО. ' +
       'Строка ' + row + ' листа «Брифы», в CRM не показывается.');
@@ -1831,8 +1873,8 @@ function onFormSubmit(e) {
   }
 
   tgNotify_(
-    'Новый бриф: ' + (brief.name || '—') + ', ' + brief.tariff + ', ' +
-    (brief.niche || 'ниша не указана') +
+    'Новый бриф: ' + (brief.name || '—') + ', ' + brief.tariff +
+    (brief.niche ? ', ' + brief.niche : '') +
     '\n' + (brief.business || '—') + (brief.city ? ' · ' + brief.city : '') +
     (brief.tg ? '\n' + brief.tg : '') + (brief.phone ? ' · ' + brief.phone : '') +
     '\nЖдёт в CRM — создай карточку кнопкой.'
@@ -1840,6 +1882,7 @@ function onFormSubmit(e) {
 
   return brief;
 }
+
 /** Ответы формы -> поля клиента. */
 function briefFromAnswers_(answers) {
   var pick = function (field) { return findAnswer_(answers, FORM_Q[field] || []); };
@@ -1861,6 +1904,7 @@ function briefFromAnswers_(answers) {
     slots: slotsIn_(pick('slots')),
     hasPhoto: bool_(pick('hasPhoto')) || /\d/.test(pick('hasPhoto')),
     holidays: pick('holidays'),
+    topics: pick('topics') ? pickList_(pick('topics'), TOPICS_KNOWN) : [],
     faq: pick('faq'),
     limits: limits ? pickList_(limits, LIMITS_KNOWN) : [],
     limitsText: pick('limitsText'),
