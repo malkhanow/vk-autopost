@@ -1570,7 +1570,7 @@ class Component extends DCLogic {
 
     const setter = key => e => this.patch(c.id, { [key]: e.target.value, });
     const set = {};
-    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'edits'].forEach(k => { set[k] = setter(k); });
+    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'edits', 'tgChannel'].forEach(k => { set[k] = setter(k); });
 
     const chip = (on, label, onClick) => ({
       label, onClick,
