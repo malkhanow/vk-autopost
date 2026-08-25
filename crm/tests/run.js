@@ -11,7 +11,8 @@ const suites = [
   ['pure.test.js', 'разбор значений, тариф по разделу формы, конфиг'],
   ['sheet.test.js', 'таблица: создание, сохранение, оплата, форма, лог'],
   ['github-ai.test.js', 'GitHub Contents API и RouterAI'],
-  ['ui.test.js', 'интерфейс: загрузка и все действия через Web App']
+  ['ui.test.js', 'интерфейс: загрузка и все действия через Web App'],
+  ['build.test.js', 'собранная страница не отстаёт от холста']
 ];
 
 let failed = 0;
