@@ -12,6 +12,14 @@ Crosslybot автоматически кросспостит в VK и Max.
 Сб — Идея для принта
 Вс — Пост из 24
 
+Картинки:
+— рубрики с фото берут их из rubrics/<рубрика> на Яндекс.Диске, без повторов
+— праздничные посты сначала смотрят в rubrics/holidays, и только если там
+  пусто, просят картинку у модели и качают из интернета
+— из интернета берём только jpg, png и webp: svg Telegram отдаёт 400,
+  gif уходит документом. Неудачная ссылка — повод попросить другую,
+  всего до 3 попыток, дальше пост уходит без фото
+
 GitHub Secrets:
 MISTRAL_API_KEY — ключ Mistral AI
 TELEGRAM_BOT_TOKEN — токен бота
@@ -24,10 +32,12 @@ import json
 import mimetypes
 import os
 import random
+import re
 import sys
 import tempfile
 import time
 from datetime import date, datetime, timezone
+from urllib.parse import urlsplit
 
 import requests
 
@@ -43,6 +53,17 @@ MISTRAL_VISION_MODEL = "pixtral-12b-2409"
 
 RUBRICS_BASE = "/Custom Studio Autopost/rubrics"
 STATE_FILE = "content_state.json"
+
+# Папка с праздничными фото. Если в ней есть файлы — берём оттуда,
+# и только если пусто — идём за картинкой в интернет.
+HOLIDAYS_RUBRIC = "holidays"
+
+# Telegram принимает не всё: svg отдаёт 400, gif уходит документом.
+IMAGE_ATTEMPTS = 3
+ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+CONTENT_TYPE_ALIASES = {"image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg"}
+ALLOWED_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+BLOCKED_IMAGE_EXTS = (".svg", ".gif")
 
 HOW_TO_ORDER_PHOTO = "/Custom Studio Autopost/rubrics/how_to_order.png"
 
@@ -290,7 +311,11 @@ def list_rubric_photos(rubric_name):
         print(f"Яндекс.Диск: не удалось получить файлы из {path}")
         return []
     items = resp.json().get("_embedded", {}).get("items", [])
-    return [i for i in items if i.get("type") == "file"]
+    return [
+        i for i in items
+        if i.get("type") == "file"
+        and os.path.splitext(i.get("name", ""))[1].lower() in ALLOWED_IMAGE_EXTS
+    ]
 
 def download_yandex_file(yandex_path):
     dl = requests.get(
@@ -384,23 +409,103 @@ def call_mistral_vision(prompt, image_path, max_retries=3):
     raise RuntimeError("Mistral vision не ответил")
 
 def fetch_image_from_url(url):
-    """Скачивает картинку по URL. Возвращает путь к временному файлу или None."""
+    """Скачивает картинку по URL. Возвращает путь к временному файлу или None.
+
+    Отсеивает то, что Telegram не примет: svg и gif — сразу по расширению,
+    остальное — по Content-Type ответа, до чтения тела.
+    """
     if not url or not url.startswith("http"):
         return None
+
+    ext = os.path.splitext(urlsplit(url).path.lower())[1]
+    if ext in BLOCKED_IMAGE_EXTS:
+        print(f"Формат {ext} Telegram не принимает, пропускаю: {url}")
+        return None
+
+    tmp_name = None
     try:
-        r = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-        ct = r.headers.get("Content-Type", "")
-        if r.status_code == 200 and "image" in ct:
-            ext = ".jpg" if "jpeg" in ct else ".png" if "png" in ct else ".jpg"
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-            tmp.write(r.content)
-            tmp.close()
-            print(f"Картинка скачана: {url}")
-            return tmp.name
-        else:
-            print(f"Не удалось скачать картинку ({r.status_code}): {url}")
+        with requests.get(url, timeout=30, stream=True,
+                          headers={"User-Agent": "Mozilla/5.0"}) as r:
+            if r.status_code != 200:
+                print(f"Не удалось скачать картинку ({r.status_code}): {url}")
+                return None
+
+            ct = r.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            ct = CONTENT_TYPE_ALIASES.get(ct, ct)
+            if ct not in ALLOWED_IMAGE_TYPES:
+                print(f"Неподдерживаемый тип «{ct or 'не указан'}», пропускаю: {url}")
+                return None
+
+            tmp = tempfile.NamedTemporaryFile(delete=False,
+                                              suffix=ALLOWED_IMAGE_TYPES[ct])
+            tmp_name = tmp.name
+            with tmp:
+                for chunk in r.iter_content(8192):
+                    tmp.write(chunk)
+
+        if os.path.getsize(tmp_name) == 0:
+            print(f"Скачался пустой файл, пропускаю: {url}")
+            os.unlink(tmp_name)
+            return None
+
+        print(f"Картинка скачана: {url}")
+        return tmp_name
+
     except Exception as e:
         print(f"Ошибка скачивания картинки: {e}")
+        if tmp_name and os.path.exists(tmp_name):
+            try:
+                os.unlink(tmp_name)
+            except Exception:
+                pass
+    return None
+
+def request_image_url(topic):
+    """Просит у модели ещё одну ссылку на картинку по теме поста."""
+    prompt = f"""Дай прямую ссылку на тематическое изображение из открытых источников по теме:
+
+{topic}
+
+Требования:
+- прямая ссылка на файл изображения, а не на страницу с ним
+- только jpg, png или webp — svg и gif не подходят
+- ссылка должна быть постоянной, а не одноразовой
+
+Ответь одной строкой в формате:
+IMAGE_URL: https://..."""
+    try:
+        raw = call_mistral_text(prompt)
+    except Exception as e:
+        print(f"Не удалось запросить новую ссылку: {e}")
+        return None
+
+    _, url = extract_image_url(raw)
+    if not url:
+        match = re.search(r"https?://\S+", raw)
+        url = match.group(0).rstrip(').,;"\'') if match else None
+    return url
+
+def fetch_topic_image(topic, first_url=None, attempts=IMAGE_ATTEMPTS):
+    """Картинка по теме поста, с повторами.
+
+    Первую ссылку модель присылает вместе с текстом поста. Если по ней
+    ничего не скачалось — неподходящий формат, протухшая ссылка, сетевая
+    ошибка — просим другую ссылку и пробуем снова, но не больше attempts раз.
+    """
+    url = first_url
+    for attempt in range(1, attempts + 1):
+        if not url:
+            url = request_image_url(topic)
+        if not url:
+            print(f"Картинка, попытка {attempt} из {attempts}: модель не дала ссылку")
+        else:
+            print(f"Картинка, попытка {attempt} из {attempts}: {url}")
+            path = fetch_image_from_url(url)
+            if path:
+                return path
+        url = None
+
+    print(f"Не удалось найти подходящую картинку после {attempts} попыток")
     return None
 
 def extract_image_url(text):
@@ -434,7 +539,7 @@ IMAGE_URL: https://...
 Отвечай только текстом поста и строкой IMAGE_URL."""
     raw = call_mistral_text(prompt)
     text, url = extract_image_url(raw)
-    photo_path = fetch_image_from_url(url)
+    photo_path = fetch_topic_image(text[:300], first_url=url)
     return text, photo_path
 
 def generate_print_idea(photo_path):
@@ -486,7 +591,7 @@ def get_post24_text(idx, photo_path, state):
     state["post24_adapt_count"] = adapt_count + 1
     return base_text
 
-def generate_holiday_post(holiday, post_num):
+def generate_holiday_post(holiday, post_num, state):
     name = holiday["name"]
     theme = holiday["theme"]
     serious = name in SERIOUS_HOLIDAYS
@@ -520,7 +625,22 @@ IMAGE_URL: https://...
 Отвечай только текстом поста и строкой IMAGE_URL."""
     raw = call_mistral_text(prompt)
     text, url = extract_image_url(raw)
-    photo_path = fetch_image_from_url(url)
+
+    # Сначала — своё фото из rubrics/holidays, без повторов как в других рубриках
+    photo_path = None
+    try:
+        photo_path, photo_name = get_next_photo(HOLIDAYS_RUBRIC, state)
+        if photo_path:
+            print(f"Праздничное фото с Яндекс.Диска: {photo_name}")
+    except Exception as e:
+        print(f"Не удалось взять фото из {HOLIDAYS_RUBRIC}: {e}")
+        photo_path = None
+
+    # Папка пустая или недоступна — идём за картинкой в интернет
+    if not photo_path:
+        print(f"В {RUBRICS_BASE}/{HOLIDAYS_RUBRIC} фото нет — беру картинку из интернета")
+        photo_path = fetch_topic_image(f"{name} — {theme}", first_url=url)
+
     return text, photo_path
 
 # ---------- Telegram ----------
@@ -627,7 +747,7 @@ def main():
         holiday, post_num = holiday_task
         labels = {1: "за неделю", 2: "за день", 3: "в день праздника"}
         print(f"Праздничный пост: {holiday['name']} ({labels[post_num]})")
-        text, photo_path = generate_holiday_post(holiday, post_num)
+        text, photo_path = generate_holiday_post(holiday, post_num, state)
         print(f"Текст:\n{text}\n")
         post_to_telegram(text, photo_path)
         save_state(state)
