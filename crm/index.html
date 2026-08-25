@@ -1868,19 +1868,20 @@ class Component extends DCLogic {
       tabBrief: st.tab === 'brief', tabOnboarding: st.tab === 'onboarding',
       tabContent: st.tab === 'content', tabPayments: st.tab === 'payments',
       set,
-      c: {
-        id: c.id, business: c.business, name: c.name, niche: c.niche, city: c.city,
-        tariff: c.tariff, price: priceOf(c.tariff).toLocaleString('ru-RU'),
-        about: c.about, audience: c.audience, tone: c.tone, holidays: c.holidays,
-        faq: c.faq, cta: c.cta, limitsText: c.limitsText,
-        phone: c.phone, tg: c.tg, email: c.email, source: c.source,
-        startedAt: fmtLong(c.startedAt),
-        nextPay: c.nextPay ? fmtLong(c.nextPay) : 'не назначен',
-        photoQueue: c.photoQueue + ' шт',
-        lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
-        stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
-        payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay)
-      },
+c: {
+  id: c.id, business: c.business, name: c.name, niche: c.niche, city: c.city,
+  tariff: c.tariff, price: priceOf(c.tariff).toLocaleString('ru-RU'),
+  about: c.about, audience: c.audience, tone: c.tone, holidays: c.holidays,
+  faq: c.faq, cta: c.cta, limitsText: c.limitsText,
+  phone: c.phone, tg: c.tg, email: c.email, source: c.source,
+  startedAt: fmtLong(c.startedAt),
+  nextPay: c.nextPay ? fmtLong(c.nextPay) : 'не назначен',
+  photoQueue: c.photoQueue + ' шт',
+  lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
+  stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
+  payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay),
+  tgChannel: c.tgChannel
+},
       queueStyle: PILL + (c.photoQueue > 0
         ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
         : 'background: #fbe9e7; color: #a91f18; border: 1px solid #f0cdc9;') + ' font-family: \'IBM Plex Mono\', monospace;',
