@@ -887,7 +887,7 @@
       }
       if (name === 'value' && ('value' in el)) {
         var next = value === null || value === undefined ? '' : String(value);
-        if (el.value !== next && el !== document.activeElement) el.value = next;
+        if (el !== document.activeElement) el.value = next;
         return;
       }
       if (name === 'checked') {
