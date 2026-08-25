@@ -887,7 +887,7 @@
       }
       if (name === 'value' && ('value' in el)) {
         var next = value === null || value === undefined ? '' : String(value);
-        if (el.value !== next) el.value = next;   // не трогаем поле, если значение то же
+        if (el.value !== next && el !== document.activeElement) el.value = next;
         return;
       }
       if (name === 'checked') {
@@ -1077,7 +1077,7 @@ function client(o) {
     styleAnswers: ['', '', '', '', ''], stylePrompt: '', rubrics: [], edits: '', iterations: 0,
     checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
-    lastPostDate: '—', lastPostStatus: 'Не запущен'
+    lastPostDate: '—', lastPostStatus: 'Не запущен', tgChannel: ''
   }, o);
 }
 
