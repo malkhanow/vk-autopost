@@ -105,6 +105,36 @@ const SERVER_CLIENT = {
   v = comp.renderVals();
   ok('оплата применена', v.c.payLabel === 'Оплачено' && v.c.nextPay === '1 октября 2026', v.c.nextPay);
 
+  /* --- 4b. защита от повторного подтверждения и откат --- */
+  v = comp.renderVals();
+  ok('кнопка подтверждения серая', v.payBtnStyle.indexOf('not-allowed') > 0 && v.payBtnStyle.indexOf('#f4f4f1') > 0, v.payBtnStyle);
+  ok('кнопка отмены показана', v.isPaid === true && v.unpayLabel === 'Отменить оплату');
+  ok('кнопка отмены красная', v.unpayBtnStyle.indexOf('#a91f18') > 0, v.unpayBtnStyle);
+  ok('подсказка про откат', /Отменить оплату/.test(v.payHint), v.payHint);
+  calls = [];
+  v.confirmPayment();
+  await later(30);
+  ok('повторный клик не уходит на сервер', calls.length === 0);
+  ok('повторный клик объясняет причину', /уже подтверждена/.test(comp.state.toast || ''), comp.state.toast);
+
+  calls = [];
+  reply.unpay = { client: Object.assign({}, SERVER_CLIENT, { pay: 'due', paidAt: '', prevPay: '', nextPay: '2026-09-01', checks: { disk: true, paid: false } }), nextPay: '2026-09-01' };
+  comp.renderVals().cancelPayment();
+  await later(30);
+  ok('cancelPayment -> POST unpay', calls[0].action === 'unpay' && calls[0].body.id === 'beauty-bar', calls[0] && calls[0].action);
+  v = comp.renderVals();
+  ok('дата вернулась', v.c.nextPay === '1 сентября 2026', v.c.nextPay);
+  ok('статус — ждёт оплаты', v.c.payLabel === 'Ждёт оплаты', v.c.payLabel);
+  ok('галочка paid снята', v.checklist[5].checked === false);
+  ok('кнопка отмены скрыта', v.isPaid === false);
+  ok('подтверждение снова доступно', v.payBtnStyle.indexOf('not-allowed') < 0);
+
+  calls = [];
+  reply.pay = { client: Object.assign({}, SERVER_CLIENT, { pay: 'paid', prevPay: '2026-09-01', paidAt: '2026-09-01', nextPay: '2026-10-01' }), nextPay: '2026-10-01' };
+  comp.renderVals().confirmPayment();
+  await later(30);
+  ok('после отката подтверждение уходит на сервер', calls[0] && calls[0].action === 'pay');
+
   /* --- 5. onPush --- */
   calls = [];
   reply.push = { client: SERVER_CLIENT, sha: 'a1b2c3d', prevSha: '9f8e7d6', path: 'clients/beauty-bar.json', dispatched: true, at: '24.08 · 12:05', workflowNote: 'запущен' };

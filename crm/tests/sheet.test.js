@@ -121,6 +121,29 @@ ok('последняя оплата — прежняя дата', paid.paidAt ==
 ok('статус «Оплачено»', paid.client.pay === 'paid' && cell(2, 'Статус оплаты') === 'Оплачено');
 ok('чек-лист: оплата отмечена', paid.client.checks.paid === true);
 
+/* ---- 5b. откат оплаты ---- */
+ok('дата до сдвига сохранена', cell(2, 'Предыдущая дата оплаты') instanceof Date && api.GET_ACTIONS.client({ id: created.id }).client.prevPay === '2026-08-26', cell(2, 'Предыдущая дата оплаты'));
+try { api.POST_ACTIONS.pay({ id: created.id }); ok('повторное подтверждение отклонено', false); }
+catch (e) { ok('повторное подтверждение отклонено', /уже подтверждена/.test(e.message), e.message); }
+ok('дата не сдвинулась от лишнего клика', api.GET_ACTIONS.client({ id: created.id }).client.nextPay === '2026-09-26');
+
+const back = api.POST_ACTIONS.unpay({ id: created.id });
+ok('откат вернул дату', back.nextPay === '2026-08-26' && back.client.nextPay === '2026-08-26', back.nextPay);
+ok('статус — ждёт оплаты', back.client.pay === 'due' && cell(2, 'Статус оплаты') === 'Ждёт оплаты', cell(2, 'Статус оплаты'));
+ok('галочка paid снята', back.client.checks.paid === false);
+ok('колонка отката очищена', back.client.prevPay === '' && back.client.paidAt === '');
+try { api.POST_ACTIONS.unpay({ id: created.id }); ok('повторный откат отклонён', false); }
+catch (e) { ok('повторный откат отклонён', /отменять нечего/.test(e.message), e.message); }
+
+api.POST_ACTIONS.pay({ id: created.id });
+ok('после отката можно подтвердить снова', api.GET_ACTIONS.client({ id: created.id }).client.nextPay === '2026-09-26');
+
+// строка, оплаченная до появления колонки отката
+api.POST_ACTIONS.save({ client: { id: created.id, prevPay: '' } });
+ok('запасной вариант — по «Последней оплате»', api.POST_ACTIONS.unpay({ id: created.id }).nextPay === '2026-08-26');
+api.POST_ACTIONS.save({ client: { id: created.id, nextPay: '2026-08-26', pay: 'due' } });
+api.POST_ACTIONS.pay({ id: created.id });
+
 /* ---- 6. просрочка считается на лету ---- */
 api.POST_ACTIONS.save({ client: { id: created.id, nextPay: '2020-01-01' } });
 ok('просрочка по дате', api.GET_ACTIONS.client({ id: created.id }).client.pay === 'overdue');

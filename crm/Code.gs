@@ -29,9 +29,9 @@ var HEAD_CLIENTS = [
 
 /** Служебные колонки CRM. Дописываются справа, если их ещё нет. */
 var HEAD_CLIENTS_EXTRA = [
-  'Ниша', 'Темы', 'Последняя оплата', 'Ответы на задания (JSON)',
-  'Чек-лист (JSON)', 'Итерации', 'Фото в очереди', 'Последний пост',
-  'Статус последнего поста', 'Обновлено'
+  'Ниша', 'Темы', 'Последняя оплата', 'Предыдущая дата оплаты',
+  'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации', 'Фото в очереди',
+  'Последний пост', 'Статус последнего поста', 'Обновлено'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -51,6 +51,7 @@ var F = {
   startedAt: 'Дата подключения', nextPay: 'Дата оплаты', pay: 'Статус оплаты',
   active: 'Активен', stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
   niche: 'Ниша', topics: 'Темы', paidAt: 'Последняя оплата',
+  prevPay: 'Предыдущая дата оплаты',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
   iterations: 'Итерации', photoQueue: 'Фото в очереди',
   lastPostDate: 'Последний пост', lastPostStatus: 'Статус последнего поста',
@@ -490,7 +491,9 @@ function rowToClient_(t, row, rowNumber) {
     startedAt: dateOut_(startedAt),
     nextPay: dateOut_(nextPay),
     paidAt: dateOut_(paidAt),
+    prevPay: dateOut_(parseDate_(t.at(row, F.prevPay))),
     pay: payState_(stored, nextPay),
+    payStored: stored,
     active: t.has(F.active) ? bool_(t.at(row, F.active)) : true,
     stylePrompt: str_(t.at(row, F.stylePrompt)),
     configPushed: str_(t.at(row, F.pushed)),
@@ -560,6 +563,7 @@ var TO_CELL = {
   startedAt:     function (v) { return parseDate_(v); },
   nextPay:       function (v) { return parseDate_(v); },
   paidAt:        function (v) { return parseDate_(v); },
+  prevPay:       function (v) { return parseDate_(v); },
   pay:           function (v) { return PAY_LABELS[v] || PAY_LABELS[payIn_(v)] || v; },
   active:        function (v) { return bool_(v); },
   stylePrompt:   function (v) { return str_(v); },
@@ -777,7 +781,12 @@ var POST_ACTIONS = {
     });
   },
 
-  /** action=pay — подтвердить оплату и сдвинуть дату платежа на месяц. */
+  /**
+   * action=pay — подтвердить оплату и сдвинуть дату платежа на месяц.
+   * Дата до сдвига уходит в «Предыдущая дата оплаты» — по ней работает
+   * откат. Повторное подтверждение отклоняется: иначе каждый лишний клик
+   * сдвигал бы дату ещё на месяц.
+   */
   pay: function (req) {
     var id = str_(req.id || (req.client && req.client.id));
     if (!id) throw new Error('Не передан client_id');
@@ -786,12 +795,15 @@ var POST_ACTIONS = {
       var rowNumber = findRow_(t, id);
       if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
       var c = rowToClient_(t, t.rows[rowNumber - 2], rowNumber);
+      if (c.pay === 'paid') {
+        throw new Error('Оплата уже подтверждена до ' + (c.nextPay || '—') + ' — сначала отмените её');
+      }
       var base = parseDate_(c.nextPay) || today_();
       var next = addMonth_(base);
       var checks = c.checks || {};
       checks.paid = true;
       writeRow_(t, rowNumber, {
-        pay: 'paid', paidAt: base, nextPay: next, checks: checks
+        pay: 'paid', paidAt: base, prevPay: base, nextPay: next, checks: checks
       });
       SpreadsheetApp.flush();
       return {
@@ -799,6 +811,33 @@ var POST_ACTIONS = {
         paidAt: dateOut_(base),
         nextPay: dateOut_(next)
       };
+    });
+  },
+
+  /**
+   * action=unpay — откат ошибочного подтверждения: дата возвращается из
+   * «Предыдущая дата оплаты», статус — «Ждёт оплаты», галочка «Оплата
+   * получена» снимается.
+   */
+  unpay: function (req) {
+    var id = str_(req.id || (req.client && req.client.id));
+    if (!id) throw new Error('Не передан client_id');
+    return withLock_(function () {
+      var t = clientsTable_();
+      var rowNumber = findRow_(t, id);
+      if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
+      var c = rowToClient_(t, t.rows[rowNumber - 2], rowNumber);
+      if (c.payStored !== 'paid') throw new Error('Оплата не подтверждена — отменять нечего');
+      // строки, оплаченные до появления колонки отката, чинит запасной вариант
+      var back = parseDate_(c.prevPay) || parseDate_(c.paidAt);
+      if (!back) throw new Error('Не сохранена предыдущая дата оплаты — поправьте дату в таблице руками');
+      var checks = c.checks || {};
+      checks.paid = false;
+      writeRow_(t, rowNumber, {
+        pay: 'due', paidAt: '', prevPay: '', nextPay: back, checks: checks
+      });
+      SpreadsheetApp.flush();
+      return { client: refetchClient_(id), nextPay: dateOut_(back) };
     });
   },
 

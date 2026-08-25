@@ -505,8 +505,13 @@
                     <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Последняя оплата</span><span style="font-family: 'IBM Plex Mono', monospace">{{ c.paidAt }}</span></div>
                     <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Следующий платёж</span><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{ c.nextPay }}</span></div>
                   </div>
-                  <button onClick="{{ confirmPayment }}" style="{{ btnPrimary }}" style-hover="opacity: 0.88">{{ payBtnLabel }}</button>
-                  <p style="margin: 9px 0 0; font-size: 11.5px; color: #8a8f96">Подтверждение сдвигает дату на месяц и перекрашивает строку в списке.</p>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-top: 14px">
+                    <button onClick="{{ confirmPayment }}" style="{{ payBtnStyle }}" style-hover="opacity: 0.88">{{ payBtnLabel }}</button>
+                    <sc-if value="{{ isPaid }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ cancelPayment }}" style="{{ unpayBtnStyle }}" style-hover="opacity: 0.88">{{ unpayLabel }}</button>
+                    </sc-if>
+                  </div>
+                  <p style="margin: 9px 0 0; font-size: 11.5px; color: #8a8f96">{{ payHint }}</p>
                 </section>
 
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
@@ -868,6 +873,7 @@ function fromApi(o) {
     startedAt: parseDate(o.startedAt),
     paidAt: parseDate(o.paidAt),
     nextPay: parseDate(o.nextPay),
+    prevPay: parseDate(o.prevPay),
     active: o.active !== false,
     styleAnswers: padAnswers(o.styleAnswers),
     checks: o.checks || {},
@@ -1200,6 +1206,7 @@ class Component extends DCLogic {
     const base = 'font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer; ';
     if (kind === 'primary') return base + 'border: 1px solid ' + accent + '; background: ' + accent + '; color: #fff;' + (extra || '');
     if (kind === 'ghost') return base + 'border: 1px solid #d9d9d4; background: #fff;' + (extra || '');
+    if (kind === 'danger') return base + 'border: 1px solid #a91f18; background: #a91f18; color: #fff;' + (extra || '');
     return base + 'border: 1px solid #e2e2dd; background: #f4f4f1; color: #9a9ea4; cursor: not-allowed;' + (extra || '');
   }
 
@@ -1286,6 +1293,7 @@ class Component extends DCLogic {
       this.patch(c.id, { [key]: arr });
     };
 
+    const isPaid = c.pay === 'paid';
     const doneCount = CHECKS.filter(k => c.checks[k.key]).length;
     const styleFilled = c.styleAnswers.filter(a => a.trim()).length;
     const maxSlots = c.tariff === 'СТАРТ' ? 1 : 2;
@@ -1820,17 +1828,41 @@ class Component extends DCLogic {
           this.flash('Демо: коммита не было — задайте WEBAPP_URL');
         }),
 
+      // Пока оплата подтверждена, подтвердить ещё раз нельзя: каждый лишний
+      // клик сдвигал бы дату на месяц. Сначала «Отменить оплату».
+      isPaid,
       payBtnLabel: busy === 'pay' ? 'Обновляю…' : 'Подтвердить оплату',
+      payBtnStyle: isPaid || busy ? this.btn('off', ' flex: 1;') : this.btn('primary', ' flex: 1;'),
+      payHint: isPaid
+        ? 'Оплата подтверждена. Ошиблись — «Отменить оплату» вернёт дату на ' + fmt(c.prevPay || c.paidAt) + ' и статус «Ждёт оплаты».'
+        : 'Подтверждение сдвигает дату на месяц и перекрашивает строку в списке.',
       // POST action=pay -> дата оплаты сдвигается на месяц вперёд
-      confirmPayment: () => this.act('pay',
-        () => apiPost(conn, 'pay', { id: c.id }).then(r => {
+      confirmPayment: () => {
+        if (isPaid) return this.flash('Оплата уже подтверждена — сначала отмените её');
+        this.act('pay',
+          () => apiPost(conn, 'pay', { id: c.id }).then(r => {
+            this.applyClient(r.client);
+            this.flash('Оплата принята, следующий платёж ' + fmtLong(parseDate(r.nextPay)));
+          }),
+          () => {
+            const base = c.nextPay || TODAY;
+            this.patch(c.id, { pay: 'paid', paidAt: base, prevPay: base, nextPay: addMonth(base), checks: Object.assign({}, c.checks, { paid: true }) });
+            this.flash('Демо: оплата не записана в таблицу');
+          });
+      },
+
+      unpayLabel: busy === 'unpay' ? 'Отменяю…' : 'Отменить оплату',
+      unpayBtnStyle: busy ? this.btn('off', ' flex: none;') : this.btn('danger', ' flex: none;'),
+      // POST action=unpay -> дата возвращается из «Предыдущая дата оплаты»
+      cancelPayment: () => this.act('unpay',
+        () => apiPost(conn, 'unpay', { id: c.id }).then(r => {
           this.applyClient(r.client);
-          this.flash('Оплата принята, следующий платёж ' + fmtLong(parseDate(r.nextPay)));
+          this.flash('Оплата отменена, дата платежа снова ' + fmtLong(parseDate(r.nextPay)));
         }),
         () => {
-          const base = c.nextPay || TODAY;
-          this.patch(c.id, { pay: 'paid', paidAt: base, nextPay: addMonth(base), checks: Object.assign({}, c.checks, { paid: true }) });
-          this.flash('Демо: оплата не записана в таблицу');
+          const back = c.prevPay || c.paidAt || c.nextPay;
+          this.patch(c.id, { pay: 'due', paidAt: null, prevPay: null, nextPay: back, checks: Object.assign({}, c.checks, { paid: false }) });
+          this.flash('Демо: откат только в интерфейсе');
         }),
       reminders,
       hasToast: !!st.toast, toast: st.toast
