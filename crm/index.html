@@ -399,6 +399,7 @@
                           <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96; padding-top: 2px">{{ s.num }}</span>
                           <div style="min-width: 0">
                             <div style="font-size: 12.5px; line-height: 1.5">{{ s.task }}</div>
+                            <div style="font-size: 11.5px; line-height: 1.45; color: #8a8f96; margin-top: 4px">{{ s.example }}</div>
                             <button onClick="{{ s.onCopy }}" style="margin-top: 7px; border: 1px solid #dedeD9; background: #fff; font-size: 11.5px; padding: 4px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a">{{ s.copyLabel }}</button>
                           </div>
                         </div>
@@ -1035,11 +1036,16 @@ const LIMITS = ['Цены и стоимость услуг', 'Конкретны
 const TOPICS = ['Фото работ', 'Советы и полезное', 'Частые вопросы', 'Идеи и вдохновение', 'Отзывы и результаты'];
 const NETWORKS = ['VK', 'Telegram', 'MAX'];
 const TASKS = [
-  'Напишите пост про то, как вы провели вчерашний вечер',
-  'Напишите пост про что-то, что вас недавно удивило или порадовало',
-  'Напишите пост про вашу любимую еду или кафе',
-  'Напишите пост про то, что вас раздражает в людях',
-  'Напишите пост про что-то, чему вы недавно научились или что попробовали впервые'
+  { task: 'Какая небольшая вещь в повседневной жизни кажется вам сильно недооценённой? Почему?',
+    example: 'Например: утренняя тишина, вкусный кофе, возможность работать из дома.' },
+  { task: 'Объясните человеку, который совсем не разбирается в теме, одну вещь, которую вы хорошо понимаете. Как бы вы это сделали?',
+    example: 'Тему выбираете сами — то, в чём вы разбираетесь лучше других.' },
+  { task: 'С каким распространённым мнением вы не согласны? Объясните почему.',
+    example: 'Например: «клиент всегда прав», «дорого — значит качественно».' },
+  { task: 'Представьте: вам предлагают возможность, которая может сильно изменить жизнь, но ради неё нужно отказаться от чего-то важного и привычного. Как бы вы принимали такое решение?',
+    example: 'Опишите ход мыслей — саму возможность называть не обязательно.' },
+  { task: 'Можно ли одновременно хотеть двух противоположных вещей? Приведите пример и объясните почему вы так думаете.',
+    example: 'Например: хотеть свободы и стабильности одновременно.' }
 ];
 const CHECKS = [
   { key: 'disk', label: 'Создана папка на Яндекс.Диске', hint: 'clients/{id}/to_post, posted, archive' },
@@ -1944,9 +1950,13 @@ class Component extends DCLogic {
       copySecret: () => this.copy('{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "tg_token": "<bot token>",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}', 'secret'),
       styleFilled,
       styleTasks: TASKS.map((t, i) => ({
-        num: String(i + 1).padStart(2, '0'), task: t, answer: c.styleAnswers[i],
+        num: String(i + 1).padStart(2, '0'), task: t.task, example: t.example, answer: c.styleAnswers[i],
         copyLabel: st.copied === 'task' + i ? 'Скопировано ✓' : 'Скопировать',
-        onCopy: () => this.copy(t, 'task' + i),
+        onCopy: () => this.copy(
+          t.task + '\n\n' + t.example +
+          '\n\nНе старайтесь писать идеально — важнее ваша обычная манера общения.',
+          'task' + i
+        ),
         onChange: e => {
           const arr = c.styleAnswers.slice();
           arr[i] = e.target.value;
