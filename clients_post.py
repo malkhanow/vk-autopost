@@ -9,6 +9,11 @@
   2. Пропускает клиентов с "active": false (тумблер на сайте).
   3. Для каждого клиента со слотом, который сейчас идёт, ищет среди его
      рубрик те, что расписаны на сегодняшний день недели.
+     Опционально: если в конфиге клиента "morning_photo": true — расписание
+     по дням недели для него отключается. Вместо этого его самый ранний
+     выбранный слот (morning -> midday -> evening) всегда публикует фото
+     из to_post/rubrics, а остальные слоты крутят текстовые рубрики по
+     кругу. Без этого флага поведение клиента не меняется.
   4. Если у выбранной рубрики есть своя подпапка с фото
      ({yandex_folder}/rubrics/<тема>) — берёт оттуда следующее по очереди;
      иначе ищет в {yandex_folder}/to_post (общая утренняя очередь).
@@ -355,6 +360,53 @@ def pick_rubric(client, today_abbr, state, test_mode):
     return matches[idx]
 
 
+SLOT_ORDER = ["morning", "midday", "evening"]
+
+
+def photo_slot_for_client(client):
+    """
+    Самый ранний из выбранных слотов клиента (morning -> midday -> evening).
+    Используется только при morning_photo=true — это и есть "утренний" слот
+    с фото, даже если у клиента он физически называется midday/evening.
+    """
+    names = [s.get("name") for s in client.get("slots", [])]
+    for slot in SLOT_ORDER:
+        if slot in names:
+            return slot
+    return None
+
+
+def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
+    """
+    Точка входа вместо pick_rubric() из main(). Без morning_photo — старое
+    поведение (расписание по дням недели), ничего не меняется для тех, кому
+    это не нужно. С morning_photo=true: слот, ближайший к утру из выбранных
+    клиентом, всегда отдаёт рубрику с фото (rubric_folder == None, обычно
+    «Фото работ»); остальные слоты крутят текстовые рубрики по кругу, без
+    привязки к дням недели.
+    """
+    if test_mode or not client.get("morning_photo"):
+        return pick_rubric(client, today_abbr, state, test_mode)
+
+    rubrics = client.get("rubrics", [])
+    if not rubrics:
+        return None
+
+    photo_rubrics = [r for r in rubrics if rubric_folder(r.get("name", "")) is None]
+    text_rubrics = [r for r in rubrics if rubric_folder(r.get("name", "")) is not None]
+
+    cs = client_state(state, client["client_id"])
+    is_photo_slot = slot == photo_slot_for_client(client)
+    pool = (photo_rubrics or rubrics) if is_photo_slot else (text_rubrics or rubrics)
+    if not pool:
+        return None
+
+    key = "photo_tie_index" if is_photo_slot else "text_tie_index"
+    idx = cs.get(key, 0) % len(pool)
+    cs[key] = cs.get(key, 0) + 1
+    return pool[idx]
+
+
 # ---------- основной цикл ----------
 
 def load_clients():
@@ -411,7 +463,7 @@ def main():
 
     for client in clients:
         cid = client["client_id"]
-        rubric = pick_rubric(client, today_abbr, state, test_mode)
+        rubric = pick_rubric_for_run(client, SLOT, today_abbr, state, test_mode)
         if not rubric:
             print(f"{cid}: сегодня рубрик нет, пропускаю.")
             continue
