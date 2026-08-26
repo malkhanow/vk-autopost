@@ -13,8 +13,8 @@
      очереди и переносит в {yandex_folder}/posted после публикации.
   5. RouterAI (Gemini Flash Lite) пишет текст поста по промпту рубрики,
      с учётом style_prompt, тона и запретов клиента.
-  6. Публикует в Telegram-канал клиента. Канал берётся из секрета
-     CLIENT_TOKENS — это JSON-карта client_id -> {"tg_channel": "@..."}.
+  6. Публикует в Telegram-канал клиента. Канал берётся из поля
+     tg_channel в самом конфиге клиента (clients/{id}.json).
      Токен бота общий (TELEGRAM_BOT_TOKEN) — один бот, добавленный
      админом во все каналы клиентов.
 
@@ -26,7 +26,6 @@ input client_id через workflow_dispatch — тогда день недел�
 GitHub Secrets:
   ROUTERAI_KEY        — тот же ключ, что в Apps Script Script Properties
   TELEGRAM_BOT_TOKEN  — общий бот, admin во всех каналах клиентов
-  CLIENT_TOKENS       — JSON: {"client_id": {"tg_channel": "@..."}}
   YANDEX_TOKEN        — OAuth-токен Яндекс.Диска (общий, папки разные)
 """
 
@@ -49,12 +48,6 @@ ROUTERAI_MODEL = os.environ.get("ROUTERAI_MODEL", "google/gemini-3.1-flash-lite"
 ROUTERAI_KEY = os.environ["ROUTERAI_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 YANDEX_TOKEN = os.environ.get("YANDEX_TOKEN", "")
-
-try:
-    CLIENT_TOKENS = json.loads(os.environ.get("CLIENT_TOKENS", "{}"))
-except json.JSONDecodeError:
-    print("CLIENT_TOKENS: не удалось разобрать JSON, продолжаю с пустой картой")
-    CLIENT_TOKENS = {}
 
 SLOT = os.environ.get("SLOT", "")               # morning / midday / evening
 TEST_CLIENT_ID = os.environ.get("TEST_CLIENT_ID", "").strip()
@@ -394,9 +387,9 @@ def main():
             print(f"{cid}: сегодня рубрик нет, пропускаю.")
             continue
 
-        channel = (CLIENT_TOKENS.get(cid) or {}).get("tg_channel")
+        channel = client.get("tg_channel")
         if not channel:
-            print(f"{cid}: в CLIENT_TOKENS нет канала, пропускаю.")
+            print(f"{cid}: в конфиге клиента не задан tg_channel, пропускаю.")
             continue
 
         try:
