@@ -9,8 +9,10 @@
   2. Пропускает клиентов с "active": false (тумблер на сайте).
   3. Для каждого клиента со слотом, который сейчас идёт, ищет среди его
      рубрик те, что расписаны на сегодняшний день недели.
-  4. Если фото есть в {yandex_folder}/to_post — берёт следующее по
-     очереди и переносит в {yandex_folder}/posted после публикации.
+  4. Если у выбранной рубрики есть своя подпапка с фото
+     ({yandex_folder}/rubrics/<тема>) — берёт оттуда следующее по очереди;
+     иначе ищет в {yandex_folder}/to_post (общая утренняя очередь).
+     После публикации фото переезжает в {yandex_folder}/posted.
   5. RouterAI (Gemini Flash Lite) пишет текст поста по промпту рубрики,
      с учётом style_prompt, тона и запретов клиента.
   6. Публикует в Telegram-канал клиента. Канал берётся из поля
@@ -136,11 +138,38 @@ def move_to_posted(src_path, filename, posted_dir):
         print(f"Не удалось перенести {filename} в posted: {resp.text[:200]}")
 
 
-def next_photo_for_client(yandex_folder):
-    """Следующее неиспользованное фото клиента, или (None, None), если фото нет."""
-    to_post = f"{yandex_folder}/to_post"
+def rubric_folder(rubric_name):
+    """
+    Название рубрики -> подпапка с фото для неё, или None (рубрика без
+    привязанных фото — например «Идеи» на чистом тексте у части клиентов).
+    Сопоставление по ключевым словам, а не точным совпадением: название
+    рубрики редактируется в CRM руками и может немного отличаться от
+    исходного из списка тем.
+    """
+    name = (rubric_name or "").lower()
+    if "совет" in name or "польз" in name:
+        return "rubrics/tips"
+    if "вопрос" in name or "чзв" in name or "faq" in name:
+        return "rubrics/faq"
+    if "иде" in name or "вдохнов" in name:
+        return "rubrics/ideas"
+    if "отзыв" in name or "результат" in name:
+        return "rubrics/reviews"
+    return None  # «Фото работ» и остальное — общая утренняя очередь to_post
+
+
+def next_photo_for_client(yandex_folder, rubric_name=""):
+    """
+    Следующее неиспользованное фото для рубрики клиента, или (None, None),
+    если фото нет. Если у рубрики есть своя подпапка (rubric_folder) —
+    фото ищутся там; иначе — в общей утренней очереди to_post. Опубликованные
+    фото в любом случае переезжают в общий posted/, независимо от того,
+    откуда были взяты.
+    """
+    folder = rubric_folder(rubric_name)
+    source = f"{yandex_folder}/{folder}" if folder else f"{yandex_folder}/to_post"
     posted = f"{yandex_folder}/posted"
-    files = list_folder(to_post)
+    files = list_folder(source)
     if not files:
         return None, None
     chosen = files[0]  # список уже отсортирован по created — берём самое старое
@@ -398,7 +427,7 @@ def main():
             print(f"{cid}: ошибка генерации текста — {e}")
             continue
 
-        photo_path, photo_meta = next_photo_for_client(client.get("yandex_folder", ""))
+        photo_path, photo_meta = next_photo_for_client(client.get("yandex_folder", ""), rubric.get("name", ""))
 
         print(f"{cid}: публикую рубрику «{rubric.get('name')}» в {channel}")
         try:
