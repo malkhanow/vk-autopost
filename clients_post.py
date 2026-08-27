@@ -846,7 +846,7 @@ def main():
                 move_to_posted(src_path, filename, posted_dir)
         except Exception as e:
             print(f"{cid}: ошибка публикации — {e}")
-
+            raise
     save_state(state)
     if not posted_any:
         print("Ни одного поста не ушло за этот запуск.")
