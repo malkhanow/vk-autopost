@@ -12,10 +12,10 @@ import types
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FAKE_ENV = {
-    "MISTRAL_API_KEY": "test-key",
+    "ROUTERAI_KEY": "test-key",
     "TELEGRAM_BOT_TOKEN": "test-token",
-    "TELEGRAM_CHANNEL": "@test",
     "YANDEX_TOKEN": "test-token",
+    "PEXELS_KEY": "test-key",
 }
 
 
@@ -77,7 +77,7 @@ class RequestsStub(types.ModuleType):
         return Response(payload={})
 
 
-def load_module(name="generate_content"):
+def load_module(name="clients_post"):
     """Импортирует модуль проекта с подменённым requests и фиктивными ключами."""
     os.environ.update(FAKE_ENV)
     stub = RequestsStub()
