@@ -460,15 +460,9 @@
                     <sc-if value="{{ styleFilesCount }}" hint-placeholder-val="{{ false }}">
                       <div style="margin-top: 9px; display: flex; flex-direction: column; gap: 4px">
                         <sc-for list="{{ styleFilesDisplay }}" as="f" hint-placeholder-count="1">
-                          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #6b7078">
-                            <span style="font-family: 'IBM Plex Mono', monospace; color: #14171a; flex: 1; min-width: 0">{{ f.name }}</span>
-                            <span style="white-space: nowrap">{{ f.charsLabel }}</span>
-                            <sc-if value="{{ f.downloadUrl }}" hint-placeholder-val="{{ false }}">
-                              <a href="{{ f.downloadUrl }}" target="_blank" style="font-size: 10.5px; color: #2b4acf; text-decoration: none; white-space: nowrap">Скачать</a>
-                            </sc-if>
-                            <sc-if value="{{ f.fileId }}" hint-placeholder-val="{{ false }}">
-                              <button onClick="{{ f.onDelete }}" style="border: 0; background: transparent; color: #8a8f96; font-size: 12px; padding: 1px 3px; cursor: pointer" style-hover="color: #b3261e" title="Удалить файл">×</button>
-                            </sc-if>
+                          <div style="display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: #6b7078">
+                            <span style="font-family: 'IBM Plex Mono', monospace; color: #14171a">{{ f.name }}</span>
+                            <span>{{ f.charsLabel }}</span>
                           </div>
                         </sc-for>
                       </div>
@@ -2071,21 +2065,7 @@ class Component extends DCLogic {
       styleFilesDisplay: (st.styleFilesPreview && st.styleFilesPreview.length)
         ? st.styleFilesPreview
         : (c.styleFiles || []).map(f => Object.assign({}, f, {
-            charsLabel: (f.chars === undefined || f.chars === null) ? '' : (f.chars + ' симв.'),
-            onDelete: () => {
-              if (!f.fileId) return this.flash('Этот файл загружен до включения хранения файлов и недоступен для удаления из CRM');
-              if (!confirm('Удалить файл «' + f.name + '»?')) return;
-              this.act('styleFileDelete',
-                () => apiPost(conn, 'delete_style_file', { id: c.id, fileId: f.fileId }).then(r => {
-                  this.applyClient(r.client);
-                  this.flash('Файл «' + f.name + '» удалён');
-                }),
-                () => {
-                  this.patch(c.id, { styleFiles: (c.styleFiles || []).filter(x => x.fileId !== f.fileId) });
-                  this.flash('Демо: файл удалён только из интерфейса');
-                }
-              );
-            }
+            charsLabel: (f.chars === undefined || f.chars === null) ? '' : (f.chars + ' симв.')
           })),
       styleFilesCount: ((st.styleFilesPreview && st.styleFilesPreview.length)
         ? st.styleFilesPreview
@@ -2146,9 +2126,6 @@ class Component extends DCLogic {
           }),
           () => {
             this.setState({ styleFilesPreview: [] });
-            this.flash('Демо: анализ файлов доступен после подключения Web App');
-          }),
-          () => {
             this.flash('Демо: анализ файлов доступен после подключения Web App');
           }
         );
