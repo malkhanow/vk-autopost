@@ -485,21 +485,50 @@ def post_to_telegram(channel, text, photo_path=None):
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     CAPTION_LIMIT = 1024
 
+    # Resolve the channel username to its real Telegram chat_id first.
+    # This makes publication deterministic in GitHub Actions.
+    chat_resp = requests.get(
+        f"{base_url}/getChat",
+        params={"chat_id": channel},
+        timeout=30,
+    )
+    chat_resp.raise_for_status()
+
+    chat_data = chat_resp.json()
+    if not chat_data.get("ok"):
+        raise RuntimeError(f"Telegram getChat error: {chat_data}")
+
+    chat = chat_data["result"]
+    chat_id = chat["id"]
+
+    print(
+        f"Telegram target: {channel} -> "
+        f"id={chat_id}, username=@{chat.get('username', '')}, "
+        f"type={chat.get('type')}"
+    )
+
     def send_message(body, parse_mode="Markdown"):
-        payload = {"chat_id": channel, "text": body}
+        payload = {"chat_id": chat_id, "text": body}
         if parse_mode:
             payload["parse_mode"] = parse_mode
-        return requests.post(f"{base_url}/sendMessage", json=payload, timeout=30)
+        return requests.post(
+            f"{base_url}/sendMessage",
+            json=payload,
+            timeout=30,
+        )
 
     def send_photo(path, caption, parse_mode="Markdown"):
-        data = {"chat_id": channel}
+        data = {"chat_id": chat_id}
         if caption:
             data["caption"] = caption
             if parse_mode:
                 data["parse_mode"] = parse_mode
         with open(path, "rb") as f:
             return requests.post(
-                f"{base_url}/sendPhoto", data=data, files={"photo": f}, timeout=60
+                f"{base_url}/sendPhoto",
+                data=data,
+                files={"photo": f},
+                timeout=60,
             )
 
     has_photo = bool(photo_path and os.path.exists(photo_path))
@@ -521,7 +550,11 @@ def post_to_telegram(channel, text, photo_path=None):
             else:
                 resp = send_photo(photo_path, text)
                 if not resp.ok:
-                    resp = send_photo(photo_path, text, parse_mode=None)
+                    resp = send_photo(
+                        photo_path,
+                        text,
+                        parse_mode=None,
+                    )
                     if not resp.ok:
                         resp = send_message(text)
                         if not resp.ok:
@@ -534,9 +567,12 @@ def post_to_telegram(channel, text, photo_path=None):
         if not resp.ok:
             print("ИТОГОВАЯ ОШИБКА:", resp.status_code, resp.text)
             resp.raise_for_status()
+
         print(f"Опубликовано в {channel}.")
         print(f"Telegram ответ: {resp.status_code} {resp.text[:200]}")
         print(f"Текст поста: {text[:300]}")
+        return resp
+
     finally:
         if photo_path and os.path.exists(photo_path):
             try:
