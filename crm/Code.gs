@@ -1220,6 +1220,7 @@ var POST_ACTIONS = {
 
   analyze_style: function (req) { return aiAnalyzeStyle_(req); },
   analyze_style_files: function (req) { return aiAnalyzeStyleFiles_(req); },
+  delete_style_file: function (req) { return deleteStyleFile_(req); },
   build_plan:    function (req) { return aiBuildPlan_(req); },
   gen_examples:  function (req) { return aiGenExamples_(req); },
   apply_edits:   function (req) { return aiApplyEdits_(req); }
@@ -1660,17 +1661,30 @@ function aiAnalyzeStyleFiles_(req) {
   var stylePrompt = str_(parsed.style_prompt);
   if (!stylePrompt) throw new Error('Модель не вернула style_prompt');
 
-  var metadata = sources.map(function (src) {
+  // Сохраняем исходные файлы в Google Drive, чтобы их можно было
+  // скачать обратно или удалить из CRM. Файлы остаются приватными.
+  var metadata = sources.map(function (src, i) {
+    var original = files[i] || {};
+    var bytes = Utilities.base64Decode(str_(original.data));
+    var mime = str_(original.mime) || MimeType.PLAIN_TEXT;
+    var blob = Utilities.newBlob(bytes, mime, src.name);
+    var driveFile = saveStyleFileToDrive_(id, src.name, blob);
     return {
       name: src.name,
       chars: src.chars,
+      fileId: driveFile.getId(),
+      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(driveFile.getId()),
       analyzedAt: Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm:ss')
     };
   });
 
+  var previousFiles = [];
   withLock_(function () {
     var t = clientsTable_();
-    writeRow_(t, findRow_(t, id), {
+    var row = findRow_(t, id);
+    var current = refetchClient_(id);
+    previousFiles = Array.isArray(current.styleFiles) ? current.styleFiles.slice() : [];
+    writeRow_(t, row, {
       stylePrompt: stylePrompt,
       styleFiles: metadata
     });
@@ -1678,9 +1692,83 @@ function aiAnalyzeStyleFiles_(req) {
     return true;
   });
 
+  // Удаляем старые сохранённые исходники после успешной замены.
+  previousFiles.forEach(function (oldFile) {
+    if (oldFile && oldFile.fileId) {
+      try {
+        DriveApp.getFileById(oldFile.fileId).setTrashed(true);
+      } catch (e) {
+        console.warn('Не удалось удалить старый файл стиля: ' + oldFile.fileId + ' — ' + e);
+      }
+    }
+  });
+
   return {
     stylePrompt: stylePrompt,
     styleFiles: metadata,
+    client: refetchClient_(id)
+  };
+}
+
+/**
+ * Хранилище исходных файлов стиля в Google Drive.
+ * Создаётся один общий приватный каталог и отдельный каталог клиента.
+ */
+function styleFilesRootFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var key = 'STYLE_FILES_ROOT_FOLDER_ID';
+  var id = props.getProperty(key);
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) {}
+  }
+
+  var folders = DriveApp.getFoldersByName('SMM CRM — Файлы стиля');
+  var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder('SMM CRM — Файлы стиля');
+  props.setProperty(key, folder.getId());
+  return folder;
+}
+
+function styleFilesClientFolder_(clientId) {
+  var root = styleFilesRootFolder_();
+  var safeName = String(clientId || 'client').replace(/[\\\\/:*?"<>|]/g, '_').slice(0, 80);
+  var folders = root.getFoldersByName(safeName);
+  return folders.hasNext() ? folders.next() : root.createFolder(safeName);
+}
+
+function saveStyleFileToDrive_(clientId, name, blob) {
+  var folder = styleFilesClientFolder_(clientId);
+  return folder.createFile(blob).setName(name);
+}
+
+/** Удаляет один сохранённый файл стиля и обновляет список в карточке клиента. */
+function deleteStyleFile_(req) {
+  var id = str_(req.id);
+  var fileId = str_(req.fileId);
+  if (!id) throw new Error('Не передан client_id');
+  if (!fileId) throw new Error('Не передан fileId');
+
+  var client = refetchClient_(id);
+  var files = Array.isArray(client.styleFiles) ? client.styleFiles.slice() : [];
+  var target = files.find(function (f) { return f && str_(f.fileId) === fileId; });
+  if (!target) throw new Error('Файл не найден в карточке клиента');
+
+  try {
+    DriveApp.getFileById(fileId).setTrashed(true);
+  } catch (e) {
+    throw new Error('Не удалось удалить файл из Google Drive: ' + (e.message || e));
+  }
+
+  var next = files.filter(function (f) { return !f || str_(f.fileId) !== fileId; });
+
+  withLock_(function () {
+    var t = clientsTable_();
+    writeRow_(t, findRow_(t, id), { styleFiles: next });
+    SpreadsheetApp.flush();
+  });
+
+  return {
+    fileId: fileId,
+    styleFiles: next,
     client: refetchClient_(id)
   };
 }
