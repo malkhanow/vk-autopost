@@ -216,6 +216,14 @@
                         </select>
                       </label>
                     </div>
+                    <label style="display: block; margin-top: 10px">
+                      <span style="display: flex; align-items: baseline; gap: 7px; margin-bottom: 4px">
+                        <span style="font-size: 11.5px; color: #6b7078">Свои праздники — по одному в строке</span>
+                        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #a3a7ac">ДД.ММ Название</span>
+                      </span>
+                      <textarea rows="2" placeholder="27.02 День риелтора" value="{{ c.holidaysExtra }}" onChange="{{ set.holidaysExtra }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                      <span style="display: block; font-size: 11px; color: #8a8f96; margin-top: 4px">{{ holidayHint }}</span>
+                    </label>
                     <div style="margin-top: 12px">
                       <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Рубрики из брифа</span>
                       <div style="display: flex; flex-wrap: wrap; gap: 6px">
@@ -293,6 +301,13 @@
   <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Telegram-канал (куда публикуются посты)</span>
   <input type="text" placeholder="@channel" value="{{ c.tgChannel }}" onChange="{{ set.tgChannel }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
 </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; margin-bottom: 14px; padding: 9px 10px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
+                      <input type="checkbox" checked="{{ morningPhotoOn }}" onChange="{{ toggleMorningPhoto }}" style="width: 14px; height: 14px; accent-color: #14171a; margin: 0; flex: none" />
+                      <span style="min-width: 0">
+                        <span style="display: block; font-weight: 500">Утро — всегда фото</span>
+                        <span style="display: block; font-size: 11px; color: #8a8f96; margin-top: 2px">Самый ранний слот публикует фото из to_post, независимо от дня недели; остальные слоты крутят текстовые рубрики по кругу</span>
+                      </span>
+                    </label>
                     <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Слоты — {{ slotsHint }}</div>
                     <div style="display: flex; flex-direction: column; gap: 6px">
                       <sc-for list="{{ slotRows }}" as="s" hint-placeholder-count="3">
@@ -1077,7 +1092,8 @@ function client(o) {
     styleAnswers: ['', '', '', '', ''], stylePrompt: '', rubrics: [], edits: '', iterations: 0,
     checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
-    lastPostDate: '—', lastPostStatus: 'Не запущен', tgChannel: ''
+    lastPostDate: '—', lastPostStatus: 'Не запущен', tgChannel: '', morningPhoto: false,
+    holidaysExtra: ''
   }, o);
 }
 
@@ -1185,7 +1201,9 @@ function toApi(c) {
     holidays: c.holidays, faq: c.faq, limits: c.limits, limitsText: c.limitsText,
     cta: c.cta, source: c.source, startedAt: isoDate(c.startedAt),
     // pay и nextPay не отправляем: ими распоряжается дропдаун в таблице
-    active: c.active !== false, tgChannel: c.tgChannel, stylePrompt: c.stylePrompt, niche: c.niche,
+    active: c.active !== false, tgChannel: c.tgChannel, morningPhoto: !!c.morningPhoto,
+    holidaysExtra: c.holidaysExtra || '',
+    stylePrompt: c.stylePrompt, niche: c.niche,
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
     lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus
@@ -1570,7 +1588,7 @@ class Component extends DCLogic {
 
     const setter = key => e => this.patch(c.id, { [key]: e.target.value, });
     const set = {};
-    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'edits', 'tgChannel'].forEach(k => { set[k] = setter(k); });
+    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'edits', 'tgChannel', 'holidaysExtra'].forEach(k => { set[k] = setter(k); });
 
     const chip = (on, label, onClick) => ({
       label, onClick,
@@ -1610,6 +1628,8 @@ class Component extends DCLogic {
       faq: c.faq ? c.faq.split('\n') : [],
       rubrics: c.rubrics.map(r => ({ name: r.name, days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt })),
       tg_channel: c.tgChannel || null,
+      morning_photo: !!c.morningPhoto,
+      holidays_extra: c.holidaysExtra || '',
       yandex_folder: 'clients/' + c.id,
       active: c.active !== false,
       iterations: c.iterations
@@ -1868,20 +1888,33 @@ class Component extends DCLogic {
       tabBrief: st.tab === 'brief', tabOnboarding: st.tab === 'onboarding',
       tabContent: st.tab === 'content', tabPayments: st.tab === 'payments',
       set,
-c: {
-  id: c.id, business: c.business, name: c.name, niche: c.niche, city: c.city,
-  tariff: c.tariff, price: priceOf(c.tariff).toLocaleString('ru-RU'),
-  about: c.about, audience: c.audience, tone: c.tone, holidays: c.holidays,
-  faq: c.faq, cta: c.cta, limitsText: c.limitsText,
-  phone: c.phone, tg: c.tg, email: c.email, source: c.source,
-  startedAt: fmtLong(c.startedAt),
-  nextPay: c.nextPay ? fmtLong(c.nextPay) : 'не назначен',
-  photoQueue: c.photoQueue + ' шт',
-  lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
-  stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
-  payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay),
-  tgChannel: c.tgChannel
-},
+      // подсказка сразу показывает, дойдут ли праздники до постинга:
+      // тариф СТАРТ их не включает, «Не нужны» в брифе отключает совсем
+      holidayHint: c.tariff === 'СТАРТ'
+        ? 'Тариф СТАРТ — праздничные посты не выходят, включая эти.'
+        : String(c.holidays || '').indexOf('Не нужны') === 0
+          ? 'В брифе выбрано «Не нужны» — праздничные посты не выходят.'
+          : 'Плюс базовый список: Новый год, Рождество, 14 февраля, 23 февраля, 8 марта, 1 мая, 1 сентября, 31 декабря. Анонсы за 7 и за 1 день — вечером, поздравление — утром.',
+      morningPhotoOn: !!c.morningPhoto,
+      toggleMorningPhoto: () => {
+        const next = !c.morningPhoto;
+        this.patch(c.id, { morningPhoto: next });
+        this.quietSave(c.id, { morningPhoto: next }, { morningPhoto: c.morningPhoto });
+      },
+      c: {
+        id: c.id, business: c.business, name: c.name, niche: c.niche, city: c.city,
+        tariff: c.tariff, price: priceOf(c.tariff).toLocaleString('ru-RU'),
+        about: c.about, audience: c.audience, tone: c.tone, holidays: c.holidays,
+        faq: c.faq, cta: c.cta, limitsText: c.limitsText,
+        phone: c.phone, tg: c.tg, email: c.email, source: c.source,
+        startedAt: fmtLong(c.startedAt),
+        nextPay: c.nextPay ? fmtLong(c.nextPay) : 'не назначен',
+        photoQueue: c.photoQueue + ' шт',
+        lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
+        stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
+        payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay),
+        tgChannel: c.tgChannel, holidaysExtra: c.holidaysExtra || ''
+      },
       queueStyle: PILL + (c.photoQueue > 0
         ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
         : 'background: #fbe9e7; color: #a91f18; border: 1px solid #f0cdc9;') + ' font-family: \'IBM Plex Mono\', monospace;',
