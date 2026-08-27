@@ -134,7 +134,7 @@
             </sc-for>
           </div>
 
-          <p style="margin: 12px 2px 0; font-size: 11.5px; color: #8a8f96">Карточки создаются автоматически из Google Формы через <span style="font-family: 'IBM Plex Mono', monospace">onFormSubmit</span>. Даты оплаты сдвигаются на месяц после подтверждения.</p>
+          <p style="margin: 12px 2px 0; font-size: 11.5px; color: #8a8f96">Ответы Google Формы попадают в раздел «Брифы» — карточка создаётся оттуда кнопкой. Даты оплаты сдвигаются на месяц после подтверждения.</p>
         </div>
       </sc-if>
 
@@ -306,9 +306,9 @@
                   <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
                     <h2 style="margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Публикация</h2>
                     <label style="display: block; margin-bottom: 12px">
-  <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Telegram-канал (куда публикуются посты)</span>
-  <input type="text" placeholder="@channel" value="{{ c.tgChannel }}" onChange="{{ set.tgChannel }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
-</label>
+                      <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Telegram-канал (куда публикуются посты)</span>
+                      <input type="text" placeholder="@channel" value="{{ c.tgChannel }}" onChange="{{ set.tgChannel }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
+                    </label>
                     <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; margin-bottom: 14px; padding: 9px 10px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
                       <input type="checkbox" checked="{{ morningPhotoOn }}" onChange="{{ toggleMorningPhoto }}" style="width: 14px; height: 14px; accent-color: #14171a; margin: 0; flex: none" />
                       <span style="min-width: 0">
@@ -398,12 +398,6 @@
                     </div>
                   </section>
 
-                  <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
-                    <h2 style="margin: 0 0 4px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Секрет для GitHub</h2>
-                    <p style="margin: 0 0 9px; font-size: 11.5px; color: #8a8f96">Добавляется руками в <span style="font-family: 'IBM Plex Mono', monospace">CLIENT_TOKENS</span>. Скопируйте блок и вставьте в секрет репозитория.</p>
-                    <pre style="margin: 0; padding: 10px; background: #14171a; color: #e5e7ea; border-radius: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.6; overflow-x: auto">{{ secretJson }}</pre>
-                    <button onClick="{{ copySecret }}" style="margin-top: 9px; border: 1px solid #d9d9d4; background: #fff; font-size: 12px; font-weight: 500; padding: 6px 11px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">{{ copySecretLabel }}</button>
-                  </section>
                 </div>
               </div>
             </sc-if>
@@ -910,7 +904,7 @@
       }
       if (name === 'value' && ('value' in el)) {
         var next = value === null || value === undefined ? '' : String(value);
-        if (el !== document.activeElement) el.value = next;
+        if (el !== document.activeElement) { if (el.value !== next) el.value = next; else if (next) el.value = next; }
         return;
       }
       if (name === 'checked') {
@@ -1059,7 +1053,7 @@ const SLOTS = [
   { key: 'midday', label: 'День', times: '11:00 UTC · 14:00 МСК' },
   { key: 'evening', label: 'Вечер', times: '16:00 UTC · 19:00 МСК' }
 ];
-const LIMITS = ['Цены и стоимость услуг', 'Конкретные сроки выполнения', 'Проценты, ставки, доходность', 'Медицинские советы и диагнозы'];
+const LIMITS = ['Цены и стоимость услуг', 'Конкретные сроки выполнения', 'Проценты, ставки, доходность', 'Гарантии результата', 'Медицинские советы и диагнозы'];
 const TOPICS = ['Фото работ', 'Советы и полезное', 'Частые вопросы', 'Идеи и вдохновение', 'Отзывы и результаты'];
 const NETWORKS = ['VK', 'Telegram', 'MAX'];
 const TASKS = [
@@ -1074,10 +1068,10 @@ const TASKS = [
   { task: 'Можно ли одновременно хотеть двух противоположных вещей? Приведите пример и объясните почему вы так думаете.',
     example: 'Например: хотеть свободы и стабильности одновременно.' }
 ];
+
 // Нишевые праздники — только проверенные факты с фиксированной датой.
-// «День риелтора» реально существует дважды: 8 февраля (фиксированная)
-// и третья суббота декабря (плавающая) — вторую не берём, наша система
-// хранит только ДД.ММ, а плавающую дату пришлось бы менять каждый год.
+// «День риелтора» существует дважды: 8 февраля и третья суббота декабря;
+// плавающую не берём — конфиг хранит только ДД.ММ.
 const NICHE_HOLIDAY_SUGGESTIONS = [
   {
     match: ['недвижимост', 'риэлт', 'риелт', 'страхован', 'ипотек'],
@@ -1087,11 +1081,10 @@ const NICHE_HOLIDAY_SUGGESTIONS = [
     ]
   }
 ];
-
 const CHECKS = [
-  { key: 'disk', label: 'Создана папка на Яндекс.Диске', hint: 'clients/{id}/to_post, posted, archive' },
+  { key: 'disk', label: 'Создана папка на Яндекс.Диске', hint: 'clients/{id}: to_post, posted, rubrics/*' },
   { key: 'channel', label: 'Создан Telegram-канал', hint: 'бот добавлен админом' },
-  { key: 'secrets', label: 'Добавлены секреты в GitHub', hint: 'CLIENT_TOKENS — руками' },
+  { key: 'secrets', label: 'Рубрики согласованы с клиентом', hint: 'контент-план и примеры отправлены' },
   { key: 'config', label: 'Конфиг сгенерирован и закоммичен', hint: 'clients/{id}.json через Contents API' },
   { key: 'test', label: 'Тестовый запуск прошёл успешно', hint: 'workflow_dispatch, один пост' },
   { key: 'paid', label: 'Оплата получена', hint: 'статус в листе Клиенты' }
@@ -1110,12 +1103,12 @@ function client(o) {
   return Object.assign({
     tone: 'Простой и дружелюбный — как друг', holidays: 'Да, но без упоминания скидок',
     faq: '', cta: '', limits: [], limitsText: '', networks: ['VK', 'Telegram', 'MAX'],
-    topics: ['Фото работ', 'Советы и полезное'], photoQueue: 0, workflow: 'post.yml',
+    topics: ['Фото работ', 'Советы и полезное'], photoQueue: 0, workflow: 'clients-post.yml',
     styleAnswers: ['', '', '', '', ''], stylePrompt: '', rubrics: [], edits: '', iterations: 0,
     checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
-    lastPostDate: '—', lastPostStatus: 'Не запущен', tgChannel: '', morningPhoto: false,
-    holidaysExtra: ''
+    lastPostDate: '—', lastPostStatus: 'Не запущен',
+    tgChannel: '', morningPhoto: false, holidaysExtra: ''
   }, o);
 }
 
@@ -1223,8 +1216,8 @@ function toApi(c) {
     holidays: c.holidays, faq: c.faq, limits: c.limits, limitsText: c.limitsText,
     cta: c.cta, source: c.source, startedAt: isoDate(c.startedAt),
     // pay и nextPay не отправляем: ими распоряжается дропдаун в таблице
-    active: c.active !== false, tgChannel: c.tgChannel, morningPhoto: !!c.morningPhoto,
-    holidaysExtra: c.holidaysExtra || '',
+    active: c.active !== false, tgChannel: c.tgChannel || '',
+    morningPhoto: !!c.morningPhoto, holidaysExtra: c.holidaysExtra || '',
     stylePrompt: c.stylePrompt, niche: c.niche,
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
@@ -1384,7 +1377,7 @@ const SETTINGS = [
   { key: 'GITHUB_REPO', label: 'Репозиторий с конфигами',
     hint: 'В виде owner/repo. Туда уходит clients/{id}.json и оттуда запускается тестовый прогон.' },
   { key: 'ROUTERAI_KEY', label: 'Ключ RouterAI',
-    hint: 'Анализ стиля, контент-план и примеры постов. Модель google/gemini-3.1-pro-preview.' },
+    hint: 'Анализ стиля, контент-план и примеры постов. Модель google/gemini-3.1-flash-lite.' },
 ];
 
 // Telegram-бот и чат заданы константами в Apps Script (учёт оплат) —
@@ -1622,10 +1615,10 @@ class Component extends DCLogic {
       this.patch(c.id, { [key]: arr });
     };
 
-    // подбор нишевых праздников по ключевым словам в нише/описании —
-    // без вызова AI: заранее проверенный список, только фиксированные даты
+    // подбор нишевых праздников по ключевым словам — без вызова AI:
+    // заранее проверенный список, только фиксированные даты
     const nicheText = ((c.niche || '') + ' ' + (c.about || '')).toLowerCase();
-    const norm = s => s.replace(/\s+/g, ' ').trim();
+    const norm = s2 => s2.replace(/\s+/g, ' ').trim();
     const holidayLines = (c.holidaysExtra || '').split('\n').map(norm).filter(Boolean);
     const seenNiche = new Set();
     const nicheSuggestions = [];
@@ -1638,11 +1631,11 @@ class Component extends DCLogic {
         nicheSuggestions.push({ line, name: h.name });
       });
     });
-    const nicheHolidayChips = nicheSuggestions.map(s => {
-      const on = holidayLines.indexOf(s.line) >= 0;
-      return chip(on, s.name, () => {
+    const nicheHolidayChips = nicheSuggestions.map(sg => {
+      const on = holidayLines.indexOf(sg.line) >= 0;
+      return chip(on, sg.name, () => {
         const current = (c.holidaysExtra || '').split('\n').map(norm).filter(Boolean);
-        const next = on ? current.filter(l => l !== s.line) : current.concat([s.line]);
+        const next = on ? current.filter(l => l !== sg.line) : current.concat([sg.line]);
         this.patch(c.id, { holidaysExtra: next.join('\n') });
       });
     });
@@ -1934,9 +1927,7 @@ class Component extends DCLogic {
       back: () => this.setState({ view: 'list' }),
       tabBrief: st.tab === 'brief', tabOnboarding: st.tab === 'onboarding',
       tabContent: st.tab === 'content', tabPayments: st.tab === 'payments',
-      set,
-      // подсказка сразу показывает, дойдут ли праздники до постинга:
-      // тариф СТАРТ их не включает, «Не нужны» в брифе отключает совсем
+      // подсказка честно показывает, дойдут ли праздники до постинга
       holidayHint: c.tariff === 'СТАРТ'
         ? 'Тариф СТАРТ — праздничные посты не выходят, включая эти.'
         : String(c.holidays || '').indexOf('Не нужны') === 0
@@ -1950,6 +1941,7 @@ class Component extends DCLogic {
         this.patch(c.id, { morningPhoto: next });
         this.quietSave(c.id, { morningPhoto: next }, { morningPhoto: c.morningPhoto });
       },
+      set,
       c: {
         id: c.id, business: c.business, name: c.name, niche: c.niche, city: c.city,
         tariff: c.tariff, price: priceOf(c.tariff).toLocaleString('ru-RU'),
@@ -1962,7 +1954,7 @@ class Component extends DCLogic {
         lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
         stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
         payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay),
-        tgChannel: c.tgChannel, holidaysExtra: c.holidaysExtra || ''
+        tgChannel: c.tgChannel || '', holidaysExtra: c.holidaysExtra || ''
       },
       queueStyle: PILL + (c.photoQueue > 0
         ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
@@ -2034,12 +2026,10 @@ class Component extends DCLogic {
           setTimeout(() => this.setState({ pushed: false }), 2000);
         }),
 
-      secretJson: '{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}',
-      copySecretLabel: st.copied === 'secret' ? 'Скопировано ✓' : 'Скопировать JSON',
-      copySecret: () => this.copy('{\n  "' + c.id + '": {\n    "tg_channel": "@' + c.id.replace(/-/g, '_') + '",\n    "yandex_folder": "clients/' + c.id + '"\n  }\n}', 'secret'),
       styleFilled,
       styleTasks: TASKS.map((t, i) => ({
-        num: String(i + 1).padStart(2, '0'), task: t.task, example: t.example, answer: c.styleAnswers[i],
+        num: String(i + 1).padStart(2, '0'), task: t.task, example: t.example,
+        answer: c.styleAnswers[i],
         copyLabel: st.copied === 'task' + i ? 'Скопировано ✓' : 'Скопировать',
         onCopy: () => this.copy(
           t.task + '\n\n' + t.example +
@@ -2161,7 +2151,7 @@ class Component extends DCLogic {
         { label: 'Конфиг собран из брифа и рубрик', detail: cfgBytes + ' байт · ' + c.rubrics.length + ' рубрик · ' + c.slots.length + ' слотов', ok: !!c.rubrics.length },
         { label: 'GET sha текущего файла', detail: dep && dep.prevSha && dep.prevSha !== '—' ? 'sha ' + dep.prevSha : 'файла ещё нет — создание', ok: true },
         { label: 'PUT contents/clients/' + c.id + '.json', detail: dep ? 'commit ' + dep.sha + (dep.at ? ' · ' + dep.at : '') : 'ожидает запуска', ok: !!dep },
-        { label: 'workflow_dispatch post.yml', detail: dep ? (dep.note || 'тестовый прогон запущен') : 'запустится после коммита', ok: !!dep }
+        { label: 'workflow_dispatch clients-post.yml', detail: dep ? (dep.note || 'тестовый прогон запущен') : 'запустится после коммита', ok: !!dep }
       ].map(s => ({
         label: s.label, detail: s.detail,
         dot: 'flex: none; width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; background: ' + (s.ok ? '#136c41' : '#cfd0cc') + ';'

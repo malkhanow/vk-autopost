@@ -275,7 +275,7 @@ var HEAD_CLIENTS = [
 var HEAD_CLIENTS_EXTRA = [
   'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
   'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
-  'Telegram-канал'
+  'Telegram-канал', 'Утро фото', 'Свои праздники'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -301,6 +301,7 @@ var F = {
   limitsText: 'Ограничения текст', cta: 'Заглушка', source: 'Источник',
   startedAt: 'Дата подключения', nextPay: 'Дата оплаты', pay: 'Статус оплаты',
   active: 'Активен', tgChannel: 'Telegram-канал',
+  morningPhoto: 'Утро фото', holidaysExtra: 'Свои праздники',
   stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
@@ -791,7 +792,7 @@ function uniqueId_(base, taken) {
 
 var LIMITS_KNOWN = [
   'Цены и стоимость услуг', 'Конкретные сроки выполнения',
-  'Проценты, ставки, доходность',
+  'Проценты, ставки, доходность', 'Гарантии результата',
   'Медицинские советы и диагнозы'
 ];
 var TOPICS_KNOWN = [
@@ -861,6 +862,8 @@ function rowToClient_(t, row, rowNumber) {
     payRaw: payRaw,
     active: activeCol < 0 ? true : bool_(row[activeCol]),
     tgChannel: str_(val_(t, row, 'tgChannel')),
+    morningPhoto: bool_(val_(t, row, 'morningPhoto')),
+    holidaysExtra: str_(val_(t, row, 'holidaysExtra')),
     stylePrompt: str_(val_(t, row, 'stylePrompt')),
     configPushed: str_(val_(t, row, 'pushed')),
     niche: str_(val_(t, row, 'niche')),
@@ -939,6 +942,8 @@ var TO_CELL = {
   // pay / nextPay сюда не входят: статус и дату оплаты ведёт дропдаун
   active:        function (v) { return bool_(v); },
   tgChannel:     function (v) { return str_(v); },
+  morningPhoto:  function (v) { return bool_(v); },
+  holidaysExtra: function (v) { return str_(v); },
   stylePrompt:   function (v) { return str_(v); },
   configPushed:  function (v) { return str_(v); },
   niche:         function (v) { return str_(v); },
@@ -1327,8 +1332,13 @@ function buildConfig_(c) {
         prompt: r.prompt
       };
     }),
-tg_channel: c.tgChannel || null,
+    tg_channel: c.tgChannel || null,
+    morning_photo: !!c.morningPhoto,
+    holidays_extra: c.holidaysExtra || '',
     yandex_folder: 'clients/' + c.id,
+    // без active скрипт постинга считает клиента включённым по умолчанию —
+    // тумблер в CRM тогда не остановил бы публикации
+    active: c.active !== false,
     iterations: c.iterations || 0
   };
 }
@@ -1440,7 +1450,7 @@ function ghError_(what, res) {
 }
 
 /* ========================================================================
- *  ROUTERAI (google/gemini-3.1-pro-preview)
+ *  ROUTERAI (google/gemini-3.1-flash-lite)
  * ==================================================================== */
 
 var STYLE_TASKS = [
