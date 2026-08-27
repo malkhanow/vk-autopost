@@ -25,6 +25,13 @@
      Токен бота общий (TELEGRAM_BOT_TOKEN) — один бот, добавленный
      админом во все каналы клиентов.
 
+Праздники идут поверх расписания рубрик и вытесняют обычный пост слота:
+за 7 дней и за 1 день — вечером (самый поздний слот клиента), в сам день
+праздника — утром (самый ранний слот) вместо ежедневной рубрики с фото.
+Базовый список зашит в BASE_HOLIDAYS, нишевые клиент задаёт в CRM — они
+приезжают в конфиг полем holidays_extra. Тариф СТАРТ праздники не
+включает, как и выбор «Не нужны» в брифе.
+
 Ручной тестовый запуск (кнопка "Сохранить и запустить" в CRM) передаёт
 input client_id через workflow_dispatch — тогда день недели и слот не
 проверяются, публикуется сразу следующая по очереди рубрика этого
@@ -34,6 +41,8 @@ GitHub Secrets:
   ROUTERAI_KEY        — тот же ключ, что в Apps Script Script Properties
   TELEGRAM_BOT_TOKEN  — общий бот, admin во всех каналах клиентов
   YANDEX_TOKEN        — OAuth-токен Яндекс.Диска (общий, папки разные)
+  PEXELS_KEY          — фотосток для праздничных постов. Не задан —
+                        праздничные посты уходят текстом, без картинки.
 """
 
 import glob
@@ -55,11 +64,55 @@ ROUTERAI_MODEL = os.environ.get("ROUTERAI_MODEL", "google/gemini-3.1-flash-lite"
 ROUTERAI_KEY = os.environ["ROUTERAI_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 YANDEX_TOKEN = os.environ.get("YANDEX_TOKEN", "")
+PEXELS_KEY = os.environ.get("PEXELS_KEY", "")
 
 SLOT = os.environ.get("SLOT", "")               # morning / midday / evening
 TEST_CLIENT_ID = os.environ.get("TEST_CLIENT_ID", "").strip()
 
 DOW_MAP = {"пн": 0, "вт": 1, "ср": 2, "чт": 3, "пт": 4, "сб": 5, "вс": 6}
+DOW_ABBR = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+
+# ---------- праздники ----------
+#
+# Базовый список — одинаковый у всех клиентов. Нишевые праздники клиент
+# задаёт в CRM, они приезжают в конфиг полем holidays_extra построчно
+# в виде "ДД.ММ Название".
+#
+# Тариф СТАРТ праздничные посты не включает — см. holidays_for_client().
+# solemn=True — сдержанный тон, без поздравлений-праздничности и без
+# любых упоминаний предложений (задел на 9 мая и подобные даты).
+
+BASE_HOLIDAYS = [
+    {"key": "new_year",   "month": 1,  "day": 1,  "name": "Новый год",                    "solemn": False},
+    {"key": "christmas",  "month": 1,  "day": 7,  "name": "Рождество Христово",           "solemn": False},
+    {"key": "valentine",  "month": 2,  "day": 14, "name": "День всех влюблённых",         "solemn": False},
+    {"key": "defender",   "month": 2,  "day": 23, "name": "День защитника Отечества",     "solemn": False},
+    {"key": "womens_day", "month": 3,  "day": 8,  "name": "Международный женский день",   "solemn": False},
+    {"key": "spring_may", "month": 5,  "day": 1,  "name": "Праздник Весны и Труда",       "solemn": False},
+    {"key": "knowledge",  "month": 9,  "day": 1,  "name": "День знаний",                  "solemn": False},
+    {"key": "nye",        "month": 12, "day": 31, "name": "Канун Нового года",            "solemn": False},
+]
+
+# что публикуем: за 7 дней и за 1 день — вечером, в сам день — утром
+HOLIDAY_KINDS = {
+    "before7": "анонс за неделю",
+    "before1": "анонс за день",
+    "day": "поздравление",
+}
+
+# Запасные запросы к фотостоку: обычно запрос придумывает модель, но если
+# она не ответила — берём отсюда, чтобы пост не остался без картинки.
+# Английский — на стоках по нему в разы больше материала, чем по русскому.
+HOLIDAY_IMAGE_QUERIES = {
+    "new_year":   "new year celebration lights",
+    "christmas":  "christmas candles winter",
+    "valentine":  "valentines day hearts",
+    "defender":   "red carnations memorial",
+    "womens_day": "spring flowers bouquet women",
+    "spring_may": "spring blossom sunny day",
+    "knowledge":  "school books autumn",
+    "nye":        "new year eve fireworks",
+}
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -264,6 +317,169 @@ def build_post(client, rubric):
     ])
 
 
+HOLIDAY_TASKS = {
+    "before7": (
+        "До праздника неделя. Напомни об этом и в двух-трёх предложениях "
+        "расскажи, что это за день. Коротко, без исторической справки на "
+        "полстраницы.",
+        260,
+    ),
+    "before1": (
+        "Праздник завтра. В четырёх-пяти предложениях расскажи про этот день: "
+        "что отмечают, откуда пошло, чем он важен людям.",
+        420,
+    ),
+    "day": (
+        "Праздник сегодня. Поздравь подписчиков — тепло и по-человечески, "
+        "без официоза и без пересказа истории праздника.",
+        320,
+    ),
+}
+
+
+def build_holiday_post(client, holiday, kind):
+    task, max_tokens = HOLIDAY_TASKS[kind]
+    forbidden = client.get("forbidden") or []
+    mode = str(client.get("holidays", "")).strip().lower()
+
+    if holiday.get("solemn"):
+        # памятные даты: ровный тон, никаких предложений и приглашений
+        offer = ("Это памятная дата. Тон сдержанный и уважительный. "
+                 "Никаких скидок, предложений и приглашений.")
+    elif "со скидк" in mode:
+        # размер скидки скрипту неизвестен — цифры выдумывать нельзя
+        offer = ("Можно упомянуть, что к празднику действует специальное "
+                 "предложение, но без конкретных цифр, процентов и условий.")
+    else:
+        offer = "Не упоминай скидки, акции и любые специальные предложения."
+
+    lines = [
+        f"Бизнес: {client.get('business', '')}",
+        f"Город: {client.get('city', '')}",
+        f"Тон: {client.get('tone', '')}",
+        f"Праздник: {holiday['name']}",
+        f"Задача: {task}",
+        offer,
+    ]
+    if forbidden:
+        lines.append("Запрещено упоминать: " + "; ".join(forbidden))
+    if client.get("cta") and not holiday.get("solemn"):
+        lines.append(f"Призыв к действию в конце: {client['cta']}")
+
+    system = (
+        "Ты пишешь праздничные посты для соцсетей малого бизнеса от лица "
+        "владельца. В ответе — только готовый текст поста, ничего больше: "
+        "ни черновиков, ни заметок о проверке длины, ни заголовков. "
+        "Не показывай ход рассуждений."
+    )
+    user = "\n".join(lines) + (
+        "\n\nНапиши пост"
+        + (
+            f" строго в стиле, описанном ниже:\n{client['style_prompt']}\n"
+            if client.get("style_prompt") else " простым разговорным языком.\n"
+        )
+        + "Не выдумывай факты о бизнесе, даты, цифры и условия. "
+        "Ответь только текстом поста."
+    )
+    return ai_text(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        max_tokens=max_tokens,
+    )
+
+
+def holiday_image_query(holiday):
+    """
+    Поисковый запрос к фотостоку под конкретный праздник. Придумывает модель:
+    она знает, что 23 февраля — это не ёлка, а «День риелтора» — ключи и дом.
+    Просить у модели готовую ссылку на картинку нельзя: URL она выдумает,
+    поэтому её дело — только запрос, а картинку отдаёт сток.
+    """
+    import re
+    fallback = HOLIDAY_IMAGE_QUERIES.get(holiday["key"], "")
+    try:
+        raw = ai_text(
+            [
+                {"role": "system", "content":
+                 "Ты подбираешь поисковый запрос для фотостока. В ответе — "
+                 "только сам запрос: 2–4 слова на английском, без кавычек, "
+                 "без пояснений и без точки в конце."},
+                {"role": "user", "content":
+                 f"Праздник: {holiday['name']}. Нужна атмосферная фотография "
+                 f"для поздравительного поста. Без надписей и текста на фото, "
+                 f"без узнаваемых людей крупным планом."},
+            ],
+            max_tokens=30, temperature=0.5,
+        )
+        # модель иногда добавляет кавычки, эмодзи или пояснение — чистим
+        cleaned = re.sub(r"[^A-Za-z0-9 ]", " ", raw)
+        cleaned = " ".join(cleaned.split()[:5]).strip()
+        if cleaned:
+            return cleaned
+        print(f"Пустой запрос к стоку для «{holiday['name']}» — беру запасной")
+    except Exception as e:
+        print(f"Не удалось подобрать запрос к стоку ({e}) — беру запасной")
+    return fallback
+
+
+def fetch_stock_photo(query):
+    """
+    Картинка с Pexels по запросу, или None. Без ключа PEXELS_KEY просто
+    возвращает None — праздничный пост тогда уйдёт текстом.
+    """
+    import random
+
+    if not PEXELS_KEY:
+        print("PEXELS_KEY не задан — праздничный пост уйдёт без фото.")
+        return None
+    if not query:
+        return None
+    try:
+        resp = requests.get(
+            "https://api.pexels.com/v1/search",
+            headers={"Authorization": PEXELS_KEY},
+            params={"query": query, "per_page": 15, "orientation": "landscape"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            print(f"Pexels: HTTP {resp.status_code} по запросу «{query}»")
+            return None
+        photos = resp.json().get("photos", [])
+        if not photos:
+            print(f"Pexels: ничего не нашлось по запросу «{query}»")
+            return None
+        # не первый попавшийся: иначе один и тот же кадр из года в год
+        photo = random.choice(photos[:10])
+        url = (photo.get("src") or {}).get("large") or (photo.get("src") or {}).get("original")
+        if not url:
+            return None
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        with requests.get(url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            size = 0
+            for chunk in r.iter_content(8192):
+                size += len(chunk)
+                if size > 9 * 1024 * 1024:      # телеграм не примет больше
+                    tmp.close()
+                    os.unlink(tmp.name)
+                    print("Картинка со стока слишком большая — пропускаю.")
+                    return None
+                tmp.write(chunk)
+        tmp.close()
+        if os.path.getsize(tmp.name) < 1024:    # пустышка вместо картинки
+            os.unlink(tmp.name)
+            return None
+        print(f"Фото со стока: «{query}» · автор {photo.get('photographer', '—')}")
+        return tmp.name
+    except Exception as e:
+        print(f"Не удалось получить фото со стока ({e}) — пост уйдёт без него.")
+        return None
+
+
+def holiday_photo(holiday):
+    return fetch_stock_photo(holiday_image_query(holiday))
+
+
 # ---------- Telegram (с фолбэками — пост должен уйти всегда) ----------
 
 def post_to_telegram(channel, text, photo_path=None):
@@ -363,6 +579,126 @@ def pick_rubric(client, today_abbr, state, test_mode):
 SLOT_ORDER = ["morning", "midday", "evening"]
 
 
+# ---------- праздники: отбор ----------
+
+def parse_extra_holidays(raw):
+    """
+    Нишевые праздники клиента из CRM. Одна строка — один праздник:
+        27.02 День риелтора
+    Разделитель после даты любой (пробел, тире, точка). Мусорные строки
+    молча пропускаются — клиент пишет руками, падать из-за опечатки нельзя.
+    """
+    import re
+    out = []
+    if isinstance(raw, list):
+        lines = [str(x) for x in raw]
+    else:
+        lines = str(raw or "").splitlines()
+    for line in lines:
+        m = re.match(r"\s*(\d{1,2})[.\-/](\d{1,2})\s*[\-—–:.]?\s*(.+?)\s*$", line)
+        if not m:
+            continue
+        day, month, name = int(m.group(1)), int(m.group(2)), m.group(3).strip()
+        if not (1 <= month <= 12 and 1 <= day <= 31) or not name:
+            continue
+        out.append({
+            "key": f"extra-{month:02d}-{day:02d}",
+            "month": month, "day": day, "name": name, "solemn": False,
+        })
+    return out
+
+
+def holidays_for_client(client):
+    """
+    Праздники, актуальные для клиента. Пусто — значит праздничных постов
+    у него нет вообще: тариф СТАРТ их не включает, плюс в брифе может
+    стоять «Не нужны».
+    """
+    if str(client.get("tariff", "")).strip().upper() == "СТАРТ":
+        return []
+    mode = str(client.get("holidays", "")).strip().lower()
+    if mode.startswith("не нужн"):
+        return []
+    return BASE_HOLIDAYS + parse_extra_holidays(client.get("holidays_extra"))
+
+
+def find_holiday(holidays, target):
+    for h in holidays:
+        if h["month"] == target.month and h["day"] == target.day:
+            return h
+    return None
+
+
+def slot_bounds(client):
+    """
+    Самый ранний и самый поздний из выбранных клиентом слотов. Поздравление
+    уходит в ранний («утро»), анонсы — в поздний («вечер»), даже если клиент
+    выбрал, скажем, только midday и evening.
+    """
+    names = [s.get("name") for s in client.get("slots", []) if s.get("name")]
+    ordered = [s for s in SLOT_ORDER if s in names]
+    if not ordered:
+        return None, None
+    return ordered[0], ordered[-1]
+
+
+def holiday_done_key(today, holiday, kind):
+    return f"{today.isoformat()}:{holiday['key']}:{kind}"
+
+
+def holiday_for_run(client, today, slot, state, test_mode):
+    """
+    Что публикуем сегодня в этот слот: (праздник, вид) или (None, None).
+    Приоритет — сам праздник, потом «завтра», потом «через неделю»: 31 декабря
+    это одновременно Канун НГ, канун Нового года и неделя до Рождества, и
+    получить три поста в один день клиент не должен.
+    Тестовый прогон праздники не трогает — он проверяет обычный конвейер.
+    """
+    from datetime import timedelta
+
+    if test_mode:
+        return None, None
+    holidays = holidays_for_client(client)
+    if not holidays:
+        return None, None
+    earliest, latest = slot_bounds(client)
+    if not earliest:
+        return None, None
+
+    cs = client_state(state, client["client_id"])
+    done = cs.get("holiday_done", [])
+
+    def take(target, kind):
+        h = find_holiday(holidays, target)
+        if h and holiday_done_key(today, h, kind) not in done:
+            return h, kind
+        return None, None
+
+    if slot == earliest:
+        h, kind = take(today, "day")
+        if h:
+            return h, kind
+
+    if slot == latest:
+        h, kind = take(today + timedelta(days=1), "before1")
+        if h:
+            return h, kind
+        h, kind = take(today + timedelta(days=7), "before7")
+        if h:
+            return h, kind
+
+    return None, None
+
+
+def mark_holiday_done(state, client_id, today, holiday, kind):
+    """Отметка ставится только после успешной публикации — иначе ручной
+    перезапуск воркфлоу после сбоя не смог бы досдать пост."""
+    cs = client_state(state, client_id)
+    done = cs.get("holiday_done", [])
+    done.append(holiday_done_key(today, holiday, kind))
+    cs["holiday_done"] = done[-30:]
+
+
 def photo_slot_for_client(client):
     """
     Самый ранний из выбранных слотов клиента (morning -> midday -> evening).
@@ -428,13 +764,11 @@ def main():
     from datetime import datetime
     try:
         from zoneinfo import ZoneInfo
-        today_abbr = list(DOW_MAP.keys())[
-            list(DOW_MAP.values()).index(
-                datetime.now(ZoneInfo("Europe/Moscow")).weekday()
-            )
-        ]
+        now = datetime.now(ZoneInfo("Europe/Moscow"))
     except Exception:
-        today_abbr = list(DOW_MAP.keys())[datetime.utcnow().weekday()]
+        now = datetime.utcnow()
+    today = now.date()
+    today_abbr = DOW_ABBR[today.weekday()]
 
     test_mode = bool(TEST_CLIENT_ID)
     if not test_mode and not SLOT:
@@ -463,28 +797,49 @@ def main():
 
     for client in clients:
         cid = client["client_id"]
-        rubric = pick_rubric_for_run(client, SLOT, today_abbr, state, test_mode)
-        if not rubric:
-            print(f"{cid}: сегодня рубрик нет, пропускаю.")
-            continue
 
+        # канал проверяем до выбора рубрики: иначе очередь рубрик сдвинулась бы
+        # у клиента, который всё равно не может опубликоваться
         channel = client.get("tg_channel")
         if not channel:
             print(f"{cid}: в конфиге клиента не задан tg_channel, пропускаю.")
             continue
 
-        try:
-            text = build_post(client, rubric)
-        except Exception as e:
-            print(f"{cid}: ошибка генерации текста — {e}")
-            continue
+        holiday, kind = holiday_for_run(client, today, SLOT, state, test_mode)
 
-        photo_path, photo_meta = next_photo_for_client(client.get("yandex_folder", ""), rubric.get("name", ""))
+        if holiday:
+            # праздничный пост вытесняет обычную рубрику этого слота; фото из
+            # очереди клиента не тратим — оно ждёт своей рубрики
+            try:
+                text = build_holiday_post(client, holiday, kind)
+            except Exception as e:
+                print(f"{cid}: ошибка генерации праздничного текста — {e}")
+                continue
+            what = f"праздник «{holiday['name']}» — {HOLIDAY_KINDS[kind]}"
+            # фото из очереди клиента не тратим — оно ждёт своей рубрики;
+            # к празднику картинка приходит с фотостока по теме
+            photo_path, photo_meta = holiday_photo(holiday), None
+        else:
+            rubric = pick_rubric_for_run(client, SLOT, today_abbr, state, test_mode)
+            if not rubric:
+                print(f"{cid}: сегодня рубрик нет, пропускаю.")
+                continue
+            try:
+                text = build_post(client, rubric)
+            except Exception as e:
+                print(f"{cid}: ошибка генерации текста — {e}")
+                continue
+            what = f"рубрику «{rubric.get('name')}»"
+            photo_path, photo_meta = next_photo_for_client(
+                client.get("yandex_folder", ""), rubric.get("name", "")
+            )
 
-        print(f"{cid}: публикую рубрику «{rubric.get('name')}» в {channel}")
+        print(f"{cid}: публикую {what} в {channel}")
         try:
             post_to_telegram(channel, text, photo_path)
             posted_any = True
+            if holiday:
+                mark_holiday_done(state, cid, today, holiday, kind)
             if photo_meta:
                 src_path, filename, posted_dir = photo_meta
                 move_to_posted(src_path, filename, posted_dir)
