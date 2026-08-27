@@ -535,6 +535,8 @@ def post_to_telegram(channel, text, photo_path=None):
             print("ИТОГОВАЯ ОШИБКА:", resp.status_code, resp.text)
             resp.raise_for_status()
         print(f"Опубликовано в {channel}.")
+        print(f"Telegram ответ: {resp.status_code} {resp.text[:200]}")
+        print(f"Текст поста: {text[:300]}")
     finally:
         if photo_path and os.path.exists(photo_path):
             try:
