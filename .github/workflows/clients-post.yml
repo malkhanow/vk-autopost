@@ -44,9 +44,9 @@ jobs:
 
       - name: Run clients post
         env:
+          PEXELS_KEY: ${{ secrets.PEXELS_KEY }}
           ROUTERAI_KEY: ${{ secrets.ROUTERAI_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CLIENT_TOKENS: ${{ secrets.CLIENT_TOKENS }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
           SLOT: ${{ steps.slot.outputs.slot }}
           TEST_CLIENT_ID: ${{ github.event.inputs.client_id }}
