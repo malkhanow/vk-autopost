@@ -448,7 +448,7 @@
                     </p>
                     <div style="display: flex; align-items: center; gap: 9px; flex-wrap: wrap">
                       <label style="display: inline-flex; align-items: center; border: 1px solid #d9d9d4; background: #fff; color: #14171a; font-size: 12px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer">
-                        <span>{{ busy === 'styleFiles' ? 'Анализирую…' : 'Загрузить тексты' }}</span>
+                        <span>{{ styleFilesButtonLabel }}</span>
                         <input type="file" accept="{{ styleFilesInputAccept }}" multiple onChange="{{ onStyleFilesChange }}" style="display: none">
                       </label>
                       <sc-if value="{{ styleFilesCount }}" hint-placeholder-val="{{ false }}">
@@ -2075,6 +2075,7 @@ class Component extends DCLogic {
         : ((c.styleFiles || []).length
           ? 'Проанализировано файлов: ' + c.styleFiles.length
           : 'Файлы ещё не загружались')),
+      styleFilesButtonLabel: busy === 'styleFiles' ? 'Анализирую…' : 'Загрузить тексты',
       styleFilesInputAccept: '.docx,.txt,.md',
       onStyleFilesChange: e => {
         const files = Array.from((e && e.target && e.target.files) || []);
