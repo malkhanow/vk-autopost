@@ -448,16 +448,16 @@
                     </p>
                     <div style="display: flex; align-items: center; gap: 9px; flex-wrap: wrap">
                       <label style="display: inline-flex; align-items: center; border: 1px solid #d9d9d4; background: #fff; color: #14171a; font-size: 12px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer">
-                        <span>{{ busy === 'styleFiles' ? 'Анализирую…' : 'Загрузить тексты' }}</span>
-                        <input type="file" accept="{{ styleFilesInputAccept }}" multiple onChange="{{ onStyleFilesChange }}" style="display: none">
+                        <button onClick="{{ onOpenStyleFiles }}" style="border: 1px solid #d9d9d4; background: #fff; color: #14171a; font-size: 12px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">{{ styleFilesButtonLabel }}</button>
+                      <input id="style-files-input" type="file" accept="{{ styleFilesInputAccept }}" multiple onChange="{{ onStyleFilesChange }}" style="display: none">
                       </label>
-                      <sc-if value="{{ styleFiles.length }}" hint-placeholder-val="{{ false }}">
+                      <sc-if value="{{ hasStyleFiles }}" hint-placeholder-val="{{ false }}">
                         <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #6b7078">
-                          {{ styleFiles.length }} файл(ов)
+                          {{ styleFilesCount }} файл(ов)
                         </span>
                       </sc-if>
                     </div>
-                    <sc-if value="{{ styleFiles.length }}" hint-placeholder-val="{{ false }}">
+                    <sc-if value="{{ hasStyleFiles }}" hint-placeholder-val="{{ false }}">
                       <div style="margin-top: 9px; display: flex; flex-direction: column; gap: 4px">
                         <sc-for list="{{ styleFiles }}" as="f" hint-placeholder-count="1">
                           <div style="display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: #6b7078">
@@ -2060,10 +2060,17 @@ class Component extends DCLogic {
 
       styleFilled,
       styleFiles: c.styleFiles || [],
+      hasStyleFiles: Array.isArray(c.styleFiles) && c.styleFiles.length > 0,
+      styleFilesCount: Array.isArray(c.styleFiles) ? c.styleFiles.length : 0,
       styleFilesLabel: (c.styleFiles || []).length
         ? 'Проанализировано файлов: ' + c.styleFiles.length
         : 'Файлы ещё не загружались',
+      styleFilesButtonLabel: busy === 'styleFiles' ? 'Анализирую…' : 'Загрузить тексты',
       styleFilesInputAccept: '.docx,.txt,.md',
+      onOpenStyleFiles: () => {
+        const input = document.getElementById('style-files-input');
+        if (input) input.click();
+      },
       onStyleFilesChange: e => {
         const files = Array.from((e && e.target && e.target.files) || []);
         if (!files.length) return;
