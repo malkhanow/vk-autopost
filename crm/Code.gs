@@ -275,7 +275,7 @@ var HEAD_CLIENTS = [
 var HEAD_CLIENTS_EXTRA = [
   'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
   'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
-  'Telegram-канал', 'Утро фото', 'Свои праздники'
+  'Telegram-канал', 'Утро фото', 'Свои праздники', 'Файлы стиля (JSON)'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -307,6 +307,7 @@ var F = {
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
   iterations: 'Итерации', photoQueue: 'Фото в очереди',
   lastPostDate: 'Последний пост', lastPostStatus: 'Статус последнего поста',
+  styleFiles: 'Файлы стиля (JSON)',
   updatedAt: 'Обновлено'
 };
 
@@ -611,6 +612,9 @@ function setupSheets() {
 
 function clientsTable_() {
   var sh = sheet_(SHEET_NAME, HEAD_CLIENTS);
+  // Новая служебная колонка для истории анализа реальных текстов.
+  // Добавляется один раз автоматически, без ручного запуска setupSheets.
+  ensureHeaders_(sh, ['Файлы стиля (JSON)']);
   var t = table_(SHEET_NAME, HEAD_CLIENTS);
   if (colIndex_(t, 'id') < 0) {
     throw new Error('В листе «' + SHEET_NAME + '» нет колонки client_id — запустите setupSheets один раз из редактора Apps Script');
@@ -869,6 +873,7 @@ function rowToClient_(t, row, rowNumber) {
     niche: str_(val_(t, row, 'niche')),
     topics: pickList_(val_(t, row, 'topics'), TOPICS_KNOWN),
     styleAnswers: padAnswers_(jsonCell_(val_(t, row, 'styleAnswers'), [])),
+    styleFiles: jsonCell_(val_(t, row, 'styleFiles'), []),
     checks: jsonCell_(val_(t, row, 'checks'), {}),
     iterations: num_(val_(t, row, 'iterations')),
     photoQueue: num_(val_(t, row, 'photoQueue')),
@@ -949,6 +954,7 @@ var TO_CELL = {
   niche:         function (v) { return str_(v); },
   topics:        function (v) { return pickList_(v, TOPICS_KNOWN).join('\n'); },
   styleAnswers:  function (v) { return JSON.stringify(padAnswers_(v)); },
+  styleFiles:    function (v) { return JSON.stringify(Array.isArray(v) ? v : []); },
   checks:        function (v) { return JSON.stringify(v || {}); },
   iterations:    function (v) { return num_(v); },
   photoQueue:    function (v) { return num_(v); },
@@ -1213,6 +1219,7 @@ var POST_ACTIONS = {
   },
 
   analyze_style: function (req) { return aiAnalyzeStyle_(req); },
+  analyze_style_files: function (req) { return aiAnalyzeStyleFiles_(req); },
   build_plan:    function (req) { return aiBuildPlan_(req); },
   gen_examples:  function (req) { return aiGenExamples_(req); },
   apply_edits:   function (req) { return aiApplyEdits_(req); }
@@ -1277,6 +1284,7 @@ function createClient_(src) {
     niche: str_(src.niche) || 'не указана',
     topics: src.topics || [],
     styleAnswers: padAnswers_(src.styleAnswers || []),
+    styleFiles: Array.isArray(src.styleFiles) ? src.styleFiles : [],
     checks: src.checks || {},
     iterations: num_(src.iterations),
     photoQueue: num_(src.photoQueue),
@@ -1563,6 +1571,175 @@ function aiClient_(req) {
   if (!id) throw new Error('Не передан client_id');
   if (req.client) POST_ACTIONS.save({ client: req.client });
   return refetchClient_(id);
+}
+
+
+/**
+ * Анализ реальных текстов клиента из загруженных Word/TXT-файлов -> style_prompt.
+ * Файлы приходят из внутренней CRM как base64. Сами тексты не сохраняются:
+ * в таблицу пишем только метаданные файлов и итоговый style_prompt.
+ */
+function aiAnalyzeStyleFiles_(req) {
+  var id = str_(req.id);
+  if (!id) throw new Error('Не передан client_id');
+
+  var files = Array.isArray(req.files) ? req.files : [];
+  if (!files.length) throw new Error('Не загружено ни одного файла');
+  if (files.length > 5) throw new Error('Можно анализировать максимум 5 файлов за один раз');
+
+  var totalBytes = 0;
+  var sources = [];
+
+  files.forEach(function (file, i) {
+    file = file || {};
+    var name = str_(file.name) || ('файл-' + (i + 1));
+    var ext = (name.split('.').pop() || '').toLowerCase();
+    var data = str_(file.data);
+    if (!data) throw new Error('Файл «' + name + '» не содержит данных');
+
+    if (['docx', 'txt', 'md'].indexOf(ext) < 0) {
+      throw new Error('Файл «' + name + '»: поддерживаются Word .docx и текстовые .txt/.md. Старый бинарный .doc не поддерживается.');
+    }
+
+    var bytes = Utilities.base64Decode(data);
+    totalBytes += bytes.length;
+    if (bytes.length > 3 * 1024 * 1024) {
+      throw new Error('Файл «' + name + '» больше 3 МБ');
+    }
+    if (totalBytes > 10 * 1024 * 1024) {
+      throw new Error('Общий размер файлов больше 10 МБ');
+    }
+
+    var text = ext === 'docx'
+      ? extractDocxText_(Utilities.newBlob(bytes, file.mime || 'application/octet-stream', name))
+      : Utilities.newBlob(bytes, file.mime || 'text/plain', name).getDataAsString('UTF-8');
+
+    text = cleanStyleSourceText_(text);
+    if (!text) throw new Error('Из файла «' + name + '» не удалось извлечь текст');
+
+    // Ограничиваем объём одного источника, чтобы не забить контекст модели.
+    if (text.length > 30000) text = text.slice(0, 30000) + '\n[текст обрезан]';
+
+    sources.push({
+      name: name,
+      text: text,
+      chars: text.length
+    });
+  });
+
+  var c = refetchClient_(id);
+  var corpus = sources.map(function (src, i) {
+    return '===== ИСТОЧНИК ' + (i + 1) + ': ' + src.name + ' =====\n' + src.text;
+  }).join('\n\n');
+
+  var content = ai_([
+    {
+      role: 'system',
+      content: 'Ты редактор и специалист по авторскому стилю. Твоя задача — по реальным текстам одного автора составить точную инструкцию для другой нейросети, чтобы она могла писать новые тексты максимально похожей манерой. Анализируй именно способ письма, а не тему бизнеса. Отвечай только JSON.'
+    },
+    {
+      role: 'user',
+      content:
+        'Клиент: ' + (c.business || c.name || 'не указан') + '\n\n' +
+        'Ниже находятся реальные тексты одного автора: его посты, заметки, мысли и другие материалы. ' +
+        'Проанализируй корпус целиком и выдели устойчивые особенности его письменной речи.\n\n' +
+        corpus +
+        '\n\nСоставь style_prompt как прямую инструкцию для нейросети. Обязательно учти: ' +
+        'тон и степень формальности; обращение к читателю; длину и ритм предложений; размер и ритм абзацев; ' +
+        'структуру и типичные способы начала/завершения текста; лексику и сложность слов; эмоциональность; ' +
+        'эмодзи; пунктуацию; вопросы и восклицания; диалоги и сторителлинг; характерные речевые приёмы; ' +
+        'допустимую степень личного мнения; характер призывов к действию, если они устойчиво встречаются. ' +
+        'Не копируй фразы из исходников и не перечисляй конкретные факты, имена, товары, услуги или события. ' +
+        'Не оценивай автора и не делай комплиментов. Не придумывай особенности, которых в корпусе нет. ' +
+        'Сделай подробную, но практичную инструкцию примерно из 6–12 предложений.\n\n' +
+        'Верни JSON строго такого вида: {"style_prompt":"…"}'
+    }
+  ], { json: true, temperature: 0.3, maxTokens: 1400 });
+
+  var parsed = parseJsonLoose_(content);
+  var stylePrompt = str_(parsed.style_prompt);
+  if (!stylePrompt) throw new Error('Модель не вернула style_prompt');
+
+  var metadata = sources.map(function (src) {
+    return {
+      name: src.name,
+      chars: src.chars,
+      analyzedAt: Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm:ss')
+    };
+  });
+
+  withLock_(function () {
+    var t = clientsTable_();
+    writeRow_(t, findRow_(t, id), {
+      stylePrompt: stylePrompt,
+      styleFiles: metadata
+    });
+    SpreadsheetApp.flush();
+    return true;
+  });
+
+  return {
+    stylePrompt: stylePrompt,
+    styleFiles: metadata,
+    client: refetchClient_(id)
+  };
+}
+
+/** Извлекает видимый текст из Word .docx без сторонних библиотек. */
+function extractDocxText_(blob) {
+  var parts = Utilities.unzip(blob);
+  var docXml = null;
+
+  for (var i = 0; i < parts.length; i++) {
+    var name = parts[i].getName();
+    if (name === 'word/document.xml' || /(^|\/)word\/document\.xml$/.test(name)) {
+      docXml = parts[i].getDataAsString('UTF-8');
+      break;
+    }
+  }
+
+  if (!docXml) throw new Error('В Word-файле не найден word/document.xml');
+
+  try {
+    var xml = XmlService.parse(docXml);
+    var root = xml.getRootElement();
+    var out = [];
+
+    function walk(el) {
+      var name = el.getName();
+      if (name === 't') out.push(el.getText());
+      else if (name === 'tab') out.push('\t');
+      else if (name === 'br' || name === 'cr') out.push('\n');
+
+      var children = el.getChildren();
+      for (var j = 0; j < children.length; j++) walk(children[j]);
+
+      if (name === 'p') out.push('\n');
+    }
+
+    walk(root);
+    return out.join('');
+  } catch (e) {
+    // Запасной вариант для нестандартного XML.
+    return docXml
+      .replace(/<w:tab\s*\/>/g, '\t')
+      .replace(/<w:(?:br|cr)[^>]*\/>/g, '\n')
+      .replace(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g, '$1\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .trim();
+  }
+}
+
+function cleanStyleSourceText_(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
 }
 
 /** analyzeStyle: 5 текстов клиента -> style_prompt. */
