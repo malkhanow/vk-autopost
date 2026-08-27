@@ -69,7 +69,6 @@ PEXELS_KEY = os.environ.get("PEXELS_KEY", "")
 SLOT = os.environ.get("SLOT", "")               # morning / midday / evening
 TEST_CLIENT_ID = os.environ.get("TEST_CLIENT_ID", "").strip()
 
-DOW_MAP = {"пн": 0, "вт": 1, "ср": 2, "чт": 3, "пт": 4, "сб": 5, "вс": 6}
 DOW_ABBR = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 
 # ---------- праздники ----------
