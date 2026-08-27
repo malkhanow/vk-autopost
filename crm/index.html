@@ -221,8 +221,16 @@
                         <span style="font-size: 11.5px; color: #6b7078">Свои праздники — по одному в строке</span>
                         <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #a3a7ac">ДД.ММ Название</span>
                       </span>
-                      <textarea rows="2" placeholder="27.02 День риелтора" value="{{ c.holidaysExtra }}" onChange="{{ set.holidaysExtra }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                      <textarea rows="2" placeholder="08.02 День риелтора" value="{{ c.holidaysExtra }}" onChange="{{ set.holidaysExtra }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; line-height: 1.5; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
                       <span style="display: block; font-size: 11px; color: #8a8f96; margin-top: 4px">{{ holidayHint }}</span>
+                      <sc-if value="{{ hasNicheHolidays }}" hint-placeholder-val="{{ false }}">
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px">
+                          <sc-for list="{{ nicheHolidayChips }}" as="h" hint-placeholder-count="2">
+                            <button onClick="{{ h.onClick }}" style="{{ h.style }}">{{ h.label }}</button>
+                          </sc-for>
+                        </div>
+                        <span style="display: block; font-size: 11px; color: #8a8f96; margin-top: 6px">Подобрано по нише — клик добавляет или убирает строку</span>
+                      </sc-if>
                     </label>
                     <div style="margin-top: 12px">
                       <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Рубрики из брифа</span>
@@ -1066,6 +1074,20 @@ const TASKS = [
   { task: 'Можно ли одновременно хотеть двух противоположных вещей? Приведите пример и объясните почему вы так думаете.',
     example: 'Например: хотеть свободы и стабильности одновременно.' }
 ];
+// Нишевые праздники — только проверенные факты с фиксированной датой.
+// «День риелтора» реально существует дважды: 8 февраля (фиксированная)
+// и третья суббота декабря (плавающая) — вторую не берём, наша система
+// хранит только ДД.ММ, а плавающую дату пришлось бы менять каждый год.
+const NICHE_HOLIDAY_SUGGESTIONS = [
+  {
+    match: ['недвижимост', 'риэлт', 'риелт', 'страхован', 'ипотек'],
+    holidays: [
+      { date: '08.02', name: 'День риелтора' },
+      { date: '08.07', name: 'День семьи, любви и верности' }
+    ]
+  }
+];
+
 const CHECKS = [
   { key: 'disk', label: 'Создана папка на Яндекс.Диске', hint: 'clients/{id}/to_post, posted, archive' },
   { key: 'channel', label: 'Создан Telegram-канал', hint: 'бот добавлен админом' },
@@ -1600,6 +1622,31 @@ class Component extends DCLogic {
       this.patch(c.id, { [key]: arr });
     };
 
+    // подбор нишевых праздников по ключевым словам в нише/описании —
+    // без вызова AI: заранее проверенный список, только фиксированные даты
+    const nicheText = ((c.niche || '') + ' ' + (c.about || '')).toLowerCase();
+    const norm = s => s.replace(/\s+/g, ' ').trim();
+    const holidayLines = (c.holidaysExtra || '').split('\n').map(norm).filter(Boolean);
+    const seenNiche = new Set();
+    const nicheSuggestions = [];
+    NICHE_HOLIDAY_SUGGESTIONS.forEach(group => {
+      if (!group.match.some(k => nicheText.indexOf(k) >= 0)) return;
+      group.holidays.forEach(h => {
+        const line = norm(h.date + ' ' + h.name);
+        if (seenNiche.has(line)) return;
+        seenNiche.add(line);
+        nicheSuggestions.push({ line, name: h.name });
+      });
+    });
+    const nicheHolidayChips = nicheSuggestions.map(s => {
+      const on = holidayLines.indexOf(s.line) >= 0;
+      return chip(on, s.name, () => {
+        const current = (c.holidaysExtra || '').split('\n').map(norm).filter(Boolean);
+        const next = on ? current.filter(l => l !== s.line) : current.concat([s.line]);
+        this.patch(c.id, { holidaysExtra: next.join('\n') });
+      });
+    });
+
     const doneCount = CHECKS.filter(k => c.checks[k.key]).length;
     const styleFilled = c.styleAnswers.filter(a => a.trim()).length;
     const maxSlots = c.tariff === 'СТАРТ' ? 1 : 2;
@@ -1896,6 +1943,8 @@ class Component extends DCLogic {
           ? 'В брифе выбрано «Не нужны» — праздничные посты не выходят.'
           : 'Плюс базовый список: Новый год, Рождество, 14 февраля, 23 февраля, 8 марта, 1 мая, 1 сентября, 31 декабря. Анонсы за 7 и за 1 день — вечером, поздравление — утром.',
       morningPhotoOn: !!c.morningPhoto,
+      hasNicheHolidays: nicheHolidayChips.length > 0,
+      nicheHolidayChips,
       toggleMorningPhoto: () => {
         const next = !c.morningPhoto;
         this.patch(c.id, { morningPhoto: next });
