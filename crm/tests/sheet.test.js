@@ -69,6 +69,10 @@ const Utilities = {
 };
 const Session = { getScriptTimeZone: () => 'Europe/Moscow' };
 const PROPS = {};
+// имена свойств должны совпадать с Code.gs, и задать их надо до new Function:
+// const TELEGRAM_BOT_TOKEN = ... вычисляется один раз при загрузке скрипта
+PROPS.TELEGRAM_BOT_TOKEN = '123:AA';
+PROPS.TELEGRAM_CHAT_ID = '555';
 const PropertiesService = { getScriptProperties: () => ({ getProperty: k => (k in PROPS ? PROPS[k] : null) }) };
 const sent = [];
 const UrlFetchApp = { fetch: (url, o) => { sent.push({ url, o }); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { username: 'bot' } }) }; } };
@@ -174,20 +178,37 @@ ok('полный save вернулся целиком', full.about === 'Новы
 ok('рубрики в ячейке — JSON', JSON.parse(cell(3, 'Рубрики (JSON)'))[0].name === 'Фото работ');
 ok('style_prompt в своей колонке', cell(3, 'style_prompt') === 'Короткие фразы');
 
+// round-trip для новых полей: сохранил -> перечитал -> значения совпадают
+const saved = api.POST_ACTIONS.save({ client: Object.assign({}, full, {
+  tgChannel: '@olga_test', morningPhoto: true,
+  holidaysExtra: '08.02 День риелтора\n08.07 День семьи'
+}) }).client;
+ok('tgChannel сохранился и вернулся', saved.tgChannel === '@olga_test', saved.tgChannel);
+ok('morningPhoto сохранился и вернулся', saved.morningPhoto === true, saved.morningPhoto);
+ok('holidaysExtra сохранился и вернулся',
+   saved.holidaysExtra === '08.02 День риелтора\n08.07 День семьи', saved.holidaysExtra);
+// конфиг проверяется в pure.test.js — buildConfig_ там экспортируется
+
 /* ---- 5. оплаты только читаются ---- */
 ok('в doPost нет action=pay', api.POST_ACTIONS.pay === undefined);
 ok('в doPost нет action=unpay', api.POST_ACTIONS.unpay === undefined);
 
 const payCol = clientsSheet.data[0].indexOf('Статус');
 const dateCol = clientsSheet.data[0].indexOf('Дата оплаты');
-clientsSheet.data[2][dateCol] = new Date(2026, 7, 26);
+// дата берётся относительно сегодня: с жёстко зашитой тест протухал,
+// как только она оказывалась в прошлом
+const soon = new Date(); soon.setDate(soon.getDate() + 10);
+const soonIso = soon.getFullYear() + '-' +
+  String(soon.getMonth() + 1).padStart(2, '0') + '-' +
+  String(soon.getDate()).padStart(2, '0');
+clientsSheet.data[2][dateCol] = soon;
 clientsSheet.data[2][payCol] = 'Ожидает оплаты';
 let fresh = api.GET_ACTIONS.client({ id: created.id }).client;
-ok('дата и статус читаются из колонок учёта', fresh.nextPay === '2026-08-26' && fresh.pay === 'due', fresh.pay);
+ok('дата и статус читаются из колонок учёта', fresh.nextPay === soonIso && fresh.pay === 'due', fresh.pay);
 
 // полное сохранение карточки не должно задеть колонки оплат
 api.POST_ACTIONS.save({ client: Object.assign({}, fresh, { pay: 'paid', nextPay: '2031-01-01', about: 'Ещё раз' }) });
-ok('полный save не трогает дату оплаты', String(clientsSheet.data[2][dateCol]).indexOf('Aug 26 2026') >= 0, String(clientsSheet.data[2][dateCol]));
+ok('полный save не трогает дату оплаты', String(clientsSheet.data[2][dateCol]) === String(soon), String(clientsSheet.data[2][dateCol]));
 ok('полный save не трогает статус', clientsSheet.data[2][payCol] === 'Ожидает оплаты');
 
 /* ---- 6. просрочка, пока лист не пересчитан ---- */
@@ -202,7 +223,6 @@ const second = api.POST_ACTIONS['new']({ client: { business: 'Пекарня «�
 ok('второй клиент получил -2', second.id === 'pekarnya-testo-i-delo-2', second.id);
 
 /* ---- 8. форма -> клиент + Telegram ---- */
-PROPS.TG_BOT_TOKEN = '123:AA'; PROPS.TG_CHAT_ID = '555';
 const briefSheet = book.getSheetByName('Брифы');
 briefSheet.data[0] = ['Отметка времени', 'Ваше имя (ФИО)', 'Телефон', 'Ваш Telegram', 'Название бизнеса',
   'Ниша / сфера деятельности', 'Город', 'Расскажите о бизнесе', 'Кто ваши клиенты',
@@ -215,7 +235,10 @@ const fromForm = api.onFormSubmit({
   range: { getRow: () => 2, getSheet: () => briefSheet },
   namedValues: (() => { const nv = {}; briefSheet.data[0].forEach((h, i) => { if (h) nv[h] = [briefSheet.data[1][i]]; }); return nv; })()
 });
-ok('карточка из формы', fromForm.id === 'studiya-keramika' && fromForm.name === 'Алиса Ремизова', fromForm.id);
+// onFormSubmit карточку не создаёт: бриф ждёт в разделе «Брифы»,
+// клиент заводится оттуда кнопкой — id появляется только на этом шаге
+ok('бриф из формы разобран', fromForm.business === 'Студия «Керамика»' && fromForm.name === 'Алиса Ремизова', fromForm.business);
+ok('id на этапе брифа ещё нет', fromForm.id === undefined, fromForm.id);
 ok('тариф по разделу формы', fromForm.tariff === 'ПРО', fromForm.tariff);
 ok('слоты из формы', JSON.stringify(fromForm.slots) === JSON.stringify(['morning', 'evening']), fromForm.slots);
 ok('ограничения из формы', fromForm.limits.length === 2, fromForm.limits);
@@ -223,17 +246,22 @@ ok('источник — Google Форма', fromForm.source === 'Google Фор�
 const tg = sent.find(s => /sendMessage/.test(s.url));
 const msg = JSON.parse(tg.o.payload).text;
 ok('Telegram: нужная первая строка', msg.split('\n')[0] === 'Новый бриф: Алиса Ремизова, ПРО, керамическая студия', msg.split('\n')[0]);
-ok('строка брифа помечена', briefSheet.data[1][12] === 'studiya-keramika' && briefSheet.data[1][13] === 'создан клиент');
-ok('обработанный бриф ушёл из списка', api.GET_ACTIONS.briefs().briefs.length === 0);
+// строка брифа помечается только при создании клиента кнопкой в CRM,
+// сам onFormSubmit её не трогает
+ok('строка брифа не помечена', !briefSheet.data[1][12] && !briefSheet.data[1][13]);
+ok('бриф ждёт в списке', api.GET_ACTIONS.briefs().briefs.length === 1);
 
 /* ---- 9. необработанный бриф виден ---- */
 briefSheet.data[2] = [new Date(), 'Пётр Смирнов', '+7 900 000-00-00', '@petr', 'Автосервис «Практика»',
   'автосервис', 'Колпино', 'Ремонт авто', 'Мужчины 30–55', '', '', 'Нет', '', ''];
+// в списке теперь два: керамика из блока 8 никуда не делась
 const pending = api.GET_ACTIONS.briefs().briefs;
-ok('новый бриф в списке', pending.length === 1 && pending[0].business === 'Автосервис «Практика»', pending.length);
-ok('ответы брифа доступны интерфейсу', pending[0].answers.niche === 'автосервис');
-api.POST_ACTIONS.brief_dismiss({ row: pending[0].row });
-ok('отложенный бриф скрыт', api.GET_ACTIONS.briefs().briefs.length === 0);
+const auto = pending.filter(b => b.business === 'Автосервис «Практика»');
+ok('новый бриф в списке', pending.length === 2 && auto.length === 1, pending.length);
+ok('ответы брифа доступны интерфейсу', auto[0].answers.niche === 'автосервис');
+api.POST_ACTIONS.brief_dismiss({ row: auto[0].row });
+const left = api.GET_ACTIONS.briefs().briefs;
+ok('отложенный бриф скрыт', left.length === 1 && left[0].business === 'Студия «Керамика»', left.length);
 
 /* ---- 10. лог ---- */
 const logSheet = book.getSheetByName('Лог');

@@ -102,6 +102,21 @@ eq('cfg forbidden', cfg.forbidden, ['Цены и стоимость услуг',
 eq('cfg faq', cfg.faq, ['a','b']);
 eq('cfg rubric days', cfg.rubrics[0].days, ['пн','чт']);
 eq('cfg style null', cfg.style_prompt, null);
+eq('cfg канал клиента', cfg.tg_channel, null);
+
+// без active скрипт постинга считает клиента включённым по умолчанию:
+// тумблер в CRM тогда не остановил бы публикации
+const off = api.buildConfig_({ id: 'x', tariff: 'ПРО', active: false });
+eq('cfg выключенный клиент', off.active, false);
+const on = api.buildConfig_({ id: 'x', tariff: 'ПРО', active: true });
+eq('cfg включённый клиент', on.active, true);
+
+// поля, которые читает clients_post.py
+const full = api.buildConfig_({ id: 'x', tariff: 'ПРО', active: true,
+  tgChannel: '@ch', morningPhoto: true, holidaysExtra: '08.02 День риелтора' });
+eq('cfg tg_channel', full.tg_channel, '@ch');
+eq('cfg morning_photo', full.morning_photo, true);
+eq('cfg holidays_extra', full.holidays_extra, '08.02 День риелтора');
 
 console.log(fails ? '\n=== ПРОВАЛОВ: ' + fails : '\n=== все проверки прошли');
 process.exit(fails ? 1 : 0);
