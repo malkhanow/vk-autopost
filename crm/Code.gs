@@ -1715,8 +1715,13 @@ function aiBuildPlan_(req) {
   var rubrics = normRubrics_(parseJsonLoose_(content).rubrics || []);
   if (!rubrics.length) throw new Error('Модель не вернула ни одной рубрики');
 
-  saveRubrics_(c.id, rubrics);
-  return { rubrics: rubrics, client: refetchClient_(c.id) };
+  // Сохраняем рубрики добавленные вручную (manual: true) — они не должны
+  // затираться при пересборке плана. ИИ-рубрики заменяются полностью.
+  var manualRubrics = (c.rubrics || []).filter(function(r) { return r.manual; });
+  var finalRubrics = rubrics.concat(manualRubrics);
+
+  saveRubrics_(c.id, finalRubrics);
+  return { rubrics: finalRubrics, client: refetchClient_(c.id) };
 }
 
 /** genExamples: для каждой рубрики — пример поста с учётом style_prompt. */

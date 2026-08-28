@@ -474,7 +474,8 @@
                       </div>
                       <sc-for list="{{ rubrics }}" as="r" hint-placeholder-count="5">
                         <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start">
-                          <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
+                          <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
+                          <sc-if value="{{ r.isManual }}" hint-placeholder-val="{{ false }}"><span style="font-size: 10px; color: #7c8189; margin-top: 3px; display: block">✎ вручную</span></sc-if>
                           <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
                           <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
                           <div style="min-width: 0">
@@ -934,7 +935,8 @@ function fromApi(o) {
     checks: o.checks || {},
     rubrics: (o.rubrics || []).map(r => ({
       name: String(r.name || ''), days: String(r.days || ''),
-      prompt: String(r.prompt || ''), example: String(r.example || '')
+      prompt: String(r.prompt || ''), example: String(r.example || ''),
+      manual: !!r.manual
     })),
     edits: ''
   }));
@@ -1400,7 +1402,7 @@ class Component extends DCLogic {
       forbidden: c.limits.concat(c.limitsText ? [c.limitsText] : []),
       cta: c.cta,
       faq: c.faq ? c.faq.split('\n') : [],
-      rubrics: c.rubrics.map(r => ({ name: r.name, days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt })),
+      rubrics: c.rubrics.map(r => ({ name: r.name, days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt, manual: !!r.manual })),
       tg_channel: c.tgChannel || null,
       morning_photo: !!c.morningPhoto,
       holidays_extra: c.holidaysExtra || '',
@@ -1855,6 +1857,8 @@ class Component extends DCLogic {
         const upd = (key, val) => this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { [key]: val }) : x)) });
         return {
           name: r.name, days: r.days, prompt: r.prompt, example: r.example || '— примера ещё нет',
+          isManual: !!r.manual,
+          nameBorder: r.manual ? '#2b4acf' : '#e6e6e1',
           setName: e => upd('name', e.target.value),
           setDays: e => upd('days', e.target.value),
           setPrompt: e => upd('prompt', e.target.value),
@@ -1865,7 +1869,7 @@ class Component extends DCLogic {
           onCopyPrompt: null
         };
       }),
-      addRubric: () => this.patch(c.id, { rubrics: c.rubrics.concat([{ name: 'Новая рубрика', days: 'пн', prompt: '', example: '' }]) }),
+      addRubric: () => this.patch(c.id, { rubrics: c.rubrics.concat([{ name: 'Новая рубрика', days: 'пн', prompt: '', example: '', manual: true }]) }),
 
       // RouterAI: правки клиента -> обновлённые промпты рубрик
       applyLabel: busy === 'edits' ? 'Обновляю промпты…' : 'Применить правки',
