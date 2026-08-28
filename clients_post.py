@@ -45,8 +45,10 @@ GitHub Secrets:
                         праздничные посты уходят текстом, без картинки.
 """
 
+import base64
 import glob
 import json
+import mimetypes
 import os
 import sys
 import tempfile
@@ -281,7 +283,31 @@ def strip_model_noise(text):
     return s
 
 
-def build_post(client, rubric):
+def image_to_data_url(photo_path):
+    """
+    Локальное фото превращается в data URL для RouterAI.
+    Фото не публикуется отдельно и никуда не загружается публично.
+    """
+    if not photo_path or not os.path.exists(photo_path):
+        return None
+
+    mime = mimetypes.guess_type(photo_path)[0] or "image/jpeg"
+    if mime not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+        mime = "image/jpeg"
+
+    with open(photo_path, "rb") as f:
+        raw = f.read()
+
+    # Не отправляем чрезмерно большие изображения в AI.
+    # Если файл слишком большой, обычный пост всё равно сможет выйти.
+    if len(raw) > 10 * 1024 * 1024:
+        print(f"Фото {os.path.basename(photo_path)} больше 10 МБ — vision пропущен.")
+        return None
+
+    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
+def build_post(client, rubric, photo_path=None):
     forbidden = client.get("forbidden") or []
     lines = [
         f"Бизнес: {client.get('business', '')}",
@@ -295,23 +321,108 @@ def build_post(client, rubric):
     if client.get("cta"):
         lines.append(f"Призыв к действию в конце: {client['cta']}")
 
-    system = (
-        "Ты пишешь посты для соцсетей малого бизнеса от лица владельца. "
-        "В ответе — только готовый текст поста, ничего больше: ни черновиков, "
-        "ни заметок о проверке длины, ни заголовков вроде «Пост:» или «Draft». "
-        "Не показывай ход рассуждений — только финальный результат."
+    style = (
+        f"строго в стиле, описанном ниже:\n{client['style_prompt']}\n"
+        if client.get("style_prompt")
+        else "простым разговорным языком.\n"
     )
+
+    is_photo_work = "фото" in str(rubric.get("name", "")).lower()
+
+    if is_photo_work and photo_path:
+        # Общая vision-механика едина для всех ниш.
+        # Конкретный бизнес задаёт в конфиге только контекст и желательные
+        # направления через photo_post_instruction / photo_post_topics.
+        photo_cfg = client.get("photo_post") or {}
+        photo_instruction = (
+            photo_cfg.get("instruction")
+            or client.get("photo_post_instruction")
+            or ""
+        )
+        photo_topics = (
+            photo_cfg.get("topics")
+            or client.get("photo_post_topics")
+            or []
+        )
+
+        context_parts = [
+            "Это рубрика «Фото работ». Ты получаешь настоящее фото клиента.",
+            "СНАЧАЛА внимательно изучи изображение и определи только то, "
+            "что действительно можно увидеть: объекты, детали, тип места, "
+            "ситуацию, визуальный контекст.",
+            "Затем САМ выбери наиболее естественную и полезную тему для "
+            "полноценного поста в рамках бизнеса клиента.",
+            "Фото — отправная точка для мысли, а не повод написать сухое "
+            "описание картинки.",
+        ]
+
+        if photo_instruction:
+            context_parts.append(
+                "Специальная инструкция для этой ниши: " + str(photo_instruction)
+            )
+
+        if photo_topics:
+            topic_text = ", ".join(str(x) for x in photo_topics if str(x).strip())
+            if topic_text:
+                context_parts.append(
+                    "Допустимые направления и идеи, которые можно учитывать: "
+                    + topic_text
+                    + ". Не нужно использовать их все и не нужно выбирать их "
+                    "по фиксированному порядку — выбери наиболее релевантное "
+                    "конкретному изображению."
+                )
+
+        context_parts.extend([
+            "Не пиши пост в формате «на фото изображено...».",
+            "Не выдумывай цены, адреса, характеристики, факты сделки, "
+            "результаты работы, документы, суммы или другие сведения, которых "
+            "нет в данных клиента или которые нельзя достоверно установить "
+            "по изображению.",
+            "Если на фото есть документ или мелкий текст, который нельзя "
+            "уверенно прочитать, не выдумывай его содержание.",
+            "Если фотография сама по себе не даёт достаточно информации для "
+            "конкретного утверждения, используй её только как визуальный "
+            "контекст и выбери более общий экспертный или тематический угол.",
+            "Напиши один полноценный пост 80–150 слов.",
+            style,
+            "Ответь только готовым текстом поста."
+        ])
+
+        user = "\n".join(lines) + "\n\n" + "\n".join(context_parts)
+        data_url = image_to_data_url(photo_path)
+        if data_url:
+            try:
+                return ai_text([
+                    {"role": "system", "content": (
+                        "Ты редактор и SMM-автор. Для рубрики «Фото работ» ты умеешь "
+                        "анализировать изображения. Используй изображение как реальный "
+                        "визуальный контекст, а затем создавай самостоятельный полезный "
+                        "пост. Текст должен звучать как пост владельца бизнеса, а не "
+                        "как подпись к фотографии. Не показывай ход рассуждений."
+                    )},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": user},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ]},
+                ], max_tokens=1100, temperature=0.8)
+            except Exception as e:
+                # Если vision-провайдер временно недоступен, не теряем публикацию:
+                # пробуем старую текстовую генерацию без изображения.
+                print(f"Vision-анализ фото не удался — пробую обычную генерацию: {e}")
+
     user = "\n".join(lines) + (
         "\n\nНапиши один пост по этой рубрике: 60–120 слов, "
-        + (
-            f"строго в стиле, описанном ниже:\n{client['style_prompt']}\n"
-            if client.get("style_prompt") else "простым разговорным языком.\n"
-        )
+        + style
         + "Не выдумывай цены, сроки и гарантии, если они в запретах. "
         "Ответь только текстом поста, без черновиков и пометок о проверке."
     )
     return ai_text([
-        {"role": "system", "content": system},
+        {"role": "system", "content": (
+            "Ты пишешь посты для соцсетей малого бизнеса от лица владельца. "
+            "В ответе — только готовый текст поста, ничего больше: ни черновиков, "
+            "ни заметок о проверке длины, ни заголовков вроде «Пост:» или «Draft». "
+            "Не показывай ход рассуждений — только финальный результат."
+        )},
         {"role": "user", "content": user},
     ])
 
@@ -485,50 +596,21 @@ def post_to_telegram(channel, text, photo_path=None):
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     CAPTION_LIMIT = 1024
 
-    # Resolve the channel username to its real Telegram chat_id first.
-    # This makes publication deterministic in GitHub Actions.
-    chat_resp = requests.get(
-        f"{base_url}/getChat",
-        params={"chat_id": channel},
-        timeout=30,
-    )
-    chat_resp.raise_for_status()
-
-    chat_data = chat_resp.json()
-    if not chat_data.get("ok"):
-        raise RuntimeError(f"Telegram getChat error: {chat_data}")
-
-    chat = chat_data["result"]
-    chat_id = chat["id"]
-
-    print(
-        f"Telegram target: {channel} -> "
-        f"id={chat_id}, username=@{chat.get('username', '')}, "
-        f"type={chat.get('type')}"
-    )
-
     def send_message(body, parse_mode="Markdown"):
-        payload = {"chat_id": chat_id, "text": body}
+        payload = {"chat_id": channel, "text": body}
         if parse_mode:
             payload["parse_mode"] = parse_mode
-        return requests.post(
-            f"{base_url}/sendMessage",
-            json=payload,
-            timeout=30,
-        )
+        return requests.post(f"{base_url}/sendMessage", json=payload, timeout=30)
 
     def send_photo(path, caption, parse_mode="Markdown"):
-        data = {"chat_id": chat_id}
+        data = {"chat_id": channel}
         if caption:
             data["caption"] = caption
             if parse_mode:
                 data["parse_mode"] = parse_mode
         with open(path, "rb") as f:
             return requests.post(
-                f"{base_url}/sendPhoto",
-                data=data,
-                files={"photo": f},
-                timeout=60,
+                f"{base_url}/sendPhoto", data=data, files={"photo": f}, timeout=60
             )
 
     has_photo = bool(photo_path and os.path.exists(photo_path))
@@ -550,11 +632,7 @@ def post_to_telegram(channel, text, photo_path=None):
             else:
                 resp = send_photo(photo_path, text)
                 if not resp.ok:
-                    resp = send_photo(
-                        photo_path,
-                        text,
-                        parse_mode=None,
-                    )
+                    resp = send_photo(photo_path, text, parse_mode=None)
                     if not resp.ok:
                         resp = send_message(text)
                         if not resp.ok:
@@ -567,12 +645,9 @@ def post_to_telegram(channel, text, photo_path=None):
         if not resp.ok:
             print("ИТОГОВАЯ ОШИБКА:", resp.status_code, resp.text)
             resp.raise_for_status()
-
         print(f"Опубликовано в {channel}.")
         print(f"Telegram ответ: {resp.status_code} {resp.text[:200]}")
         print(f"Текст поста: {text[:300]}")
-        return resp
-
     finally:
         if photo_path and os.path.exists(photo_path):
             try:
@@ -861,15 +936,17 @@ def main():
             if not rubric:
                 print(f"{cid}: сегодня рубрик нет, пропускаю.")
                 continue
-            try:
-                text = build_post(client, rubric)
-            except Exception as e:
-                print(f"{cid}: ошибка генерации текста — {e}")
-                continue
             what = f"рубрику «{rubric.get('name')}»"
             photo_path, photo_meta = next_photo_for_client(
                 client.get("yandex_folder", ""), rubric.get("name", "")
             )
+            try:
+                # Только «Фото работ» получает изображение внутри AI-запроса.
+                # Остальные рубрики сохраняют прежнюю текстовую логику.
+                text = build_post(client, rubric, photo_path)
+            except Exception as e:
+                print(f"{cid}: ошибка генерации текста — {e}")
+                continue
 
         print(f"{cid}: публикую {what} в {channel}")
         try:
