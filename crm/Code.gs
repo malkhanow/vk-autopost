@@ -1690,6 +1690,17 @@ function aiBuildPlan_(req) {
   var c = aiClient_(req);
   var perDay = (c.slots || []).length || 1;
 
+  // Зафиксированные рубрики: название и дни берём у клиента,
+  // промпт ИИ напишет заново — так и работает замок в интерфейсе.
+  var manualRubrics = (c.rubrics || []).filter(function(r) { return r.manual; });
+  var manualHint = manualRubrics.length
+    ? '\n\nОБЯЗАТЕЛЬНО включи в план следующие зафиксированные рубрики ' +
+      '(название и дни менять нельзя, только напиши для них промпт):\n' +
+      manualRubrics.map(function(r) {
+        return '- name: «' + r.name + '», days: «' + r.days + '»';
+      }).join('\n')
+    : '';
+
   var content = ai_([
     {
       role: 'system',
@@ -1709,20 +1720,24 @@ function aiBuildPlan_(req) {
         'Рубрики про фото работ добавляй, только если у клиента есть фото. ' +
         'Промпт пиши на русском, 1–3 предложения, без цен, сроков и гарантий, ' +
         'если они в запретах.\n\n' +
-            'Внутри значений JSON никогда не используй двойные кавычки " — ' +
-    'если нужно что-то процитировать, используй «ёлочки». Промпт не должен ' +
-    'обрываться на середине предложения.\n\n' +
-    'Верни JSON: {"rubrics": [{"name": "…", "days": "пн, чт", "prompt": "…"}]}'
+        'Внутри значений JSON никогда не используй двойные кавычки " — ' +
+        'если нужно что-то процитировать, используй «ёлочки». Промпт не должен ' +
+        'обрываться на середине предложения.' +
+        manualHint +
+        '\n\nВерни JSON: {"rubrics": [{"name": "…", "days": "пн, чт", "prompt": "…"}]}'
     }
   ], { json: true, temperature: 0.6, maxTokens: 4000 });
 
-  var rubrics = normRubrics_(parseJsonLoose_(content).rubrics || []);
-  if (!rubrics.length) throw new Error('Модель не вернула ни одной рубрики');
+  var allRubrics = normRubrics_(parseJsonLoose_(content).rubrics || []);
+  if (!allRubrics.length) throw new Error('Модель не вернула ни одной рубрики');
 
-  // Сохраняем рубрики добавленные вручную (manual: true) — они не должны
-  // затираться при пересборке плана. ИИ-рубрики заменяются полностью.
-  var manualRubrics = (c.rubrics || []).filter(function(r) { return r.manual; });
-  var finalRubrics = rubrics.concat(manualRubrics);
+  // Восстанавливаем флаг manual для зафиксированных рубрик по названию
+  var manualNames = {};
+  manualRubrics.forEach(function(r) { manualNames[r.name] = true; });
+  var finalRubrics = allRubrics.map(function(r) {
+    if (manualNames[r.name]) r.manual = true;
+    return r;
+  });
 
   saveRubrics_(c.id, finalRubrics);
   return { rubrics: finalRubrics, client: refetchClient_(c.id) };
