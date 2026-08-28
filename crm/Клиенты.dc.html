@@ -496,6 +496,7 @@
                   <div style="display: flex; align-items: center; gap: 9px; margin-top: 10px">
                     <button onClick="{{ applyEdits }}" style="{{ applyBtn }}">{{ applyLabel }}</button>
                     <button onClick="{{ onLaunch }}" style="border: 1px solid #14171a; background: #14171a; color: #fbfbf9; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="background: #2b3138">{{ launchLabel }}</button>
+                    <button onClick="{{ onTest }}" style="{{ testBtn }}" style-hover="opacity: 0.85">{{ testLabel }}</button>
                     <span style="font-size: 11.5px; color: #8a8f96">Конфиг соберётся и уйдёт в <span style="font-family: 'IBM Plex Mono', monospace">clients/{{ c.id }}.json</span></span>
                   </div>
 
@@ -1895,6 +1896,8 @@ class Component extends DCLogic {
       },
 
       launchLabel: busy === 'launch' ? 'Коммичу конфиг…' : dep ? 'Обновить конфиг' : 'Сохранить и запустить',
+      testLabel: busy === 'test' ? 'Запускаю…' : '▶ Тест',
+      testBtn: busy ? this.btn('off') : 'border: 1px solid #2b4acf; background: #eef1fe; color: #2b4acf; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer;',
       configJson: cfg,
       deployLabel: busy === 'launch' ? 'PUT в процессе' : dep ? 'закоммичен · ' + dep.sha : 'не закоммичен',
       deployStyle: PILL + (busy === 'launch'
@@ -1915,6 +1918,16 @@ class Component extends DCLogic {
       copyConfig: () => this.copy(cfg, 'cfg'),
 
       // то же, что кнопка «Отправить в репозиторий», но из вкладки согласования
+      // Тест: только dispatch без коммита — проверяем что пост выходит
+      // в канал клиента, не трогая конфиг в репозитории
+      onTest: () => this.act('test',
+        () => apiPost(conn, 'dispatch_test', { id: c.id }).then(r => {
+          this.flash('Тестовый пост запущен — проверь канал через 30 секунд · ' + (r.note || ''));
+        }),
+        () => {
+          this.flash('Демо: dispatch не отправлен — задайте WEBAPP_URL');
+        }),
+
       onLaunch: () => this.act('launch',
         () => apiPost(conn, 'push', { id: c.id, client: toApi(c) }).then(r => {
           this.applyClient(r.client);
