@@ -470,10 +470,9 @@
                         <div></div>
                       </div>
                       <sc-for list="{{ rubrics }}" as="r" hint-placeholder-count="5">
-                        <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start">
+                        <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start">
                           <div style="min-width: 0">
                             <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
-                            <span style="{{ r.manualHint }}">✎ вручную</span>
                           </div>
                           <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
                           <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
@@ -481,7 +480,8 @@
                             <div style="font-size: 12px; line-height: 1.5; color: #3e434a; white-space: pre-wrap">{{ r.example }}</div>
                             <button onClick="{{ r.onCopy }}" style="{{ r.copyBtn }}">{{ r.copyLabel }}</button>
                           </div>
-                          <button onClick="{{ r.onRemove }}" style="border: 1px solid #e6e6e1; background: #fff; color: #8a8f96; font-size: 13px; line-height: 1; padding: 5px 0; border-radius: 4px; cursor: pointer" style-hover="border-color: #b3261e; color: #b3261e">×</button>
+                          <button onClick="{{ r.onLock }}" style="{{ r.lockStyle }}" title="{{ r.lockTitle }}">{{ r.lockIcon }}</button>
+                          <button onClick="{{ r.onRemove }}" style="border: 1px solid #e6e6e1; background: #fff; color: #8a8f96; font-size: 13px; line-height: 1; padding: 4px 0; border-radius: 4px; cursor: pointer" style-hover="border-color: #b3261e; color: #b3261e">×</button>
                         </div>
                       </sc-for>
                     </div>
@@ -2140,9 +2140,13 @@ class Component extends DCLogic {
         return {
           name: r.name, days: r.days, prompt: r.prompt, example: r.example || '— примера ещё нет',
           nameBorder: r.manual ? '#2b4acf' : '#e6e6e1',
-          manualHint: r.manual
-            ? 'display: block; font-size: 10px; color: #2b4acf; margin-top: 4px;'
-            : 'display: none;',
+          lockIcon: r.manual ? '🔒' : '🔓',
+          lockTitle: r.manual ? 'Зафиксировано — не удалится при пересборке плана. Нажми чтобы разблокировать.' : 'Нажми чтобы зафиксировать рубрику — она сохранится при пересборке плана.',
+          lockStyle: 'border: 1px solid ' + (r.manual ? '#2b4acf' : '#e6e6e1') + '; background: ' + (r.manual ? '#eef1fe' : '#fff') + '; font-size: 12px; line-height: 1; padding: 4px 0; border-radius: 4px; cursor: pointer; width: 100%;',
+          onLock: () => {
+            const updated = c.rubrics.map((x, j) => j === i ? Object.assign({}, x, { manual: !x.manual }) : x);
+            this.patch(c.id, { rubrics: updated });
+          },
           setName: e => upd('name', e.target.value),
           setDays: e => upd('days', e.target.value),
           setPrompt: e => upd('prompt', e.target.value),
