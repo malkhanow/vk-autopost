@@ -437,66 +437,26 @@
                       <textarea rows="4" value="{{ c.stylePrompt }}" onChange="{{ set.stylePrompt }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
                     </div>
                   </sc-if>
+                </section>
 
-                  <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #eeeeea">
-                    <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
-                      <h3 style="margin: 0; font-size: 12.5px; font-weight: 600">Вариант 2 — анализ реальных текстов</h3>
-                      <span style="font-size: 11px; color: #8a8f96">{{ styleFilesLabel }}</span>
-                    </div>
-                    <p style="margin: 6px 0 10px; font-size: 11.5px; color: #8a8f96">
-                      Загружаете реальные посты, заметки и другие тексты клиента. Сначала выбираете файлы, затем запускаете анализ. ИИ сформирует новый style_prompt.
-                    </p>
-                    <div style="display: flex; align-items: center; gap: 9px; flex-wrap: wrap">
-                      <label style="display: inline-flex; align-items: center; border: 1px solid #d9d9d4; background: #fff; color: #14171a; font-size: 12px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer">
-                        <span>Добавить файлы</span>
-                        <input type="file" accept=".docx,.txt,.md" multiple onChange="{{ onStyleFilesChange }}" style="display: none">
-                      </label>
-                      <button onClick="{{ analyzeStyleFiles }}" style="{{ styleFilesAnalyzeBtn }}">{{ styleFilesAnalyzeLabel }}</button>
-                    </div>
-
-                    <sc-if value="{{ hasStyleFilesPending }}" hint-placeholder-val="{{ false }}">
-                      <div style="margin-top: 10px; border: 1px solid #e3e3df; border-radius: 5px; overflow: hidden">
-                        <div style="display: flex; justify-content: space-between; padding: 7px 9px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; color: #7c8189">
-                          <span>Файлы для анализа</span><span>{{ styleFilesPendingCount }} шт.</span>
-                        </div>
-                        <sc-for list="{{ styleFilesPendingDisplay }}" as="f" hint-placeholder-count="1">
-                          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-bottom: 1px solid #f1f1ed">
-                            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #14171a; flex: 1">{{ f.name }}</span>
-                            <span style="font-size: 10.5px; color: #8a8f96">{{ f.statusLabel }}</span>
-                            <button onClick="{{ f.onRemove }}" style="border: 1px solid #e6e6e1; background: #fff; color: #8a8f96; font-size: 13px; padding: 3px 7px; border-radius: 4px; cursor: pointer">×</button>
-                          </div>
-                        </sc-for>
-                      </div>
-                    </sc-if>
-
-                    <sc-if value="{{ hasAnalyzedStyleFiles }}" hint-placeholder-val="{{ false }}">
-                      <div style="margin-top: 10px; border: 1px solid #dfe4ef; border-radius: 5px; overflow: hidden">
-                        <div style="display: flex; justify-content: space-between; padding: 8px 10px; background: #f5f7fb; border-bottom: 1px solid #e5e8ef">
-                          <span style="font-size: 12px; font-weight: 600">Проанализированные материалы</span>
-                          <span style="font-size: 10.5px; color: #2b7a45">Анализ завершён ✓</span>
-                        </div>
-                        <sc-for list="{{ styleFilesDisplay }}" as="f" hint-placeholder-count="1">
-                          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #f0f1f3">
-                            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #14171a; flex: 1">{{ f.name }}</span>
-                            <span style="font-size: 10.5px; color: #7b818a">{{ f.charsLabel }}</span>
-                            <button onClick="{{ f.onDownload }}" style="border: 1px solid #d9d9d4; background: #fff; color: #14171a; font-size: 10.5px; padding: 4px 7px; border-radius: 4px; cursor: pointer">Скачать</button>
-                            <button onClick="{{ f.onDelete }}" style="border: 1px solid #e3d2d0; background: #fff; color: #a91f18; font-size: 10.5px; padding: 4px 7px; border-radius: 4px; cursor: pointer">Удалить</button>
-                          </div>
-                        </sc-for>
-                      </div>
-
-                      <div style="margin-top: 10px; border: 1px solid #dfe4ef; border-radius: 5px; padding: 10px">
-                        <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px">
-                          <span style="font-size: 12px; font-weight: 600">Результат анализа ИИ</span>
-                          <span style="font-size: 10.5px; color: #2b7a45">style_prompt записан ✓</span>
-                        </div>
-                        <textarea rows="6" value="{{ c.stylePrompt }}" onChange="{{ set.stylePrompt }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
-                        <div style="margin-top: 6px; font-size: 10.5px; color: #8a8f96">
-                          style_prompt сохранён в таблице клиента. Для записи в GitHub-конфиг сначала сохрани изменения, затем нажми «Отправить в репозиторий».
-                        </div>
-                      </div>
-                    </sc-if>
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
+                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Вариант 2 — реальные тексты клиента</h2>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">альтернативный способ настройки стиля</span>
                   </div>
+                  <p style="margin: 6px 0 10px; font-size: 11.5px; color: #8a8f96">Вставьте несколько реальных постов, заметок или сообщений клиента. ИИ выделит манеру письма и запишет результат в тот же <span style="font-family: 'IBM Plex Mono', monospace">style_prompt</span>, который используется дальше при сборке контент-плана и примеров.</p>
+                  <textarea rows="9" placeholder="Вставьте сюда реальные тексты клиента…
+
+Можно вставить сразу несколько постов подряд. Чем больше материала — тем точнее анализ." value="{{ c.styleSourceText }}" onChange="{{ set.styleSourceText }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical"></textarea>
+                  <div style="display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap">
+                    <button onClick="{{ analyzeStyleText }}" style="{{ analyzeTextBtn }}">{{ analyzeTextLabel }}</button>
+                    <span style="font-size: 11.5px; color: #8a8f96">{{ styleTextStatus }}</span>
+                  </div>
+                  <sc-if value="{{ hasStylePrompt }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top: 10px; padding: 9px 10px; background: #f8f8f5; border: 1px solid #ebebe7; border-radius: 4px; font-size: 11.5px; color: #5d636b">
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">style_prompt</span> уже сохранён в таблице. Нажмите «Пересобрать план» ниже — он будет собран с учётом этого стиля.
+                    </div>
+                  </sc-if>
                 </section>
 
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
@@ -980,7 +940,7 @@
     });
   }
 
-  var EVENTS = { click: 'click', change: 'change', input: 'input' };
+  var EVENTS = { click: 'click', change: 'input', input: 'input' };
 
   function bindEvents(el, events) {
     el.__handlers = events;
@@ -1164,7 +1124,7 @@ function client(o) {
     tone: 'Простой и дружелюбный — как друг', holidays: 'Да, но без упоминания скидок',
     faq: '', cta: '', limits: [], limitsText: '', networks: ['VK', 'Telegram', 'MAX'],
     topics: ['Фото работ', 'Советы и полезное'], photoQueue: 0, workflow: 'clients-post.yml',
-    styleAnswers: ['', '', '', '', ''], stylePrompt: '', styleFiles: [], rubrics: [], edits: '', iterations: 0,
+    styleAnswers: ['', '', '', '', ''], stylePrompt: '', styleSourceText: '', rubrics: [], edits: '', iterations: 0,
     checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
     lastPostDate: '—', lastPostStatus: 'Не запущен',
@@ -1257,7 +1217,7 @@ function fromApi(o) {
     nextPay: parseDate(o.nextPay),
     active: o.active !== false,
     styleAnswers: padAnswers(o.styleAnswers),
-    styleFiles: Array.isArray(o.styleFiles) ? o.styleFiles : [],
+    styleSourceText: '',
     checks: o.checks || {},
     rubrics: (o.rubrics || []).map(r => ({
       name: String(r.name || ''), days: String(r.days || ''),
@@ -1280,7 +1240,7 @@ function toApi(c) {
     active: c.active !== false, tgChannel: c.tgChannel || '',
     morningPhoto: !!c.morningPhoto, holidaysExtra: c.holidaysExtra || '',
     stylePrompt: c.stylePrompt, niche: c.niche,
-    topics: c.topics, styleAnswers: c.styleAnswers, styleFiles: c.styleFiles || [], checks: c.checks,
+    topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
     lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus
   };
@@ -1464,8 +1424,6 @@ class Component extends DCLogic {
     conn: loadConn(), props: {}, demo: false, loading: true, syncAt: 'загрузка…',
     settingsSaved: false, tested: null, deployed: {},
     showNew: false, form: { business: '', name: '', phone: '', email: '', tg: '', city: 'Санкт-Петербург' },
-    styleFilesPreview: [],
-    styleFilesPending: [],
     newTariff: 'ПРО', newSource: 'Avito'
   };
 
@@ -1666,7 +1624,7 @@ class Component extends DCLogic {
 
     const setter = key => e => this.patch(c.id, { [key]: e.target.value, });
     const set = {};
-    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'edits', 'tgChannel', 'holidaysExtra'].forEach(k => { set[k] = setter(k); });
+    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'styleSourceText', 'edits', 'tgChannel', 'holidaysExtra'].forEach(k => { set[k] = setter(k); });
 
     const chip = (on, label, onClick) => ({
       label, onClick,
@@ -2090,102 +2048,6 @@ class Component extends DCLogic {
         }),
 
       styleFilled,
-      styleFilesPending: st.styleFilesPending || [],
-      styleFiles: c.styleFiles || [],
-      styleFilesDisplay: (c.styleFiles || []).map(f => Object.assign({}, f, {
-        charsLabel: (f.chars === undefined || f.chars === null) ? '' : (f.chars + ' симв.'),
-        onDownload: () => {
-          if (!f.downloadUrl) return this.flash('У файла нет ссылки на скачивание');
-          window.open(f.downloadUrl, '_blank');
-        },
-        onDelete: () => {
-          if (!f.fileId) return this.flash('У файла нет ID');
-          if (!window.confirm('Удалить файл «' + f.name + '»?')) return;
-          this.act('styleFileDelete',
-            () => apiPost(conn, 'delete_style_file', { id: c.id, fileId: f.fileId }).then(r => {
-              this.applyClient(r.client);
-              this.flash('Файл «' + f.name + '» удалён');
-            }),
-            () => this.flash('Демо: удаление доступно после подключения Web App')
-          );
-        }
-      })),
-      styleFilesCount: (c.styleFiles || []).length,
-      styleFilesLabel: busy === 'styleFiles'
-        ? 'ИИ анализирует…'
-        : ((c.styleFiles || []).length ? 'Проанализировано: ' + c.styleFiles.length : 'Файлы ещё не анализировались'),
-      styleFilesPendingDisplay: (st.styleFilesPending || []).map((f, i) => ({
-        name: f.name,
-        statusLabel: f.statusLabel || 'готов к анализу',
-        onRemove: () => this.setState(s => ({
-          styleFilesPending: s.styleFilesPending.filter((_, j) => j !== i)
-        }))
-      })),
-      styleFilesPendingCount: (st.styleFilesPending || []).length,
-      hasStyleFilesPending: (st.styleFilesPending || []).length > 0,
-      hasAnalyzedStyleFiles: (c.styleFiles || []).length > 0 && !!c.stylePrompt,
-      styleFilesAnalyzeLabel: busy === 'styleFiles' ? 'Анализирую…' : 'Проанализировать',
-      styleFilesAnalyzeBtn: ((st.styleFilesPending || []).length && !busy)
-        ? this.btn('primary')
-        : this.btn('off'),
-      analyzeStyleFiles: () => {
-        const pending = st.styleFilesPending || [];
-        if (!pending.length) return this.flash('Сначала добавь хотя бы один файл');
-
-        this.act('styleFiles',
-          () => apiPost(conn, 'analyze_style_files', {
-            id: c.id,
-            files: pending.map(f => ({ name: f.name, mime: f.mime, data: f.data }))
-          }).then(r => {
-            this.applyClient(r.client);
-            this.setState({ styleFilesPending: [] });
-            this.flash('ИИ проанализировал ' + ((r.styleFiles || []).length) + ' файл(а) и записал style_prompt ✓');
-          }),
-          () => {
-            this.setState({ styleFilesPending: [] });
-            this.flash('Демо: анализ файлов доступен после подключения Web App');
-          }
-        );
-      },
-      onStyleFilesChange: e => {
-        const files = Array.from((e && e.target && e.target.files) || []);
-        if (!files.length) return;
-
-        const allowed = /\.(docx|txt|md)$/i;
-        const bad = files.find(f => !allowed.test(f.name));
-        if (bad) {
-          if (e.target) e.target.value = '';
-          return this.flash('Файл «' + bad.name + '»: нужен .docx, .txt или .md');
-        }
-        if (files.length > 5) {
-          if (e.target) e.target.value = '';
-          return this.flash('Можно загрузить максимум 5 файлов за один анализ');
-        }
-
-        const readFile = file => new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = String(reader.result || '');
-            const comma = dataUrl.indexOf(',');
-            if (comma < 0) return reject(new Error('Не удалось прочитать «' + file.name + '»'));
-            resolve({
-              name: file.name,
-              mime: file.type || 'application/octet-stream',
-              data: dataUrl.slice(comma + 1),
-              statusLabel: 'готов к анализу'
-            });
-          };
-          reader.onerror = () => reject(new Error('Не удалось прочитать «' + file.name + '»'));
-          reader.readAsDataURL(file);
-        });
-
-        Promise.all(files.map(readFile)).then(payload => {
-          this.setState({ styleFilesPending: payload });
-          this.flash('Файлы готовы. Нажми «Проанализировать»');
-        }).catch(err => this.flash(err.message));
-
-        if (e.target) e.target.value = '';
-      },
       styleTasks: TASKS.map((t, i) => ({
         num: String(i + 1).padStart(2, '0'), task: t.task, example: t.example,
         answer: c.styleAnswers[i],
@@ -2216,6 +2078,21 @@ class Component extends DCLogic {
             this.patch(c.id, { stylePrompt: 'Средняя длина предложения 9–13 слов, без сложных конструкций. Обращение на «вы». Начинает с бытовой детали, переходит к сути, заканчивает коротким выводом. Разговорная лексика, минимум терминов, без эмодзи.' });
             this.flash('Демо: style_prompt не от модели');
           });
+      },
+      // Вариант 2: реальные тексты клиента. Никаких файлов и Drive.
+      analyzeTextLabel: busy === 'styleText' ? 'Анализирую тексты…' : 'Проанализировать тексты',
+      analyzeTextBtn: busy || !c.styleSourceText.trim() ? this.btn('off') : this.btn('primary'),
+      styleTextStatus: busy === 'styleText' ? 'ИИ анализирует манеру письма…' : (c.stylePrompt ? 'style_prompt сохранён ✓' : 'Вставьте тексты и запустите анализ'),
+      analyzeStyleText: () => {
+        const sourceText = c.styleSourceText.trim();
+        if (!sourceText) return this.flash('Сначала вставьте хотя бы один текст клиента');
+        if (sourceText.length < 300) return this.flash('Для точного анализа нужно хотя бы 300 символов реального текста');
+        this.act('styleText',
+          () => apiPost(conn, 'analyze_style_text', { id: c.id, client: toApi(c), sourceText: sourceText }).then(r => {
+            this.applyClient(r.client, { styleSourceText: sourceText });
+            this.flash('Стиль проанализирован и записан в style_prompt. Теперь можно пересобрать план.');
+          }),
+          () => this.flash('Демо: анализ не отправлен в ИИ'));
       },
       hasStylePrompt: !!c.stylePrompt,
       hasRubrics: c.rubrics.length > 0,
