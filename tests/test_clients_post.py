@@ -79,24 +79,29 @@ eq("слотов нет — публиковать некуда", cp.slot_bounds
 
 # ---------- morning_photo ----------
 
+# два слота → первый (midday) автоматически берёт фото-рубрику,
+# второй (evening) крутит текстовые по кругу без привязки к дням
 st = {}
-photo = cp.pick_rubric_for_run(client(morning_photo=True), "midday", "сб", st, False)
-eq("с флагом ранний слот берёт рубрику с фото", photo["name"], "Фото объектов")
+photo = cp.pick_rubric_for_run(client(), "midday", "сб", st, False)
+eq("первый слот (midday) берёт фото-рубрику",
+   photo["name"], "Фото объектов")
 
-text = cp.pick_rubric_for_run(client(morning_photo=True), "evening", "сб", st, False)
-c.ok("поздний слот берёт текстовую рубрику",
+text = cp.pick_rubric_for_run(client(), "evening", "сб", st, False)
+c.ok("второй слот (evening) берёт текстовую рубрику",
      cp.rubric_folder(text["name"]) is not None, text["name"])
 
-eq("без флага в субботу рубрик нет",
-   cp.pick_rubric_for_run(client(), "midday", "сб", {}, False), None)
-eq("без флага работает расписание по дням",
-   cp.pick_rubric_for_run(client(), "midday", "вт", {}, False)["name"],
-   "Советы и полезное")
-
 st2 = {}
-seen = [cp.pick_rubric_for_run(client(morning_photo=True), "evening", "сб", st2, False)["name"]
+seen = [cp.pick_rubric_for_run(client(), "evening", "сб", st2, False)["name"]
         for _ in range(3)]
 c.ok("текстовые рубрики чередуются, а не залипают", len(set(seen)) > 1, seen)
+
+# один слот → обычное расписание по дням
+one_slot = client(slots=[{"name": "midday"}])
+eq("один слот: в субботу рубрик нет (не назначено)",
+   cp.pick_rubric_for_run(one_slot, "midday", "сб", {}, False), None)
+eq("один слот: работает расписание по дням",
+   cp.pick_rubric_for_run(one_slot, "midday", "вт", {}, False)["name"],
+   "Советы и полезное")
 
 
 # ---------- два слота в один день ----------
@@ -108,26 +113,35 @@ one_day = client(rubrics=[
     {"name": "Частые вопросы", "days": ["вт"], "prompt": "p"},
     {"name": "Идеи и вдохновение", "days": ["ср"], "prompt": "p"},
 ])
+# при двух слотах midday=фото-пул, evening=текстовый.
+# one_day имеет только текстовые рубрики — фото-пул пуст, midday
+# тоже берёт из текстового (запасной пул)
 st_day = {}
 first = cp.pick_rubric_for_run(one_day, "midday", "пн", st_day, False)
 second = cp.pick_rubric_for_run(one_day, "evening", "пн", st_day, False)
-eq("первый слот берёт рубрику дня", first["name"], "Советы и полезное")
-c.ok("второй слот не повторяет её", second["name"] != first["name"], second["name"])
+c.ok("оба слота получают рубрику (фото-пул пуст — берём текстовый)",
+     first is not None and second is not None, (first, second))
 
-# на следующий день память сбрасывается — рубрика дня снова доступна
-third = cp.pick_rubric_for_run(one_day, "midday", "вт", st_day, False)
-eq("новый день — своя рубрика", third["name"], "Частые вопросы")
+# один слот → расписание по дням, второй день — своя рубрика
+st_day2 = {}
+one_slot_cl = client(slots=[{"name": "midday"}], rubrics=one_day["rubrics"])
+cp.pick_rubric_for_run(one_slot_cl, "midday", "пн", st_day2, False)
+third = cp.pick_rubric_for_run(one_slot_cl, "midday", "вт", st_day2, False)
+eq("один слот: новый день — своя рубрика", third["name"], "Частые вопросы")
 
 # когда на день назначено две рубрики, обе и выходят
+# при двух слотах: midday → фото-рубрика, evening → текстовая
+# "два слота — фото и текст" (не "два слота — две рубрики одного дня")
 two_day = client(rubrics=[
+    {"name": "Фото объектов", "days": ["пн"], "prompt": "p"},
     {"name": "Советы и полезное", "days": ["пн"], "prompt": "p"},
     {"name": "Частые вопросы", "days": ["пн"], "prompt": "p"},
 ])
 st_two = {}
-got = {cp.pick_rubric_for_run(two_day, s, "пн", st_two, False)["name"]
-       for s in ("midday", "evening")}
-eq("два слота — две разные рубрики дня", got,
-   {"Советы и полезное", "Частые вопросы"})
+got = {cp.pick_rubric_for_run(two_day, sl, "пн", st_two, False)["name"]
+       for sl in ("midday", "evening")}
+c.ok("два слота — фото и текст разные",
+     len(got) == 2 and "Фото объектов" in got, got)
 
 # у клиента с одной рубрикой повторять больше нечего — пост всё равно выходит
 solo = client(rubrics=[{"name": "Советы и полезное", "days": ["пн"], "prompt": "p"}])
