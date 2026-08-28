@@ -37,6 +37,23 @@ def client(**over):
     return base
 
 
+# ---------- vision и стратегии фото ----------
+
+eq("reviews включает vision", cp.rubric_uses_vision("Отзывы и результаты"), True)
+eq("Фото работ включает vision", cp.rubric_uses_vision("Фото работ"), True)
+eq("tips не включает vision", cp.rubric_uses_vision("Советы и полезное"), False)
+eq("faq не включает vision", cp.rubric_uses_vision("Частые вопросы"), False)
+eq("ideas не включает vision", cp.rubric_uses_vision("Идеи и вдохновение"), False)
+eq("Объекты без слова фото — нет vision", cp.rubric_uses_vision("Объекты и документы"), False)
+eq("рубрика с фото в названии без папки — vision", cp.rubric_uses_vision("Фото объектов"), True)
+
+eq("tips крутится по кругу", cp.rubric_loops_photos("Советы и полезное"), True)
+eq("faq крутится по кругу", cp.rubric_loops_photos("Частые вопросы"), True)
+eq("ideas не крутится", cp.rubric_loops_photos("Идеи и вдохновение"), False)
+eq("reviews не крутится", cp.rubric_loops_photos("Отзывы и результаты"), False)
+eq("to_post не крутится", cp.rubric_loops_photos("Фото работ"), False)
+
+
 # ---------- папки рубрик ----------
 
 eq("«Советы» ищут фото в своей папке", cp.rubric_folder("Советы и полезное"), "rubrics/tips")
@@ -80,6 +97,44 @@ st2 = {}
 seen = [cp.pick_rubric_for_run(client(morning_photo=True), "evening", "сб", st2, False)["name"]
         for _ in range(3)]
 c.ok("текстовые рубрики чередуются, а не залипают", len(set(seen)) > 1, seen)
+
+
+# ---------- два слота в один день ----------
+
+# у клиента на двух слотах день часто закрыт одной рубрикой: раньше оба слота
+# получали её же и в канал уходило два поста на одну тему подряд
+one_day = client(rubrics=[
+    {"name": "Советы и полезное", "days": ["пн"], "prompt": "p"},
+    {"name": "Частые вопросы", "days": ["вт"], "prompt": "p"},
+    {"name": "Идеи и вдохновение", "days": ["ср"], "prompt": "p"},
+])
+st_day = {}
+first = cp.pick_rubric_for_run(one_day, "midday", "пн", st_day, False)
+second = cp.pick_rubric_for_run(one_day, "evening", "пн", st_day, False)
+eq("первый слот берёт рубрику дня", first["name"], "Советы и полезное")
+c.ok("второй слот не повторяет её", second["name"] != first["name"], second["name"])
+
+# на следующий день память сбрасывается — рубрика дня снова доступна
+third = cp.pick_rubric_for_run(one_day, "midday", "вт", st_day, False)
+eq("новый день — своя рубрика", third["name"], "Частые вопросы")
+
+# когда на день назначено две рубрики, обе и выходят
+two_day = client(rubrics=[
+    {"name": "Советы и полезное", "days": ["пн"], "prompt": "p"},
+    {"name": "Частые вопросы", "days": ["пн"], "prompt": "p"},
+])
+st_two = {}
+got = {cp.pick_rubric_for_run(two_day, s, "пн", st_two, False)["name"]
+       for s in ("midday", "evening")}
+eq("два слота — две разные рубрики дня", got,
+   {"Советы и полезное", "Частые вопросы"})
+
+# у клиента с одной рубрикой повторять больше нечего — пост всё равно выходит
+solo = client(rubrics=[{"name": "Советы и полезное", "days": ["пн"], "prompt": "p"}])
+st_solo = {}
+a = cp.pick_rubric_for_run(solo, "midday", "пн", st_solo, False)
+b = cp.pick_rubric_for_run(solo, "evening", "пн", st_solo, False)
+c.ok("единственная рубрика не блокирует второй слот", a and b, (a, b))
 
 
 # ---------- кому положены праздники ----------
