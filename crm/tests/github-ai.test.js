@@ -76,7 +76,7 @@ catch (e) { ok('конфликт PUT -> ошибка', /HTTP 409/.test(e.message
 log.length = 0;
 route = { 'routerai.ru': { code: 200, body: { choices: [{ message: { content: '```json\n{"style_prompt":"Коротко и по делу"}\n```' } }] } } };
 const out = api.ai_([{ role: 'user', content: 'привет' }], { json: true });
-ok('RouterAI: модель по умолчанию', log[0].payload.model === 'google/gemini-3.1-pro-preview', log[0].payload.model);
+ok('RouterAI: модель по умолчанию', log[0].payload.model === 'google/gemini-3.1-flash-lite', log[0].payload.model);
 ok('RouterAI: адрес', log[0].url === 'https://routerai.ru/api/v1/chat/completions');
 ok('RouterAI: ключ в заголовке, не в теле', log[0].headers.Authorization === 'Bearer sk-or-x' && !JSON.stringify(log[0].payload).includes('sk-or-x'));
 ok('RouterAI: json-режим', log[0].payload.response_format.type === 'json_object');

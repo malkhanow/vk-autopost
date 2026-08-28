@@ -29,6 +29,28 @@ ok('разметка холста попала в страницу целико�
 ok('рантайм встроен', page.includes(runtime.trim()),
    'запустите python3 crm/build_page.py');
 
+/*
+ * Каждое поле {{ c.X }} из разметки должно быть в объекте c, который
+ * renderVals отдаёт шаблону. Объект собирается вручную, поле за полем, и
+ * забытый ключ выглядит как молча пустой инпут: пользователь печатает,
+ * значение уходит в состояние, но обратно в поле не возвращается и
+ * стирается на ближайшей перерисовке. На этом уже теряли tgChannel и
+ * styleSourceText, поэтому проверяем списком.
+ */
+const cObject = /\n      c: \{\n([\s\S]*?)\n      \},/.exec(logic);
+ok('объект c найден в renderVals', !!cObject);
+if (cObject) {
+  const declared = new Set(
+    (cObject[1].match(/(\w+)\s*:/g) || []).map(m => m.replace(/\s*:$/, ''))
+  );
+  const used = new Set(
+    (markup.match(/\{\{\s*c\.(\w+)/g) || []).map(m => m.replace(/\{\{\s*c\./, ''))
+  );
+  const missing = [...used].filter(k => !declared.has(k)).sort();
+  ok('все поля {{ c.* }} из разметки объявлены в объекте c',
+     missing.length === 0, missing);
+}
+
 ok('от формата холста ничего не осталось',
    !/<x-dc|<helmet|data-dc-script|src="\.\/support\.js"/.test(page));
 ok('разметка лежит в <template>', page.includes('<template id="crm-template">'));
