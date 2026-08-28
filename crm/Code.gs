@@ -1218,7 +1218,9 @@ var POST_ACTIONS = {
 
   analyze_style: function (req) { return aiAnalyzeStyle_(req); },
   analyze_style_text: function (req) { return aiAnalyzeStyleText_(req); },
-  build_plan:    function (req) { return aiBuildPlan_(req); },
+  build_plan:          function (req) { return aiBuildPlan_(req); },
+  dispatch_test:       function (req) { return dispatchTest_(req); },
+  update_post_status:  function (req) { return updatePostStatus_(req); },
   gen_examples:  function (req) { return aiGenExamples_(req); },
   apply_edits:   function (req) { return aiApplyEdits_(req); }
 };
@@ -1741,6 +1743,71 @@ function aiBuildPlan_(req) {
 
   saveRubrics_(c.id, finalRubrics);
   return { rubrics: finalRubrics, client: refetchClient_(c.id) };
+}
+
+/**
+ * dispatchTest_: отправляет простой проверочный пост напрямую в канал
+ * клиента через Telegram Bot API — без генерации текста, без фото, без
+ * запуска workflow. Если пост появился — бот добавлен правильно, токен
+ * работает, канал верный. Вся цепочка до RouterAI проверяется отдельно
+ * кнопкой «Обновить конфиг».
+ */
+function dispatchTest_(req) {
+  var id = str_(req.id);
+  if (!id) throw new Error('не передан id клиента');
+
+  var t = clientsTable_();
+  var row = findRow_(t, id);
+  if (!row) throw new Error('Клиент ' + id + ' не найден');
+
+  var client = refetchClient_(id);
+  var channel = str_(client.tgChannel);
+  if (!channel) throw new Error('У клиента не задан Telegram-канал');
+
+  var botToken = prop_('TELEGRAM_BOT_TOKEN');
+  if (!botToken || botToken.indexOf('ВСТАВЬ') === 0) {
+    throw new Error('TELEGRAM_BOT_TOKEN не задан в Script Properties');
+  }
+
+  var text = '✅ Проверка системы завершена\n\nБот подключён и имеет право публиковать в этот канал. Автопостинг настроен корректно.';
+
+  var resp = UrlFetchApp.fetch(
+    'https://api.telegram.org/bot' + botToken + '/sendMessage',
+    {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ chat_id: channel, text: text }),
+      muteHttpExceptions: true
+    }
+  );
+
+  var code = resp.getResponseCode();
+  var body = JSON.parse(resp.getContentText());
+
+  if (!body.ok) {
+    throw new Error('Telegram вернул ошибку ' + code + ': ' + (body.description || resp.getContentText().slice(0, 100)));
+  }
+
+  return { ok: true, note: 'Проверочный пост отправлен в ' + channel };
+}
+
+/**
+ * updatePostStatus_: вызывается из clients_post.py после публикации.
+ * Обновляет «Последний пост» и «Статус последнего поста» в таблице.
+ */
+function updatePostStatus_(req) {
+  var id     = str_(req.id);
+  var status = str_(req.status);
+  var date   = str_(req.date) || dateOut_(new Date());
+  if (!id || !status) throw new Error('Нужны id и status');
+  return withLock_(function () {
+    var t = clientsTable_();
+    var row = findRow_(t, id);
+    if (!row) throw new Error('Клиент ' + id + ' не найден');
+    writeRow_(t, row, { lastPostDate: date, lastPostStatus: status });
+    SpreadsheetApp.flush();
+    return { ok: true };
+  });
 }
 
 /** genExamples: для каждой рубрики — пример поста с учётом style_prompt. */
