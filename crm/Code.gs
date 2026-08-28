@@ -1724,7 +1724,10 @@ function deleteStyleFile_(req) {
 
 /** Извлекает видимый текст из Word .docx без сторонних библиотек. */
 function extractDocxText_(blob) {
-  var parts = Utilities.unzip(blob);
+  // .docx is a ZIP container, but browsers send it with the DOCX MIME type.
+  // Apps Script Utilities.unzip() requires application/zip explicitly.
+  var zipBlob = Utilities.newBlob(blob.getBytes(), 'application/zip', blob.getName());
+  var parts = Utilities.unzip(zipBlob);
   var docXml = null;
 
   for (var i = 0; i < parts.length; i++) {
