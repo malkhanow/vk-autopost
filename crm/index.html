@@ -309,13 +309,6 @@
                       <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Telegram-канал (куда публикуются посты)</span>
                       <input type="text" placeholder="@channel" value="{{ c.tgChannel }}" onChange="{{ set.tgChannel }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
                     </label>
-                    <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; margin-bottom: 14px; padding: 9px 10px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
-                      <input type="checkbox" checked="{{ morningPhotoOn }}" onChange="{{ toggleMorningPhoto }}" style="width: 14px; height: 14px; accent-color: #14171a; margin: 0; flex: none" />
-                      <span style="min-width: 0">
-                        <span style="display: block; font-weight: 500">Утро — всегда фото</span>
-                        <span style="display: block; font-size: 11px; color: #8a8f96; margin-top: 2px">Самый ранний слот публикует фото из to_post, независимо от дня недели; остальные слоты крутят текстовые рубрики по кругу</span>
-                      </span>
-                    </label>
                     <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Слоты — {{ slotsHint }}</div>
                     <div style="display: flex; flex-direction: column; gap: 6px">
                       <sc-for list="{{ slotRows }}" as="s" hint-placeholder-count="3">
@@ -478,8 +471,10 @@
                       </div>
                       <sc-for list="{{ rubrics }}" as="r" hint-placeholder-count="5">
                         <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start">
-                          <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
-                          <sc-if value="{{ r.isManual }}" hint-placeholder-val="{{ false }}"><span style="font-size: 10px; color: #7c8189; margin-top: 3px; display: block">✎ вручную</span></sc-if>
+                          <div style="min-width: 0">
+                            <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
+                            <span style="{{ r.manualHint }}">✎ вручную</span>
+                          </div>
                           <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
                           <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
                           <div style="min-width: 0">
@@ -2144,8 +2139,10 @@ class Component extends DCLogic {
         const upd = (key, val) => this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { [key]: val }) : x)) });
         return {
           name: r.name, days: r.days, prompt: r.prompt, example: r.example || '— примера ещё нет',
-          isManual: !!r.manual,
           nameBorder: r.manual ? '#2b4acf' : '#e6e6e1',
+          manualHint: r.manual
+            ? 'display: block; font-size: 10px; color: #2b4acf; margin-top: 4px;'
+            : 'display: none;',
           setName: e => upd('name', e.target.value),
           setDays: e => upd('days', e.target.value),
           setPrompt: e => upd('prompt', e.target.value),
