@@ -1599,17 +1599,13 @@ function aiAnalyzeStyleFiles_(req) {
     if (!data) throw new Error('Файл «' + name + '» не содержит данных');
 
     if (['docx', 'txt', 'md'].indexOf(ext) < 0) {
-      throw new Error('Файл «' + name + '»: поддерживаются Word .docx и текстовые .txt/.md. Старый бинарный .doc не поддерживается.');
+      throw new Error('Файл «' + name + '»: поддерживаются Word .docx и текстовые .txt/.md. Старый .doc не поддерживается.');
     }
 
     var bytes = Utilities.base64Decode(data);
     totalBytes += bytes.length;
-    if (bytes.length > 3 * 1024 * 1024) {
-      throw new Error('Файл «' + name + '» больше 3 МБ');
-    }
-    if (totalBytes > 10 * 1024 * 1024) {
-      throw new Error('Общий размер файлов больше 10 МБ');
-    }
+    if (bytes.length > 3 * 1024 * 1024) throw new Error('Файл «' + name + '» больше 3 МБ');
+    if (totalBytes > 10 * 1024 * 1024) throw new Error('Общий размер файлов больше 10 МБ');
 
     var text = ext === 'docx'
       ? extractDocxText_(Utilities.newBlob(bytes, file.mime || 'application/octet-stream', name))
@@ -1617,15 +1613,9 @@ function aiAnalyzeStyleFiles_(req) {
 
     text = cleanStyleSourceText_(text);
     if (!text) throw new Error('Из файла «' + name + '» не удалось извлечь текст');
-
-    // Ограничиваем объём одного источника, чтобы не забить контекст модели.
     if (text.length > 30000) text = text.slice(0, 30000) + '\n[текст обрезан]';
 
-    sources.push({
-      name: name,
-      text: text,
-      chars: text.length
-    });
+    sources.push({ name: name, text: text, chars: text.length, bytes: bytes, mime: file.mime || 'application/octet-stream' });
   });
 
   var c = refetchClient_(id);
@@ -1636,24 +1626,15 @@ function aiAnalyzeStyleFiles_(req) {
   var content = ai_([
     {
       role: 'system',
-      content: 'Ты редактор и специалист по авторскому стилю. Твоя задача — по реальным текстам одного автора составить точную инструкцию для другой нейросети, чтобы она могла писать новые тексты максимально похожей манерой. Анализируй именно способ письма, а не тему бизнеса. Отвечай только JSON.'
+      content: 'Ты редактор и специалист по авторскому стилю. По реальным текстам одного автора составь точную инструкцию для другой нейросети, чтобы она могла писать новые тексты максимально похожей манерой. Анализируй способ письма, а не тему бизнеса. Отвечай только JSON.'
     },
     {
       role: 'user',
       content:
         'Клиент: ' + (c.business || c.name || 'не указан') + '\n\n' +
-        'Ниже находятся реальные тексты одного автора: его посты, заметки, мысли и другие материалы. ' +
-        'Проанализируй корпус целиком и выдели устойчивые особенности его письменной речи.\n\n' +
+        'Ниже реальные тексты одного автора. Проанализируй корпус целиком и выдели устойчивые особенности письменной речи.\n\n' +
         corpus +
-        '\n\nСоставь style_prompt как прямую инструкцию для нейросети. Обязательно учти: ' +
-        'тон и степень формальности; обращение к читателю; длину и ритм предложений; размер и ритм абзацев; ' +
-        'структуру и типичные способы начала/завершения текста; лексику и сложность слов; эмоциональность; ' +
-        'эмодзи; пунктуацию; вопросы и восклицания; диалоги и сторителлинг; характерные речевые приёмы; ' +
-        'допустимую степень личного мнения; характер призывов к действию, если они устойчиво встречаются. ' +
-        'Не копируй фразы из исходников и не перечисляй конкретные факты, имена, товары, услуги или события. ' +
-        'Не оценивай автора и не делай комплиментов. Не придумывай особенности, которых в корпусе нет. ' +
-        'Сделай подробную, но практичную инструкцию примерно из 6–12 предложений.\n\n' +
-        'Верни JSON строго такого вида: {"style_prompt":"…"}'
+        '\n\nСоставь style_prompt как прямую инструкцию для нейросети. Обязательно учти тон и формальность, обращение, длину и ритм предложений, абзацы, структуру начала и завершения, лексику, эмоциональность, эмодзи, пунктуацию, вопросы и восклицания, диалоги, сторителлинг, речевые приёмы, личное мнение и характер призывов к действию. Не копируй фразы и не перечисляй конкретные факты. Не оценивай автора. Не придумывай особенности, которых в корпусе нет. Сделай 6–12 предложений. Верни JSON строго такого вида: {"style_prompt":"…"}'
     }
   ], { json: true, temperature: 0.3, maxTokens: 1400 });
 
@@ -1661,30 +1642,24 @@ function aiAnalyzeStyleFiles_(req) {
   var stylePrompt = str_(parsed.style_prompt);
   if (!stylePrompt) throw new Error('Модель не вернула style_prompt');
 
-  // Сохраняем исходные файлы в Google Drive, чтобы их можно было
-  // скачать обратно или удалить из CRM. Файлы остаются приватными.
-  var metadata = sources.map(function (src, i) {
-    var original = files[i] || {};
-    var bytes = Utilities.base64Decode(str_(original.data));
-    var mime = str_(original.mime) || MimeType.PLAIN_TEXT;
-    var blob = Utilities.newBlob(bytes, mime, src.name);
-    var driveFile = saveStyleFileToDrive_(id, src.name, blob);
+  var folder = styleFilesFolder_(c);
+  var now = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm:ss');
+  var newMetadata = sources.map(function (src) {
+    var file = folder.createFile(Utilities.newBlob(src.bytes, src.mime, src.name));
     return {
+      fileId: file.getId(),
       name: src.name,
       chars: src.chars,
-      fileId: driveFile.getId(),
-      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(driveFile.getId()),
-      analyzedAt: Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm:ss')
+      analyzedAt: now,
+      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + file.getId()
     };
   });
+  var oldMetadata = Array.isArray(c.styleFiles) ? c.styleFiles : [];
+  var metadata = oldMetadata.concat(newMetadata);
 
-  var previousFiles = [];
   withLock_(function () {
     var t = clientsTable_();
-    var row = findRow_(t, id);
-    var current = refetchClient_(id);
-    previousFiles = Array.isArray(current.styleFiles) ? current.styleFiles.slice() : [];
-    writeRow_(t, row, {
+    writeRow_(t, findRow_(t, id), {
       stylePrompt: stylePrompt,
       styleFiles: metadata
     });
@@ -1692,85 +1667,59 @@ function aiAnalyzeStyleFiles_(req) {
     return true;
   });
 
-  // Удаляем старые сохранённые исходники после успешной замены.
-  previousFiles.forEach(function (oldFile) {
-    if (oldFile && oldFile.fileId) {
-      try {
-        DriveApp.getFileById(oldFile.fileId).setTrashed(true);
-      } catch (e) {
-        console.warn('Не удалось удалить старый файл стиля: ' + oldFile.fileId + ' — ' + e);
-      }
-    }
-  });
-
-  return {
-    stylePrompt: stylePrompt,
-    styleFiles: metadata,
-    client: refetchClient_(id)
-  };
+  return { stylePrompt: stylePrompt, styleFiles: metadata, client: refetchClient_(id) };
 }
 
-/**
- * Хранилище исходных файлов стиля в Google Drive.
- * Создаётся один общий приватный каталог и отдельный каталог клиента.
- */
-function styleFilesRootFolder_() {
+/** Отдельное хранилище исходных материалов стиля: папка клиента в Google Drive. */
+function styleFilesFolder_(c) {
   var props = PropertiesService.getScriptProperties();
-  var key = 'STYLE_FILES_ROOT_FOLDER_ID';
-  var id = props.getProperty(key);
-  if (id) {
-    try { return DriveApp.getFolderById(id); } catch (e) {}
+  var rootId = props.getProperty('STYLE_FILES_FOLDER_ID');
+  var root = null;
+
+  if (rootId) {
+    try { root = DriveApp.getFolderById(rootId); } catch (e) { root = null; }
   }
 
-  var folders = DriveApp.getFoldersByName('SMM CRM — Файлы стиля');
-  var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder('SMM CRM — Файлы стиля');
-  props.setProperty(key, folder.getId());
-  return folder;
+  if (!root) {
+    root = DriveApp.createFolder('SMM — материалы стиля');
+    props.setProperty('STYLE_FILES_FOLDER_ID', root.getId());
+  }
+
+  var safeName = String(c.business || c.name || c.id || 'client')
+    .replace(/[\\\\/:*?"<>|#%{}]/g, '_')
+    .slice(0, 80);
+
+  var it = root.getFoldersByName(safeName);
+  return it.hasNext() ? it.next() : root.createFolder(safeName);
 }
 
-function styleFilesClientFolder_(clientId) {
-  var root = styleFilesRootFolder_();
-  var safeName = String(clientId || 'client').replace(/[\\\\/:*?"<>|]/g, '_').slice(0, 80);
-  var folders = root.getFoldersByName(safeName);
-  return folders.hasNext() ? folders.next() : root.createFolder(safeName);
-}
-
-function saveStyleFileToDrive_(clientId, name, blob) {
-  var folder = styleFilesClientFolder_(clientId);
-  return folder.createFile(blob).setName(name);
-}
-
-/** Удаляет один сохранённый файл стиля и обновляет список в карточке клиента. */
+/** Удаляет исходный файл из Drive и его запись у клиента. */
 function deleteStyleFile_(req) {
   var id = str_(req.id);
   var fileId = str_(req.fileId);
-  if (!id) throw new Error('Не передан client_id');
-  if (!fileId) throw new Error('Не передан fileId');
+  if (!id || !fileId) throw new Error('Не передан client_id или fileId');
 
-  var client = refetchClient_(id);
-  var files = Array.isArray(client.styleFiles) ? client.styleFiles.slice() : [];
-  var target = files.find(function (f) { return f && str_(f.fileId) === fileId; });
-  if (!target) throw new Error('Файл не найден в карточке клиента');
+  var c = refetchClient_(id);
+  var files = Array.isArray(c.styleFiles) ? c.styleFiles.slice() : [];
+  var found = files.find(function (f) { return str_(f.fileId) === fileId; });
+  if (!found) throw new Error('Файл не найден у этого клиента');
 
   try {
     DriveApp.getFileById(fileId).setTrashed(true);
   } catch (e) {
-    throw new Error('Не удалось удалить файл из Google Drive: ' + (e.message || e));
+    throw new Error('Не удалось удалить файл из Google Drive: ' + e.message);
   }
 
-  var next = files.filter(function (f) { return !f || str_(f.fileId) !== fileId; });
+  files = files.filter(function (f) { return str_(f.fileId) !== fileId; });
 
   withLock_(function () {
     var t = clientsTable_();
-    writeRow_(t, findRow_(t, id), { styleFiles: next });
+    writeRow_(t, findRow_(t, id), { styleFiles: files });
     SpreadsheetApp.flush();
+    return true;
   });
 
-  return {
-    fileId: fileId,
-    styleFiles: next,
-    client: refetchClient_(id)
-  };
+  return { client: refetchClient_(id) };
 }
 
 /** Извлекает видимый текст из Word .docx без сторонних библиотек. */

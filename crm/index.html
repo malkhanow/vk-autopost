@@ -444,27 +444,56 @@
                       <span style="font-size: 11px; color: #8a8f96">{{ styleFilesLabel }}</span>
                     </div>
                     <p style="margin: 6px 0 10px; font-size: 11.5px; color: #8a8f96">
-                      Загружаете реальные посты, заметки и другие тексты клиента. ИИ анализирует их и заново формирует style_prompt.
+                      Загружаете реальные посты, заметки и другие тексты клиента. Сначала выбираете файлы, затем запускаете анализ. ИИ сформирует новый style_prompt.
                     </p>
                     <div style="display: flex; align-items: center; gap: 9px; flex-wrap: wrap">
                       <label style="display: inline-flex; align-items: center; border: 1px solid #d9d9d4; background: #fff; color: #14171a; font-size: 12px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer">
-                        <span>{{ styleFilesButtonLabel }}</span>
-                        <input type="file" accept="{{ styleFilesInputAccept }}" multiple onChange="{{ onStyleFilesChange }}" style="display: none">
+                        <span>Добавить файлы</span>
+                        <input type="file" accept=".docx,.txt,.md" multiple onChange="{{ onStyleFilesChange }}" style="display: none">
                       </label>
-                      <sc-if value="{{ styleFilesCount }}" hint-placeholder-val="{{ false }}">
-                        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #6b7078">
-                          {{ styleFilesCount }} файл(ов)
-                        </span>
-                      </sc-if>
+                      <button onClick="{{ analyzeStyleFiles }}" style="{{ styleFilesAnalyzeBtn }}">{{ styleFilesAnalyzeLabel }}</button>
                     </div>
-                    <sc-if value="{{ styleFilesCount }}" hint-placeholder-val="{{ false }}">
-                      <div style="margin-top: 9px; display: flex; flex-direction: column; gap: 4px">
-                        <sc-for list="{{ styleFilesDisplay }}" as="f" hint-placeholder-count="1">
-                          <div style="display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: #6b7078">
-                            <span style="font-family: 'IBM Plex Mono', monospace; color: #14171a">{{ f.name }}</span>
-                            <span>{{ f.charsLabel }}</span>
+
+                    <sc-if value="{{ hasStyleFilesPending }}" hint-placeholder-val="{{ false }}">
+                      <div style="margin-top: 10px; border: 1px solid #e3e3df; border-radius: 5px; overflow: hidden">
+                        <div style="display: flex; justify-content: space-between; padding: 7px 9px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; color: #7c8189">
+                          <span>Файлы для анализа</span><span>{{ styleFilesPendingCount }} шт.</span>
+                        </div>
+                        <sc-for list="{{ styleFilesPendingDisplay }}" as="f" hint-placeholder-count="1">
+                          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-bottom: 1px solid #f1f1ed">
+                            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #14171a; flex: 1">{{ f.name }}</span>
+                            <span style="font-size: 10.5px; color: #8a8f96">{{ f.statusLabel }}</span>
+                            <button onClick="{{ f.onRemove }}" style="border: 1px solid #e6e6e1; background: #fff; color: #8a8f96; font-size: 13px; padding: 3px 7px; border-radius: 4px; cursor: pointer">×</button>
                           </div>
                         </sc-for>
+                      </div>
+                    </sc-if>
+
+                    <sc-if value="{{ hasAnalyzedStyleFiles }}" hint-placeholder-val="{{ false }}">
+                      <div style="margin-top: 10px; border: 1px solid #dfe4ef; border-radius: 5px; overflow: hidden">
+                        <div style="display: flex; justify-content: space-between; padding: 8px 10px; background: #f5f7fb; border-bottom: 1px solid #e5e8ef">
+                          <span style="font-size: 12px; font-weight: 600">Проанализированные материалы</span>
+                          <span style="font-size: 10.5px; color: #2b7a45">Анализ завершён ✓</span>
+                        </div>
+                        <sc-for list="{{ styleFilesDisplay }}" as="f" hint-placeholder-count="1">
+                          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid #f0f1f3">
+                            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #14171a; flex: 1">{{ f.name }}</span>
+                            <span style="font-size: 10.5px; color: #7b818a">{{ f.charsLabel }}</span>
+                            <button onClick="{{ f.onDownload }}" style="border: 1px solid #d9d9d4; background: #fff; color: #14171a; font-size: 10.5px; padding: 4px 7px; border-radius: 4px; cursor: pointer">Скачать</button>
+                            <button onClick="{{ f.onDelete }}" style="border: 1px solid #e3d2d0; background: #fff; color: #a91f18; font-size: 10.5px; padding: 4px 7px; border-radius: 4px; cursor: pointer">Удалить</button>
+                          </div>
+                        </sc-for>
+                      </div>
+
+                      <div style="margin-top: 10px; border: 1px solid #dfe4ef; border-radius: 5px; padding: 10px">
+                        <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px">
+                          <span style="font-size: 12px; font-weight: 600">Результат анализа ИИ</span>
+                          <span style="font-size: 10.5px; color: #2b7a45">style_prompt записан ✓</span>
+                        </div>
+                        <textarea rows="6" value="{{ c.stylePrompt }}" onChange="{{ set.stylePrompt }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                        <div style="margin-top: 6px; font-size: 10.5px; color: #8a8f96">
+                          style_prompt сохранён в таблице клиента. Для записи в GitHub-конфиг сначала сохрани изменения, затем нажми «Отправить в репозиторий».
+                        </div>
                       </div>
                     </sc-if>
                   </div>
@@ -1436,6 +1465,7 @@ class Component extends DCLogic {
     settingsSaved: false, tested: null, deployed: {},
     showNew: false, form: { business: '', name: '', phone: '', email: '', tg: '', city: 'Санкт-Петербург' },
     styleFilesPreview: [],
+    styleFilesPending: [],
     newTariff: 'ПРО', newSource: 'Avito'
   };
 
@@ -2060,23 +2090,63 @@ class Component extends DCLogic {
         }),
 
       styleFilled,
+      styleFilesPending: st.styleFilesPending || [],
       styleFiles: c.styleFiles || [],
-      styleFilesPreview: st.styleFilesPreview || [],
-      styleFilesDisplay: (st.styleFilesPreview && st.styleFilesPreview.length)
-        ? st.styleFilesPreview
-        : (c.styleFiles || []).map(f => Object.assign({}, f, {
-            charsLabel: (f.chars === undefined || f.chars === null) ? '' : (f.chars + ' симв.')
-          })),
-      styleFilesCount: ((st.styleFilesPreview && st.styleFilesPreview.length)
-        ? st.styleFilesPreview
-        : (c.styleFiles || [])).length,
-      styleFilesLabel: ((st.styleFilesPreview && st.styleFilesPreview.length)
-        ? 'Выбрано файлов: ' + st.styleFilesPreview.length + ' — анализ…'
-        : ((c.styleFiles || []).length
-          ? 'Проанализировано файлов: ' + c.styleFiles.length
-          : 'Файлы ещё не загружались')),
-      styleFilesButtonLabel: busy === 'styleFiles' ? 'Анализирую…' : 'Загрузить тексты',
-      styleFilesInputAccept: '.docx,.txt,.md',
+      styleFilesDisplay: (c.styleFiles || []).map(f => Object.assign({}, f, {
+        charsLabel: (f.chars === undefined || f.chars === null) ? '' : (f.chars + ' симв.'),
+        onDownload: () => {
+          if (!f.downloadUrl) return this.flash('У файла нет ссылки на скачивание');
+          window.open(f.downloadUrl, '_blank');
+        },
+        onDelete: () => {
+          if (!f.fileId) return this.flash('У файла нет ID');
+          if (!window.confirm('Удалить файл «' + f.name + '»?')) return;
+          this.act('styleFileDelete',
+            () => apiPost(conn, 'delete_style_file', { id: c.id, fileId: f.fileId }).then(r => {
+              this.applyClient(r.client);
+              this.flash('Файл «' + f.name + '» удалён');
+            }),
+            () => this.flash('Демо: удаление доступно после подключения Web App')
+          );
+        }
+      })),
+      styleFilesCount: (c.styleFiles || []).length,
+      styleFilesLabel: busy === 'styleFiles'
+        ? 'ИИ анализирует…'
+        : ((c.styleFiles || []).length ? 'Проанализировано: ' + c.styleFiles.length : 'Файлы ещё не анализировались'),
+      styleFilesPendingDisplay: (st.styleFilesPending || []).map((f, i) => ({
+        name: f.name,
+        statusLabel: f.statusLabel || 'готов к анализу',
+        onRemove: () => this.setState(s => ({
+          styleFilesPending: s.styleFilesPending.filter((_, j) => j !== i)
+        }))
+      })),
+      styleFilesPendingCount: (st.styleFilesPending || []).length,
+      hasStyleFilesPending: (st.styleFilesPending || []).length > 0,
+      hasAnalyzedStyleFiles: (c.styleFiles || []).length > 0 && !!c.stylePrompt,
+      styleFilesAnalyzeLabel: busy === 'styleFiles' ? 'Анализирую…' : 'Проанализировать',
+      styleFilesAnalyzeBtn: ((st.styleFilesPending || []).length && !busy)
+        ? this.btn('primary')
+        : this.btn('off'),
+      analyzeStyleFiles: () => {
+        const pending = st.styleFilesPending || [];
+        if (!pending.length) return this.flash('Сначала добавь хотя бы один файл');
+
+        this.act('styleFiles',
+          () => apiPost(conn, 'analyze_style_files', {
+            id: c.id,
+            files: pending.map(f => ({ name: f.name, mime: f.mime, data: f.data }))
+          }).then(r => {
+            this.applyClient(r.client);
+            this.setState({ styleFilesPending: [] });
+            this.flash('ИИ проанализировал ' + ((r.styleFiles || []).length) + ' файл(а) и записал style_prompt ✓');
+          }),
+          () => {
+            this.setState({ styleFilesPending: [] });
+            this.flash('Демо: анализ файлов доступен после подключения Web App');
+          }
+        );
+      },
       onStyleFilesChange: e => {
         const files = Array.from((e && e.target && e.target.files) || []);
         if (!files.length) return;
@@ -2101,35 +2171,18 @@ class Component extends DCLogic {
             resolve({
               name: file.name,
               mime: file.type || 'application/octet-stream',
-              data: dataUrl.slice(comma + 1)
+              data: dataUrl.slice(comma + 1),
+              statusLabel: 'готов к анализу'
             });
           };
           reader.onerror = () => reject(new Error('Не удалось прочитать «' + file.name + '»'));
           reader.readAsDataURL(file);
         });
 
-        // Сразу показываем выбранные файлы в CRM, не дожидаясь ответа сервера.
-        this.setState({
-          styleFilesPreview: files.map(file => ({
-            name: file.name,
-            chars: 'ожидает анализа',
-            charsLabel: 'ожидает анализа'
-          }))
-        });
-
-        this.act('styleFiles',
-          () => Promise.all(files.map(readFile)).then(payload =>
-            apiPost(conn, 'analyze_style_files', { id: c.id, files: payload })
-          ).then(r => {
-            this.applyClient(r.client);
-            this.setState({ styleFilesPreview: [] });
-            this.flash('Стиль собран по ' + (r.styleFiles || []).length + ' файлам — проверьте style_prompt');
-          }),
-          () => {
-            this.setState({ styleFilesPreview: [] });
-            this.flash('Демо: анализ файлов доступен после подключения Web App');
-          }
-        );
+        Promise.all(files.map(readFile)).then(payload => {
+          this.setState({ styleFilesPending: payload });
+          this.flash('Файлы готовы. Нажми «Проанализировать»');
+        }).catch(err => this.flash(err.message));
 
         if (e.target) e.target.value = '';
       },
