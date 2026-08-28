@@ -1975,7 +1975,8 @@ class Component extends DCLogic {
         lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus, workflow: c.workflow,
         stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
         payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay),
-        tgChannel: c.tgChannel || '', holidaysExtra: c.holidaysExtra || ''
+        tgChannel: c.tgChannel || '', holidaysExtra: c.holidaysExtra || '',
+        styleSourceText: c.styleSourceText || ''
       },
       queueStyle: PILL + (c.photoQueue > 0
         ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
