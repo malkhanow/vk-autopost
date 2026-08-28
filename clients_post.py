@@ -955,14 +955,23 @@ def photo_slot_for_client(client):
 
 def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     """
-    Точка входа вместо pick_rubric() из main(). Без morning_photo — старое
-    поведение (расписание по дням недели), ничего не меняется для тех, кому
-    это не нужно. С morning_photo=true: слот, ближайший к утру из выбранных
-    клиентом, всегда отдаёт рубрику с фото (rubric_folder == None, обычно
-    «Фото работ»); остальные слоты крутят текстовые рубрики по кругу, без
-    привязки к дням недели.
+    Если у клиента больше одного слота — первый (самый ранний) автоматически
+    берёт фото-рубрику из to_post, остальные крутят текстовые рубрики по
+    кругу без привязки к дням недели. Галочка morning_photo больше не нужна.
+
+    Если слот один — обычное расписание по дням недели (как у клиентов
+    на тарифе СТАРТ: один слот, всё по расписанию).
+
+    Тестовый прогон всегда идёт по кругу по всем рубрикам.
     """
-    if test_mode or not client.get("morning_photo"):
+    if test_mode:
+        return pick_rubric(client, today_abbr, state, test_mode)
+
+    slot_names = [s.get("name") for s in client.get("slots", []) if s.get("name")]
+    ordered_slots = [s for s in SLOT_ORDER if s in slot_names]
+
+    # один слот — обычное расписание по дням
+    if len(ordered_slots) <= 1:
         return pick_rubric(client, today_abbr, state, test_mode)
 
     rubrics = client.get("rubrics", [])
@@ -973,7 +982,7 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     text_rubrics = [r for r in rubrics if rubric_folder(r.get("name", "")) is not None]
 
     cs = client_state(state, client["client_id"])
-    is_photo_slot = slot == photo_slot_for_client(client)
+    is_photo_slot = (slot == ordered_slots[0])
     pool = (photo_rubrics or rubrics) if is_photo_slot else (text_rubrics or rubrics)
     if not pool:
         return None
