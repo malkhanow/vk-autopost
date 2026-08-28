@@ -470,7 +470,7 @@
                           <div style="min-width: 0">
                             <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
                           </div>
-                          <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
+                          <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
                           <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
                           <div style="min-width: 0">
                             <div style="font-size: 12px; line-height: 1.5; color: #3e434a; white-space: pre-wrap">{{ r.example }}</div>
