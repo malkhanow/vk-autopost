@@ -5,6 +5,7 @@
   },
   "olga-nedvizhimost": {
     "tie_index": 10,
-    "used_photos": []
+    "used_photos": [],
+    "photo_tie_index": 1
   }
 }
