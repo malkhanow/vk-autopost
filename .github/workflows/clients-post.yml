@@ -32,7 +32,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r requirements.txt
 
       - name: Determine slot from schedule
         id: slot
@@ -53,10 +53,22 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: python clients_post.py
 
+      # Состояние ротации коммитим всегда, даже если публикация упала:
+      # иначе следующий запуск повторит ту же рубрику.
       - name: Commit and push state
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add clients_state.json
-          git diff --staged --quiet || git commit -m "update clients state [skip ci]"
-          git push
+          git diff --staged --quiet && echo "состояние не изменилось" && exit 0
+          git commit -m "update clients state [skip ci]"
+          # CRM коммитит конфиги клиентов в тот же main, поэтому простой push
+          # иногда отклоняется — подтягиваем чужие коммиты и пробуем ещё раз
+          for i in 1 2 3; do
+            git push && exit 0
+            echo "push отклонён, попытка $i — подтягиваю main"
+            git pull --rebase --autostash origin main || true
+          done
+          echo "не удалось отправить состояние после трёх попыток" >&2
+          exit 1
