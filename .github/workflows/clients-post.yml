@@ -45,6 +45,8 @@ jobs:
       - name: Run clients post
         env:
           PEXELS_KEY: ${{ secrets.PEXELS_KEY }}
+          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
+          WEBAPP_TOKEN: ${{ secrets.WEBAPP_TOKEN }}
           ROUTERAI_KEY: ${{ secrets.ROUTERAI_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
