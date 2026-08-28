@@ -899,12 +899,16 @@ function normRubrics_(v) {
   return v.map(function (r) {
     r = r || {};
     var days = Array.isArray(r.days) ? r.days.join(', ') : str_(r.days);
-    return {
+    var out = {
       name: str_(r.name) || 'Рубрика',
       days: days || 'пн',
       prompt: str_(r.prompt),
       example: str_(r.example)
     };
+    // флаг manual важно сохранять: без него пересборка плана
+    // удаляет рубрики добавленные вручную
+    if (r.manual) out.manual = true;
+    return out;
   });
 }
 
