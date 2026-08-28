@@ -67,7 +67,37 @@ ROUTERAI_MODEL = os.environ.get("ROUTERAI_MODEL", "google/gemini-3.1-flash-lite"
 ROUTERAI_KEY = os.environ["ROUTERAI_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 YANDEX_TOKEN = os.environ.get("YANDEX_TOKEN", "")
-PEXELS_KEY = os.environ.get("PEXELS_KEY", "")
+PEXELS_KEY   = os.environ.get("PEXELS_KEY", "")
+WEBAPP_URL   = os.environ.get("WEBAPP_URL", "")
+WEBAPP_TOKEN = os.environ.get("WEBAPP_TOKEN", "")
+
+
+def report_post_status(client_id, status, date_str):
+    if not WEBAPP_URL:
+        return
+    try:
+        import json as _json
+        payload = _json.dumps({
+            "action": "update_post_status",
+            "token": WEBAPP_TOKEN,
+            "id": client_id,
+            "status": status,
+            "date": date_str,
+        })
+        sep = "&" if "?" in WEBAPP_URL else "?"
+        url = WEBAPP_URL + sep + "action=update_post_status"
+        if WEBAPP_TOKEN:
+            url += "&token=" + WEBAPP_TOKEN
+        resp = requests.post(
+            url,
+            headers={"Content-Type": "text/plain;charset=utf-8"},
+            data=payload,
+            timeout=30,
+        )
+        if not resp.ok:
+            print(f"Статус не записан в таблицу: {resp.status_code} {resp.text[:100]}")
+    except Exception as e:
+        print(f"Не удалось записать статус в таблицу: {e}")
 
 SLOT = os.environ.get("SLOT", "")               # morning / midday / evening
 TEST_CLIENT_ID = os.environ.get("TEST_CLIENT_ID", "").strip()
@@ -1103,10 +1133,13 @@ def main():
             if photo_meta:
                 src_path, filename, posted_dir = photo_meta
                 move_to_posted(src_path, filename, posted_dir)
+            # пишем статус обратно в таблицу — CRM покажет «Опубликован»
+            date_str = today.strftime("%d.%m.%Y") + " " + __import__("datetime").datetime.now().strftime("%H:%M")
+            report_post_status(cid, "Опубликован", date_str)
         except Exception as e:
-            # сбой одного клиента не должен останавливать остальных и терять
-            # состояние ротации: идём дальше, ошибка уже в логе
             print(f"{cid}: ошибка публикации — {e}")
+            date_str = today.strftime("%d.%m.%Y") + " " + __import__("datetime").datetime.now().strftime("%H:%M")
+            report_post_status(cid, f"Ошибка: {str(e)[:80]}", date_str)
 
     save_state(state)
     if not posted_any:
