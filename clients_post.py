@@ -52,6 +52,7 @@ import mimetypes
 import os
 import sys
 import tempfile
+import time
 
 import requests
 
@@ -72,6 +73,11 @@ SLOT = os.environ.get("SLOT", "")               # morning / midday / evening
 TEST_CLIENT_ID = os.environ.get("TEST_CLIENT_ID", "").strip()
 
 DOW_ABBR = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+
+# Потолок размера фото. Телеграм не примет больше ~10 МБ, поэтому и в vision
+# нет смысла отправлять то, что потом не опубликуется: иначе модель разберёт
+# картинку, а в канал уйдёт текст без неё.
+MAX_PHOTO_MB = 9.5
 
 # ---------- праздники ----------
 #
@@ -199,11 +205,11 @@ def move_to_posted(src_path, filename, posted_dir):
 
 def rubric_folder(rubric_name):
     """
-    Название рубрики -> подпапка с фото для неё, или None (рубрика без
-    привязанных фото — например «Идеи» на чистом тексте у части клиентов).
-    Сопоставление по ключевым словам, а не точным совпадением: название
-    рубрики редактируется в CRM руками и может немного отличаться от
-    исходного из списка тем.
+    Название рубрики -> подпапка с фото для неё, или None.
+    None означает общую очередь to_post (рубрика без привязанной папки,
+    например «Фото работ» или «Объекты и документы»).
+    Сопоставление по ключевым словам: название рубрики редактируется
+    в CRM руками и может немного отличаться от исходного.
     """
     name = (rubric_name or "").lower()
     if "совет" in name or "польз" in name:
@@ -214,16 +220,61 @@ def rubric_folder(rubric_name):
         return "rubrics/ideas"
     if "отзыв" in name or "результат" in name:
         return "rubrics/reviews"
-    return None  # «Фото работ» и остальное — общая утренняя очередь to_post
+    return None  # to_post: «Фото работ», «Объекты и документы» и т.п.
 
 
-def next_photo_for_client(yandex_folder, rubric_name=""):
+def rubric_uses_vision(rubric_name):
     """
-    Следующее неиспользованное фото для рубрики клиента, или (None, None),
-    если фото нет. Если у рубрики есть своя подпапка (rubric_folder) —
-    фото ищутся там; иначе — в общей утренней очереди to_post. Опубликованные
-    фото в любом случае переезжают в общий posted/, независимо от того,
-    откуда были взяты.
+    Нужен ли vision-анализ для этой рубрики.
+
+    reviews: в папке могут быть скриншоты отзывов или фото объектов —
+    модель читает текст или описывает ситуацию и пишет релевантный пост.
+
+    to_post (is_photo_work, folder=None): фото работ конкретного бизнеса —
+    модель анализирует и пишет пост по увиденному.
+
+    Все остальные (tips, faq, ideas): фото-заглушки без анализа.
+    """
+    folder = rubric_folder(rubric_name)
+    if folder == "rubrics/reviews":
+        return True
+    if folder is None:          # to_post — только если «фото» в названии
+        name = (rubric_name or "").lower()
+        return "фото" in name
+    return False
+
+
+def rubric_loops_photos(rubric_name):
+    """
+    Для ряда рубрик фото-заглушки крутятся по кругу бесконечно и НЕ
+    переезжают в posted/ после публикации. Когда файлы закончатся, система
+    начнёт с самого старого снова. Это позволяет загрузить несколько картинок
+    один раз и не следить за пополнением папки.
+
+    tips, faq — типичные заглушки без привязки к конкретному событию.
+
+    to_post (None), ideas, reviews — НЕ зацикленные: фото уходит в posted/
+    после публикации (для to_post/ideas — чтобы те же фото не повторялись
+    в канале, для reviews — скриншот привязан к реальному отзыву).
+    """
+    folder = rubric_folder(rubric_name)
+    return folder in ("rubrics/tips", "rubrics/faq")
+
+
+def next_photo_for_client(yandex_folder, rubric_name="", state=None, client_id=""):
+    """
+    Следующее фото для рубрики клиента, или (None, None), если фото нет.
+
+    Две стратегии зависят от рубрики:
+
+    «Конечная» (to_post, ideas, reviews) — самый старый файл, после
+    публикации переезжает в posted/. Когда папка опустеет, пост выйдет
+    без фото.
+
+    «Круговая» (tips, faq) — файлы не переезжают; система запоминает имя
+    последнего использованного файла в state и берёт следующий по алфавиту.
+    Когда дошли до конца списка — начинаем сначала. Позволяет загрузить
+    несколько заглушек один раз и больше не следить за папкой.
     """
     folder = rubric_folder(rubric_name)
     source = f"{yandex_folder}/{folder}" if folder else f"{yandex_folder}/to_post"
@@ -231,13 +282,39 @@ def next_photo_for_client(yandex_folder, rubric_name=""):
     files = list_folder(source)
     if not files:
         return None, None
-    chosen = files[0]  # список уже отсортирован по created — берём самое старое
-    try:
-        local_path = download_yandex_file(chosen["path"])
-    except Exception as e:
-        print(f"Не удалось скачать {chosen['path']}: {e}")
-        return None, None
-    return local_path, (chosen["path"], chosen["name"], posted)
+
+    loops = rubric_loops_photos(rubric_name)
+
+    if loops and state is not None and client_id:
+        # круговой перебор: запоминаем имя последнего файла в state
+        cs = client_state(state, client_id)
+        loop_key = f"loop_{folder.replace('/', '_')}"
+        last_name = cs.get(loop_key, "")
+        # сортируем по имени — стабильный порядок, не зависящий от времени
+        names = sorted(f["name"] for f in files)
+        if last_name in names:
+            idx = (names.index(last_name) + 1) % len(names)
+        else:
+            idx = 0
+        chosen_name = names[idx]
+        chosen = next(f for f in files if f["name"] == chosen_name)
+        cs[loop_key] = chosen_name
+        # при цикле НЕ передаём posted — фото остаётся на месте
+        try:
+            local_path = download_yandex_file(chosen["path"])
+        except Exception as e:
+            print(f"Не удалось скачать {chosen['path']}: {e}")
+            return None, None
+        return local_path, None   # None = не переносить в posted/
+    else:
+        # конечная стратегия: самый старый файл, после — в posted/
+        chosen = files[0]         # list_folder сортирует по created
+        try:
+            local_path = download_yandex_file(chosen["path"])
+        except Exception as e:
+            print(f"Не удалось скачать {chosen['path']}: {e}")
+            return None, None
+        return local_path, (chosen["path"], chosen["name"], posted)
 
 
 # ---------- RouterAI ----------
@@ -250,25 +327,38 @@ def ai_text(messages, max_tokens=900, temperature=0.8):
         "max_tokens": max_tokens,
         "reasoning_effort": "low",
     }
+    last_error = None
     for attempt in range(3):
         if attempt:
-            import time
             time.sleep(attempt * 3)
-        resp = requests.post(
-            ROUTERAI_URL,
-            headers={"Authorization": f"Bearer {ROUTERAI_KEY}"},
-            json=payload,
-            timeout=60,
-        )
-        if resp.status_code in (429,) or resp.status_code >= 500:
+        try:
+            resp = requests.post(
+                ROUTERAI_URL,
+                headers={"Authorization": f"Bearer {ROUTERAI_KEY}"},
+                json=payload,
+                # с картинкой запрос заметно тяжелее обычного текстового
+                timeout=120,
+            )
+        except requests.RequestException as e:
+            # обрыв связи или таймаут: сеть у раннера бывает нестабильной,
+            # это повод повторить, а не терять публикацию
+            last_error = e
+            print(f"RouterAI: сеть недоступна ({e}), повтор...")
+            continue
+        if resp.status_code == 429 or resp.status_code >= 500:
+            last_error = f"HTTP {resp.status_code}"
             print(f"RouterAI: HTTP {resp.status_code}, повтор...")
             continue
         if resp.status_code != 200:
             raise RuntimeError(f"RouterAI: HTTP {resp.status_code} — {resp.text[:300]}")
-        body = resp.json()
-        content = body["choices"][0]["message"]["content"]
+        choices = (resp.json() or {}).get("choices") or []
+        if not choices:
+            raise RuntimeError(f"RouterAI вернул ответ без текста: {resp.text[:300]}")
+        content = (choices[0].get("message") or {}).get("content")
+        if not content:
+            raise RuntimeError("RouterAI вернул пустой текст")
         return strip_model_noise(content)
-    raise RuntimeError("RouterAI не отвечает после трёх попыток")
+    raise RuntimeError(f"RouterAI не отвечает после трёх попыток ({last_error})")
 
 
 def strip_model_noise(text):
@@ -300,8 +390,9 @@ def image_to_data_url(photo_path):
 
     # Не отправляем чрезмерно большие изображения в AI.
     # Если файл слишком большой, обычный пост всё равно сможет выйти.
-    if len(raw) > 10 * 1024 * 1024:
-        print(f"Фото {os.path.basename(photo_path)} больше 10 МБ — vision пропущен.")
+    if len(raw) > MAX_PHOTO_MB * 1024 * 1024:
+        print(f"Фото {os.path.basename(photo_path)} больше {MAX_PHOTO_MB} МБ — "
+              "vision пропущен, оно всё равно не уйдёт в канал.")
         return None
 
     return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
@@ -327,66 +418,83 @@ def build_post(client, rubric, photo_path=None):
         else "простым разговорным языком.\n"
     )
 
-    is_photo_work = "фото" in str(rubric.get("name", "")).lower()
+    # vision включается только для рубрик, где анализ реально нужен:
+    # «Отзывы» (скриншоты/фото) и «Фото работ» (результаты работы).
+    # tips, faq, ideas — заглушки без анализа.
+    uses_vision = rubric_uses_vision(rubric.get("name", ""))
 
-    if is_photo_work and photo_path:
-        # Общая vision-механика едина для всех ниш.
-        # Конкретный бизнес задаёт в конфиге только контекст и желательные
-        # направления через photo_post_instruction / photo_post_topics.
-        photo_cfg = client.get("photo_post") or {}
-        photo_instruction = (
-            photo_cfg.get("instruction")
-            or client.get("photo_post_instruction")
-            or ""
-        )
-        photo_topics = (
-            photo_cfg.get("topics")
-            or client.get("photo_post_topics")
-            or []
-        )
+    if uses_vision and photo_path:
+        folder = rubric_folder(rubric.get("name", ""))
+        is_reviews = folder == "rubrics/reviews"
 
-        context_parts = [
-            "Это рубрика «Фото работ». Ты получаешь настоящее фото клиента.",
-            "СНАЧАЛА внимательно изучи изображение и определи только то, "
-            "что действительно можно увидеть: объекты, детали, тип места, "
-            "ситуацию, визуальный контекст.",
-            "Затем САМ выбери наиболее естественную и полезную тему для "
-            "полноценного поста в рамках бизнеса клиента.",
-            "Фото — отправная точка для мысли, а не повод написать сухое "
-            "описание картинки.",
-        ]
-
-        if photo_instruction:
-            context_parts.append(
-                "Специальная инструкция для этой ниши: " + str(photo_instruction)
+        if is_reviews:
+            # В папке reviews — скриншоты отзывов или фото результатов.
+            # Сначала пробуем прочитать текст с изображения, потом описать.
+            context_parts = [
+                "Ты получаешь изображение из рубрики «Отзывы и результаты».",
+                "Если на изображении есть читаемый текст (скриншот переписки, "
+                "отзыв, сообщение) — прочитай его и напиши пост от лица "
+                "владельца бизнеса: поблагодари клиента, подчеркни суть отзыва, "
+                "не называй имён без необходимости.",
+                "Если текста нет или он нечитаем, но есть фото результата "
+                "(объект, сделка, встреча) — напиши тематический пост по "
+                "рубрике «Отзывы и результаты» без опоры на конкретику изображения.",
+                "Не выдумывай суммы, адреса, имена и условия сделки.",
+                f"Напиши пост 60–100 слов, {style}",
+                "Ответь только текстом поста."
+            ]
+        else:
+            # «Фото работ» и аналоги: анализируем что видим, пишем пост
+            photo_cfg = client.get("photo_post") or {}
+            photo_instruction = (
+                photo_cfg.get("instruction")
+                or client.get("photo_post_instruction")
+                or ""
             )
-
-        if photo_topics:
-            topic_text = ", ".join(str(x) for x in photo_topics if str(x).strip())
-            if topic_text:
+            photo_topics = (
+                photo_cfg.get("topics")
+                or client.get("photo_post_topics")
+                or []
+            )
+            context_parts = [
+                "Это рубрика «Фото работ». Ты получаешь настоящее фото клиента.",
+                "СНАЧАЛА внимательно изучи изображение и определи только то, "
+                "что действительно можно увидеть: объекты, детали, тип места, "
+                "ситуацию, визуальный контекст.",
+                "Затем САМ выбери наиболее естественную и полезную тему для "
+                "полноценного поста в рамках бизнеса клиента.",
+                "Фото — отправная точка для мысли, а не повод написать сухое "
+                "описание картинки.",
+            ]
+            if photo_instruction:
                 context_parts.append(
-                    "Допустимые направления и идеи, которые можно учитывать: "
-                    + topic_text
-                    + ". Не нужно использовать их все и не нужно выбирать их "
-                    "по фиксированному порядку — выбери наиболее релевантное "
-                    "конкретному изображению."
+                    "Специальная инструкция для этой ниши: " + str(photo_instruction)
                 )
-
-        context_parts.extend([
-            "Не пиши пост в формате «на фото изображено...».",
-            "Не выдумывай цены, адреса, характеристики, факты сделки, "
-            "результаты работы, документы, суммы или другие сведения, которых "
-            "нет в данных клиента или которые нельзя достоверно установить "
-            "по изображению.",
-            "Если на фото есть документ или мелкий текст, который нельзя "
-            "уверенно прочитать, не выдумывай его содержание.",
-            "Если фотография сама по себе не даёт достаточно информации для "
-            "конкретного утверждения, используй её только как визуальный "
-            "контекст и выбери более общий экспертный или тематический угол.",
-            "Напиши один полноценный пост 80–150 слов.",
-            style,
-            "Ответь только готовым текстом поста."
-        ])
+            if photo_topics:
+                topic_text = ", ".join(str(x) for x in photo_topics if str(x).strip())
+                if topic_text:
+                    context_parts.append(
+                        "Допустимые направления и идеи, которые можно учитывать: "
+                        + topic_text
+                        + ". Не нужно использовать их все и не нужно выбирать их "
+                        "по фиксированному порядку — выбери наиболее релевантное "
+                        "конкретному изображению."
+                    )
+            context_parts.extend([
+                "Не пиши пост в формате «на фото изображено...».",
+                "Не выдумывай цены, адреса, характеристики, факты сделки, "
+                "результаты работы, документы, суммы или другие сведения, которых "
+                "нет в данных клиента или которые нельзя достоверно установить "
+                "по изображению.",
+                "Если на фото есть документ или мелкий текст, который нельзя "
+                "уверенно прочитать, не выдумывай его содержание.",
+                "Если фотография сама по себе не даёт достаточно информации для "
+                "конкретного утверждения, используй её только как визуальный "
+                "контекст и выбери более общий экспертный или тематический угол.",
+                "Напиши один полноценный пост 80–150 слов.",
+                style,
+                "Ответь только готовым текстом поста."
+            ])
 
         user = "\n".join(lines) + "\n\n" + "\n".join(context_parts)
         data_url = image_to_data_url(photo_path)
@@ -394,11 +502,11 @@ def build_post(client, rubric, photo_path=None):
             try:
                 return ai_text([
                     {"role": "system", "content": (
-                        "Ты редактор и SMM-автор. Для рубрики «Фото работ» ты умеешь "
-                        "анализировать изображения. Используй изображение как реальный "
-                        "визуальный контекст, а затем создавай самостоятельный полезный "
-                        "пост. Текст должен звучать как пост владельца бизнеса, а не "
-                        "как подпись к фотографии. Не показывай ход рассуждений."
+                        "Ты редактор и SMM-автор. Ты умеешь анализировать изображения: "
+                        "читать текст на скриншотах и описывать визуальный контекст фотографий. "
+                        "Используй изображение как реальный визуальный контекст, затем создавай "
+                        "самостоятельный полезный пост. Текст должен звучать как пост владельца "
+                        "бизнеса, а не как подпись к фотографии. Не показывай ход рассуждений."
                     )},
                     {"role": "user", "content": [
                         {"type": "text", "text": user},
@@ -569,7 +677,7 @@ def fetch_stock_photo(query):
             size = 0
             for chunk in r.iter_content(8192):
                 size += len(chunk)
-                if size > 9 * 1024 * 1024:      # телеграм не примет больше
+                if size > MAX_PHOTO_MB * 1024 * 1024:   # телеграм не примет больше
                     tmp.close()
                     os.unlink(tmp.name)
                     print("Картинка со стока слишком большая — пропускаю.")
@@ -616,8 +724,8 @@ def post_to_telegram(channel, text, photo_path=None):
     has_photo = bool(photo_path and os.path.exists(photo_path))
     if has_photo:
         size_mb = os.path.getsize(photo_path) / 1024 / 1024
-        if size_mb > 9.5:
-            print("Фото больше 9.5 МБ — отправляю без него.")
+        if size_mb > MAX_PHOTO_MB:
+            print(f"Фото больше {MAX_PHOTO_MB} МБ — отправляю без него.")
             has_photo = False
 
     try:
@@ -645,9 +753,12 @@ def post_to_telegram(channel, text, photo_path=None):
         if not resp.ok:
             print("ИТОГОВАЯ ОШИБКА:", resp.status_code, resp.text)
             resp.raise_for_status()
-        print(f"Опубликовано в {channel}.")
-        print(f"Telegram ответ: {resp.status_code} {resp.text[:200]}")
-        print(f"Текст поста: {text[:300]}")
+        # id сообщения — по нему пост находится в канале, если возникнут вопросы
+        try:
+            mid = (resp.json().get("result") or {}).get("message_id")
+        except Exception:
+            mid = None
+        print(f"Опубликовано в {channel}" + (f" (сообщение {mid})." if mid else "."))
     finally:
         if photo_path and os.path.exists(photo_path):
             try:
@@ -680,12 +791,30 @@ def pick_rubric(client, today_abbr, state, test_mode):
     matches = matching_rubrics(client, today_abbr)
     if not matches:
         return None
-    if len(matches) == 1:
-        return matches[0]
+
     cs = client_state(state, client["client_id"])
-    idx = cs["tie_index"] % len(matches)
+
+    # У клиента на двух слотах день часто закрыт одной рубрикой — тогда оба
+    # слота получали её же, и в канал уходило два поста на одну тему подряд.
+    # Помним, что уже вышло сегодня, и отдаём второму слоту другое.
+    if cs.get("last_day") != today_abbr:
+        cs["last_day"] = today_abbr
+        cs["today_used"] = []
+    used = cs.get("today_used") or []
+
+    pool = [r for r in matches if r.get("name") not in used]
+    if not pool:
+        # рубрики этого дня исчерпаны — берём любую другую из плана клиента,
+        # лишь бы не повторить сегодняшнюю
+        pool = [r for r in rubrics if r.get("name") not in used]
+    if not pool:
+        pool = matches
+
+    idx = cs["tie_index"] % len(pool)
     cs["tie_index"] += 1
-    return matches[idx]
+    chosen = pool[idx]
+    cs["today_used"] = used + [chosen.get("name")]
+    return chosen
 
 
 SLOT_ORDER = ["morning", "midday", "evening"]
@@ -938,7 +1067,8 @@ def main():
                 continue
             what = f"рубрику «{rubric.get('name')}»"
             photo_path, photo_meta = next_photo_for_client(
-                client.get("yandex_folder", ""), rubric.get("name", "")
+                client.get("yandex_folder", ""), rubric.get("name", ""),
+                state=state, client_id=cid
             )
             try:
                 # Только «Фото работ» получает изображение внутри AI-запроса.
@@ -946,6 +1076,13 @@ def main():
                 text = build_post(client, rubric, photo_path)
             except Exception as e:
                 print(f"{cid}: ошибка генерации текста — {e}")
+                # фото уже скачано во временный файл — убираем за собой.
+                # В to_post оно остаётся: пост не вышел, очередь не двигаем
+                if photo_path and os.path.exists(photo_path):
+                    try:
+                        os.unlink(photo_path)
+                    except Exception:
+                        pass
                 continue
 
         print(f"{cid}: публикую {what} в {channel}")
@@ -958,8 +1095,10 @@ def main():
                 src_path, filename, posted_dir = photo_meta
                 move_to_posted(src_path, filename, posted_dir)
         except Exception as e:
+            # сбой одного клиента не должен останавливать остальных и терять
+            # состояние ротации: идём дальше, ошибка уже в логе
             print(f"{cid}: ошибка публикации — {e}")
-            raise
+
     save_state(state)
     if not posted_any:
         print("Ни одного поста не ушло за этот запуск.")
