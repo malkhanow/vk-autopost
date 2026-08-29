@@ -1773,6 +1773,87 @@ function aiBuildPlan_(req) {
 }
 
 /**
+ * Плановое время слотов по Москве. Совпадает с SLOT_UTC_HOUR в clients_post.py
+ * и с cron в clients-post.yml (МСК = UTC+3).
+ */
+var SLOT_MSK_HOUR = { morning: 10, midday: 14, evening: 19 };
+
+/**
+ * Запускает воркфлоу постинга точно по времени слота.
+ *
+ * Нужен потому, что расписание GitHub Actions ненадёжно: сам GitHub пишет,
+ * что при нагрузке запуск откладывается или пропускается. На практике один
+ * и тот же cron срабатывал и в 19:14, и в 00:26 UTC — посты выходили ночью.
+ * Триггер Apps Script вызывается каждые 15 минут и дёргает workflow_dispatch
+ * в нужный час, поэтому отклонение не превышает четверти часа.
+ *
+ * Повторных запусков не будет: отметка об отправке хранится в свойствах
+ * скрипта и сбрасывается вместе с датой.
+ */
+function dispatchSlots() {
+  var now = new Date();
+  var stamp = Utilities.formatDate(now, 'Europe/Moscow', 'yyyy-MM-dd HH');
+  var dateStr = stamp.split(' ')[0];
+  var hour = parseInt(stamp.split(' ')[1], 10);
+
+  var props = PropertiesService.getScriptProperties();
+  var fired = [];
+
+  Object.keys(SLOT_MSK_HOUR).forEach(function (slot) {
+    if (SLOT_MSK_HOUR[slot] !== hour) return;
+    var key = 'SLOT_SENT_' + slot;
+    if (props.getProperty(key) === dateStr) return;   // за этот день уже отправляли
+    try {
+      dispatchWorkflow_({ slot: slot });
+      props.setProperty(key, dateStr);
+      fired.push(slot);
+    } catch (err) {
+      console.error('Не удалось запустить слот ' + slot + ': ' + err);
+    }
+  });
+
+  return fired.length ? 'Запущены слоты: ' + fired.join(', ') : 'Слотов на этот час нет';
+}
+
+/**
+ * Общий вызов workflow_dispatch. inputs — то, что уйдёт в воркфлоу
+ * (client_id для тестового поста или slot для планового запуска).
+ */
+function dispatchWorkflow_(inputs) {
+  var repo     = prop_('GITHUB_REPO');
+  var token    = prop_('GITHUB_TOKEN');
+  var workflow = prop_('GITHUB_WORKFLOW') || 'clients-post.yml';
+  if (!repo || !token) {
+    throw new Error('GITHUB_REPO или GITHUB_TOKEN не заданы в Script Properties');
+  }
+
+  var payload = { ref: 'main', inputs: {} };
+  Object.keys(inputs || {}).forEach(function (k) {
+    if (inputs[k]) payload.inputs[k] = String(inputs[k]);
+  });
+
+  var resp = UrlFetchApp.fetch(
+    'https://api.github.com/repos/' + repo + '/actions/workflows/' + workflow + '/dispatches',
+    {
+      method: 'post',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    }
+  );
+
+  if (resp.getResponseCode() !== 204) {
+    throw new Error('GitHub dispatch вернул ' + resp.getResponseCode() + ': ' +
+                    resp.getContentText().slice(0, 200));
+  }
+  return true;
+}
+
+/**
  * dispatchTest_: отправляет простой проверочный пост напрямую в канал
  * клиента через Telegram Bot API — без генерации текста, без фото, без
  * запуска workflow. Если пост появился — бот добавлен правильно, токен
@@ -2258,10 +2339,17 @@ function detectTariff_(raw, answers) {
 function installTriggers() {
   var book = ss_();
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'onFormSubmit') ScriptApp.deleteTrigger(t);
+    var fn = t.getHandlerFunction();
+    if (fn === 'onFormSubmit' || fn === 'dispatchSlots') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('onFormSubmit').forSpreadsheet(book).onFormSubmit().create();
-  return 'Триггер onFormSubmit установлен. checkPayments ставится через createTrigger';
+
+  // Каждые 15 минут проверяем, не наступил ли час слота. Это замена
+  // расписанию GitHub Actions, которое опаздывает на часы.
+  ScriptApp.newTrigger('dispatchSlots').timeBased().everyMinutes(15).create();
+
+  return 'Триггеры установлены: onFormSubmit и dispatchSlots (каждые 15 мин). ' +
+         'checkPayments ставится через createTrigger';
 }
 
 // Ежедневных напоминаний об оплате здесь нет: их шлёт checkPayments
