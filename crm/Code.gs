@@ -275,7 +275,7 @@ var HEAD_CLIENTS = [
 var HEAD_CLIENTS_EXTRA = [
   'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
   'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
-  'Telegram-канал', 'Утро фото', 'Свои праздники'
+  'Telegram-канал', 'Утро фото', 'Свои праздники', 'Номер клиента', 'Месяцев оплачено'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -302,6 +302,8 @@ var F = {
   startedAt: 'Дата подключения', nextPay: 'Дата оплаты', pay: 'Статус оплаты',
   active: 'Активен', tgChannel: 'Telegram-канал',
   morningPhoto: 'Утро фото', holidaysExtra: 'Свои праздники',
+  clientNumber: 'Номер клиента',
+  payMonths:    'Месяцев оплачено',
   stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
@@ -864,6 +866,8 @@ function rowToClient_(t, row, rowNumber) {
     tgChannel: str_(val_(t, row, 'tgChannel')),
     morningPhoto: bool_(val_(t, row, 'morningPhoto')),
     holidaysExtra: str_(val_(t, row, 'holidaysExtra')),
+    clientNumber: str_(val_(t, row, 'clientNumber')),
+    payMonths: str_(val_(t, row, 'payMonths')),
     stylePrompt: str_(val_(t, row, 'stylePrompt')),
     configPushed: str_(val_(t, row, 'pushed')),
     niche: str_(val_(t, row, 'niche')),
@@ -946,8 +950,10 @@ var TO_CELL = {
   // pay / nextPay сюда не входят: статус и дату оплаты ведёт дропдаун
   active:        function (v) { return bool_(v); },
   tgChannel:     function (v) { return str_(v); },
-  morningPhoto:  function (v) { return bool_(v); },
-  holidaysExtra: function (v) { return str_(v); },
+  morningPhoto:   function (v) { return bool_(v); },
+  holidaysExtra:  function (v) { return str_(v); },
+  clientNumber:   function (v) { return str_(v); },
+  payMonths:      function (v) { return str_(v); },
   stylePrompt:   function (v) { return str_(v); },
   configPushed:  function (v) { return str_(v); },
   niche:         function (v) { return str_(v); },
@@ -1156,6 +1162,9 @@ var POST_ACTIONS = {
       var t = clientsTable_();
       var rowNumber = findRow_(t, id);
       if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
+      // не даём перезаписать уже присвоенный номер пустой строкой
+      var existing = str_(val_(t, rowNumber, 'clientNumber'));
+      if (existing && !str_(patch.clientNumber)) delete patch.clientNumber;
       writeRow_(t, rowNumber, cleanPatch_(patch));
       SpreadsheetApp.flush();
       return { client: refetchClient_(id) };
@@ -1221,6 +1230,8 @@ var POST_ACTIONS = {
   build_plan:          function (req) { return aiBuildPlan_(req); },
   dispatch_test:       function (req) { return dispatchTest_(req); },
   update_post_status:  function (req) { return updatePostStatus_(req); },
+  confirm_payment:     function (req) { return confirmPayment_(req); },
+  cancel_payment:      function (req) { return cancelPayment_(req); },
   gen_examples:  function (req) { return aiGenExamples_(req); },
   apply_edits:   function (req) { return aiApplyEdits_(req); }
 };
@@ -1246,6 +1257,20 @@ function withLock_(fn) {
 }
 
 /** Создаёт строку в листе «Клиенты» и возвращает готовый объект клиента. */
+/**
+ * Следующий уникальный 4-значный номер клиента.
+ * Хранится в Script Properties как счётчик — атомарно через withLock_.
+ * Формат: 0001, 0002, ... 9999.
+ */
+function nextClientNumber_() {
+  var props = PropertiesService.getScriptProperties();
+  var key = 'CLIENT_NUMBER_SEQ';
+  var current = parseInt(props.getProperty(key) || '0', 10);
+  var next = current + 1;
+  props.setProperty(key, String(next));
+  return String(next).padStart(4, '0');
+}
+
 function createClient_(src) {
   var t = clientsTable_();
   var taken = t.rows.map(function (r) { return str_(val_(t, r, 'id')); }).filter(String);
@@ -1288,7 +1313,9 @@ function createClient_(src) {
     iterations: num_(src.iterations),
     photoQueue: num_(src.photoQueue),
     lastPostDate: '—',
-    lastPostStatus: 'Не запущен'
+    lastPostStatus: 'Не запущен',
+    // номер присваивается один раз при создании; при сохранении не перезаписывается
+    clientNumber: str_(src.clientNumber) || nextClientNumber_()
   };
 
   var rowNumber = t.sheet.getLastRow() + 1;
@@ -1792,6 +1819,88 @@ function dispatchTest_(req) {
 }
 
 /**
+ * Варианты оплаты: ключ -> количество месяцев сдвига.
+ * Совпадают с PAY_OPTIONS старого скрипта учёта оплат.
+ */
+var PAY_MONTHS = { 1: 1, 3: 3, 6: 6, 12: 12 };
+
+/**
+ * confirmPayment_: отмечает оплату из CRM-интерфейса.
+ *
+ * Логика такая же как в onEdit старого скрипта:
+ * - Если текущий статус НЕ «оплачено» — сдвигаем дату вперёд на months месяцев
+ *   и запоминаем количество месяцев в поле payMonths (чтобы корректно откатить).
+ * - Если уже «оплачено» (повторное нажатие) — не трогаем дату, только обновляем статус.
+ *   Это защита от двойного сдвига при случайном двойном клике.
+ */
+function confirmPayment_(req) {
+  var id     = str_(req.id);
+  var months = parseInt(req.months, 10);
+  if (!id || !PAY_MONTHS[months]) throw new Error('Нужны id и months (1/3/6/12)');
+
+  return withLock_(function () {
+    var t = clientsTable_();
+    var row = findRow_(t, id);
+    if (!row) throw new Error('Клиент ' + id + ' не найден');
+
+    var currentPay  = str_(val_(t, row, 'pay'));
+    var nextPay     = parseDate_(val_(t, row, 'nextPay'));
+    var newDate     = nextPay ? new Date(nextPay.getTime()) : today_();
+
+    // Сдвигаем только если ещё не оплачено — защита от двойного сдвига
+    if (currentPay !== 'paid') {
+      var day = newDate.getDate();
+      newDate.setDate(1);
+      newDate.setMonth(newDate.getMonth() + months);
+      var lastDay = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
+      newDate.setDate(Math.min(day, lastDay));
+    }
+
+    writeRow_(t, row, {
+      pay:       'paid',
+      nextPay:   dateOut_(newDate),
+      payMonths: String(months)   // запоминаем для отката
+    });
+    SpreadsheetApp.flush();
+    return { ok: true, client: refetchClient_(id) };
+  });
+}
+
+/**
+ * cancelPayment_: отменяет оплату — откатывает дату назад на то количество
+ * месяцев, на которое была оплата. Берёт payMonths из записи клиента.
+ */
+function cancelPayment_(req) {
+  var id = str_(req.id);
+  if (!id) throw new Error('Нужен id клиента');
+
+  return withLock_(function () {
+    var t = clientsTable_();
+    var row = findRow_(t, id);
+    if (!row) throw new Error('Клиент ' + id + ' не найден');
+
+    var months  = parseInt(str_(val_(t, row, 'payMonths')), 10) || 1;
+    var nextPay = parseDate_(val_(t, row, 'nextPay'));
+    var newDate = nextPay ? new Date(nextPay.getTime()) : today_();
+
+    // Откатываем дату назад
+    var day = newDate.getDate();
+    newDate.setDate(1);
+    newDate.setMonth(newDate.getMonth() - months);
+    var lastDay = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
+    newDate.setDate(Math.min(day, lastDay));
+
+    writeRow_(t, row, {
+      pay:       'due',
+      nextPay:   dateOut_(newDate),
+      payMonths: ''
+    });
+    SpreadsheetApp.flush();
+    return { ok: true, client: refetchClient_(id) };
+  });
+}
+
+/**
  * updatePostStatus_: вызывается из clients_post.py после публикации.
  * Обновляет «Последний пост» и «Статус последнего поста» в таблице.
  */
@@ -2049,8 +2158,11 @@ function onFormSubmit(e) {
     return null;
   }
 
+  // номер присваивается сразу при получении брифа
+  brief.clientNumber = withLock_(function () { return nextClientNumber_(); });
+
   tgNotify_(
-    'Новый бриф: ' + (brief.name || '—') + ', ' + brief.tariff +
+    '[' + brief.clientNumber + '] Новый бриф: ' + (brief.name || '—') + ', ' + brief.tariff +
     (brief.niche ? ', ' + brief.niche : '') +
     '\n' + (brief.business || '—') + (brief.city ? ' · ' + brief.city : '') +
     (brief.tg ? '\n' + brief.tg : '') + (brief.phone ? ' · ' + brief.phone : '') +

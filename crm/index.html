@@ -532,10 +532,11 @@
             </sc-if>
 
             <sc-if value="{{ tabPayments }}" hint-placeholder-val="{{ true }}">
-              <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start">
+              <div style="display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; align-items: start">
+
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
                   <h2 style="margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Подписка</h2>
-                  <div style="display: flex; align-items: flex-end; gap: 12px; margin-bottom: 14px">
+                  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px">
                     <div>
                       <div style="font-size: 11.5px; color: #6b7078">Тариф</div>
                       <div style="font-size: 15px; font-weight: 600; margin-top: 3px">{{ c.tariff }} · {{ c.price }} ₽/мес</div>
@@ -543,13 +544,26 @@
                     <div style="flex: 1"></div>
                     <span style="{{ c.payStyle }}">{{ c.payLabel }}</span>
                   </div>
-                  <div style="display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; padding-top: 12px; border-top: 1px solid #eeeeea">
+
+                  <div style="display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; padding: 12px 0; border-top: 1px solid #eeeeea; border-bottom: 1px solid #eeeeea; margin-bottom: 14px">
                     <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Дата подключения</span><span style="font-family: 'IBM Plex Mono', monospace">{{ c.startedAt }}</span></div>
-                    <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Статус в таблице</span><span style="font-family: 'IBM Plex Mono', monospace">{{ payRaw }}</span></div>
                     <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Следующий платёж</span><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{ c.nextPay }}</span></div>
                   </div>
-                  <button onClick="{{ openRow }}" style="{{ sheetBtnStyle }}" style-hover="opacity: 0.88">{{ sheetBtnLabel }}</button>
-                  <p style="margin: 9px 0 0; font-size: 11.5px; color: #8a8f96">{{ payHint }}</p>
+
+                  <div style="margin-bottom: 10px">
+                    <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 8px">Отметить оплату:</div>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+                      <sc-for list="{{ payBtns }}" as="b" hint-placeholder-count="4">
+                        <button onClick="{{ b.onClick }}" style="{{ b.style }}" style-hover="opacity: 0.85">{{ b.label }}</button>
+                      </sc-for>
+                    </div>
+                  </div>
+
+                  <sc-if value="{{ canCancelPay }}" hint-placeholder-val="{{ false }}">
+                    <button onClick="{{ onCancelPayment }}" style="width: 100%; border: 1px solid #e2e2dd; background: #fff; color: #b3261e; font-size: 12px; font-weight: 500; padding: 7px 13px; border-radius: 5px; cursor: pointer; margin-bottom: 10px" style-hover="border-color: #b3261e; background: #fbe9e7">Отменить оплату</button>
+                  </sc-if>
+
+                  <p style="margin: 4px 0 0; font-size: 11px; color: #8a8f96">Оплата сдвигает дату вперёд. Отмена откатывает её назад на то же количество месяцев.</p>
                 </section>
 
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
@@ -1214,6 +1228,7 @@ function fromApi(o) {
     nextPay: parseDate(o.nextPay),
     active: o.active !== false,
     styleAnswers: padAnswers(o.styleAnswers),
+    clientNumber: String(o.clientNumber || ''),
     styleSourceText: '',
     checks: o.checks || {},
     rubrics: (o.rubrics || []).map(r => ({
@@ -1237,6 +1252,7 @@ function toApi(c) {
     // pay и nextPay не отправляем: ими распоряжается дропдаун в таблице
     active: c.active !== false, tgChannel: c.tgChannel || '',
     morningPhoto: !!c.morningPhoto, holidaysExtra: c.holidaysExtra || '',
+    clientNumber: c.clientNumber || '',
     stylePrompt: c.stylePrompt, niche: c.niche,
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
@@ -2240,19 +2256,44 @@ class Component extends DCLogic {
           this.flash('Демо: коммита не было — задайте WEBAPP_URL');
         }),
 
-      // Оплатами управляет дропдаун в листе «Клиенты» (Apps Script сам
-      // сдвигает дату и красит статус), поэтому здесь только ссылка на
-      // нужную строку — открывается сразу на ячейке статуса.
       payRaw: c.payRaw || '—',
-      sheetBtnLabel: 'Открыть строку в таблице',
-      sheetBtnStyle: this.btn('primary', ' width: 100%; margin-top: 14px;'),
-      payHint: 'Оплату отмечайте дропдауном в колонке «Статус»: «Оплачено N мес» сдвигает дату, «Отменить оплату» возвращает назад.',
-      openRow: () => {
+      canCancelPay: c.pay === 'paid',
+      payBtns: [1, 3, 6, 12].map(function(m) {
+        return {
+          label: 'Оплачено ' + m + ' мес',
+          style: 'border: 1px solid #136c41; background: #e6f4ec; color: #136c41; font-size: 12px; font-weight: 500; padding: 7px 11px; border-radius: 5px; cursor: pointer;',
+          onClick: function() {
+            if (busy) return;
+            this.act('pay',
+              function() { return apiPost(conn, 'confirm_payment', { id: c.id, months: m }).then(function(r) {
+                this.applyClient(r.client);
+                this.flash('Оплата на ' + m + ' мес отмечена · следующий платёж сдвинут');
+              }.bind(this)); }.bind(this),
+              function() {
+                this.patch(c.id, { pay: 'paid' });
+                this.flash('Демо: оплата не записана в таблицу');
+              }.bind(this));
+          }.bind(this)
+        };
+      }.bind(this)),
+      onCancelPayment: function() {
+        if (busy) return;
+        this.act('pay',
+          function() { return apiPost(conn, 'cancel_payment', { id: c.id }).then(function(r) {
+            this.applyClient(r.client);
+            this.flash('Оплата отменена · дата откатилась назад');
+          }.bind(this)); }.bind(this),
+          function() {
+            this.patch(c.id, { pay: 'due' });
+            this.flash('Демо: отмена не записана в таблицу');
+          }.bind(this));
+      }.bind(this),
+      openRow: function() {
         if (!c.rowUrl) return this.flash(st.demo
           ? 'Демо-режим: задайте WEBAPP_URL, чтобы открыть строку в таблице'
           : 'Для этого клиента нет ссылки на строку — обновите список');
         try { window.open(c.rowUrl, '_blank'); } catch (e) { this.flash('Не удалось открыть таблицу'); }
-      },
+      }.bind(this),
       reminders,
       hasToast: !!st.toast, toast: st.toast
     };
