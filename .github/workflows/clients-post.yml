@@ -16,6 +16,10 @@ on:
         description: 'client_id для тестового поста (пусто — по расписанию)'
         required: false
         default: ''
+      slot:
+        description: 'Слот публикации: morning / midday / evening'
+        required: false
+        default: ''
 
 jobs:
   post:
@@ -34,10 +38,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Determine slot from schedule
+      # Слот приходит либо явно от триггера Apps Script (он запускает вовремя),
+      # либо выводится из расписания GitHub — оно оставлено запасным вариантом.
+      - name: Determine slot
         id: slot
         run: |
-          if [ "${{ github.event.schedule }}" = "0 7 * * *" ]; then echo "slot=morning" >> "$GITHUB_OUTPUT";
+          MANUAL="${{ github.event.inputs.slot }}"
+          if [ -n "$MANUAL" ]; then echo "slot=$MANUAL" >> "$GITHUB_OUTPUT";
+          elif [ "${{ github.event.schedule }}" = "0 7 * * *" ]; then echo "slot=morning" >> "$GITHUB_OUTPUT";
           elif [ "${{ github.event.schedule }}" = "0 11 * * *" ]; then echo "slot=midday" >> "$GITHUB_OUTPUT";
           elif [ "${{ github.event.schedule }}" = "0 16 * * *" ]; then echo "slot=evening" >> "$GITHUB_OUTPUT";
           else echo "slot=" >> "$GITHUB_OUTPUT"; fi
