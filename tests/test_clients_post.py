@@ -37,6 +37,34 @@ def client(**over):
     return base
 
 
+# ---------- окно публикации слота ----------
+
+# Расписание GitHub Actions опаздывает на часы, а иногда пропускает запуск.
+# Один и тот же cron срабатывал и в 19:14, и в 00:26 UTC — посты выходили
+# ночью. Публикуем только если запуск попал в окно вокруг планового времени.
+def in_window(slot, hour, minute=0):
+    from datetime import datetime, timezone
+    now = datetime(2026, 8, 29, hour, minute, tzinfo=timezone.utc)
+    planned = now.replace(hour=cp.SLOT_UTC_HOUR[slot], minute=0,
+                          second=0, microsecond=0)
+    drift = (now - planned).total_seconds() / 3600
+    return -0.5 <= drift <= cp.SLOT_WINDOW_HOURS
+
+eq("слоты заданы в UTC", cp.SLOT_UTC_HOUR,
+   {"morning": 7, "midday": 11, "evening": 16})
+
+eq("запуск точно по плану — публикуем", in_window("evening", 16, 0), True)
+eq("опоздание на 15 минут — публикуем", in_window("evening", 16, 15), True)
+eq("опоздание на полтора часа — ещё публикуем", in_window("evening", 17, 30), True)
+eq("опоздание на 2.5 часа — пропускаем", in_window("evening", 18, 30), False)
+# реальные случаи из логов, из-за которых посты выходили ночью
+eq("реальный запуск в 00:26 UTC — пропускаем", in_window("evening", 0, 26), False)
+eq("реальный запуск в 19:14 UTC — пропускаем", in_window("evening", 19, 14), False)
+eq("задержка GitHub на 10 часов — пропускаем", in_window("midday", 21, 18), False)
+eq("утренний слот вовремя — публикуем", in_window("morning", 7, 10), True)
+eq("дневной слот вовремя — публикуем", in_window("midday", 11, 5), True)
+
+
 # ---------- vision и стратегии фото ----------
 
 eq("reviews включает vision", cp.rubric_uses_vision("Отзывы и результаты"), True)
