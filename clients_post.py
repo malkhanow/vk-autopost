@@ -412,6 +412,17 @@ def strip_model_noise(text):
     return s
 
 
+def append_hashtags(text, client):
+    """
+    Дописывает хэштеги из поля hashtags конфига клиента в конец поста.
+    Если поле отсутствует или пустое — текст не меняется.
+    """
+    tags = (client.get("hashtags") or "").strip()
+    if not tags:
+        return text
+    return text.rstrip() + "\n\n" + tags
+
+
 def image_to_data_url(photo_path):
     """
     Локальное фото превращается в data URL для RouterAI.
@@ -1194,6 +1205,7 @@ def main():
                         pass
                 continue
 
+        text = append_hashtags(text, client)
         print(f"{cid}: публикую {what} в {channel}")
         try:
             post_to_telegram(channel, text, photo_path)
