@@ -275,7 +275,8 @@ var HEAD_CLIENTS = [
 var HEAD_CLIENTS_EXTRA = [
   'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
   'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
-  'Telegram-канал', 'Утро фото', 'Свои праздники', 'Номер клиента', 'Месяцев оплачено'
+  'Telegram-канал', 'Утро фото', 'Свои праздники', 'Номер клиента', 'Месяцев оплачено',
+  'Оплачено с'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -304,6 +305,7 @@ var F = {
   morningPhoto: 'Утро фото', holidaysExtra: 'Свои праздники',
   clientNumber: 'Номер клиента',
   payMonths:    'Месяцев оплачено',
+  paidAt:       'Оплачено с',
   stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
@@ -868,6 +870,7 @@ function rowToClient_(t, row, rowNumber) {
     holidaysExtra: str_(val_(t, row, 'holidaysExtra')),
     clientNumber: str_(val_(t, row, 'clientNumber')),
     payMonths: str_(val_(t, row, 'payMonths')),
+    paidAt: dateOut_(parseDate_(val_(t, row, 'paidAt'))),
     stylePrompt: str_(val_(t, row, 'stylePrompt')),
     configPushed: str_(val_(t, row, 'pushed')),
     niche: str_(val_(t, row, 'niche')),
@@ -1232,6 +1235,7 @@ var POST_ACTIONS = {
   update_post_status:  function (req) { return updatePostStatus_(req); },
   confirm_payment:     function (req) { return confirmPayment_(req); },
   cancel_payment:      function (req) { return cancelPayment_(req); },
+  set_payment:         function (req) { return setPayment_(req); },
   gen_examples:  function (req) { return aiGenExamples_(req); },
   apply_edits:   function (req) { return aiApplyEdits_(req); }
 };
@@ -1905,14 +1909,87 @@ function dispatchTest_(req) {
  */
 var PAY_MONTHS = { 1: 1, 3: 3, 6: 6, 12: 12 };
 
+/** Прибавляет месяцы, не перескакивая через короткие месяцы (31.01 + 1 = 28.02). */
+function addMonths_(base, months) {
+  var d = new Date(base.getTime());
+  var day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  var last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, last));
+  return d;
+}
+
 /**
- * confirmPayment_: отмечает оплату из CRM-интерфейса.
+ * Подбирает значение для колонки «Статус оплаты» так, чтобы оно прошло
+ * проверку данных (дропдаун) в листе. Если валидации нет — пишет ярлык CRM.
+ */
+function payCellValue_(sheet, rowNumber, colIdx, wantKey, months) {
+  var fallback = PAY_LABELS[wantKey] || wantKey;
+  if (colIdx < 0) return fallback;
+
+  var list = [];
+  try {
+    var rule = sheet.getRange(rowNumber, colIdx + 1).getDataValidation();
+    if (rule && rule.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) {
+      list = rule.getCriteriaValues()[0] || [];
+    }
+  } catch (e) { list = []; }
+  if (!list.length) return fallback;
+
+  var want = [];
+  if (wantKey === 'paid' && months) want.push(norm_('Оплачено ' + months + ' мес'));
+  want.push(norm_(fallback));
+
+  for (var w = 0; w < want.length; w++) {
+    for (var i = 0; i < list.length; i++) {
+      if (norm_(String(list[i])) === want[w]) return String(list[i]);
+    }
+  }
+  for (var j = 0; j < list.length; j++) {
+    if (payIn_(list[j]) === wantKey) return String(list[j]);
+  }
+  return fallback;
+}
+
+/**
+ * Пишет оплату напрямую в колонки «Статус оплаты», «Оплачено с» и «Дата оплаты».
+ * writeRow_ их не трогает (в TO_CELL нет pay/nextPay/paidAt), поэтому у оплат
+ * отдельный путь записи — иначе значения молча теряются.
  *
- * Логика такая же как в onEdit старого скрипта:
- * - Если текущий статус НЕ «оплачено» — сдвигаем дату вперёд на months месяцев
- *   и запоминаем количество месяцев в поле payMonths (чтобы корректно откатить).
- * - Если уже «оплачено» (повторное нажатие) — не трогаем дату, только обновляем статус.
- *   Это защита от двойного сдвига при случайном двойном клике.
+ * Инвариант: nextPay = paidAt + months. Считается здесь, больше нигде.
+ */
+function writePay_(t, rowNumber, payKey, paidAt, months) {
+  var payIdx  = colIndex_(t, 'pay');
+  var fromIdx = colIndex_(t, 'paidAt');
+  var dateIdx = colIndex_(t, 'nextPay');
+  var nextPay = (paidAt && months) ? addMonths_(paidAt, months) : paidAt;
+
+  function putDate(idx, value) {
+    if (idx < 0) return;
+    var cell = t.sheet.getRange(rowNumber, idx + 1);
+    if (value) { cell.setValue(value); cell.setNumberFormat('dd.MM.yyyy'); }
+    else cell.clearContent();
+  }
+
+  if (payIdx >= 0) {
+    t.sheet.getRange(rowNumber, payIdx + 1)
+      .setValue(payCellValue_(t.sheet, rowNumber, payIdx, payKey, months));
+  }
+  putDate(fromIdx, paidAt);
+  putDate(dateIdx, nextPay);
+
+  writeRow_(t, rowNumber, { payMonths: months ? String(months) : '' });
+  return nextPay;
+}
+
+/**
+ * confirmPayment_: отмечает оплату из CRM.
+ *
+ * Начало оплаченного периода — конец предыдущего, если он ещё не наступил
+ * (предоплата не теряет дни), иначе сегодня (просрочка не тянет дату из
+ * прошлого). Сдвиг применяется всегда: защита от двойного клика живёт
+ * в интерфейсе, откат — в «Отменить оплату».
  */
 function confirmPayment_(req) {
   var id     = str_(req.id);
@@ -1921,35 +1998,30 @@ function confirmPayment_(req) {
 
   return withLock_(function () {
     var t = clientsTable_();
-    var row = findRow_(t, id);
-    if (!row) throw new Error('Клиент ' + id + ' не найден');
+    var rowNumber = findRow_(t, id);
+    if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
 
-    var currentPay  = str_(val_(t, row, 'pay'));
-    var nextPay     = parseDate_(val_(t, row, 'nextPay'));
-    var newDate     = nextPay ? new Date(nextPay.getTime()) : today_();
+    var row     = t.rows[rowNumber - 2];
+    var prevEnd = parseDate_(val_(t, row, 'nextPay'));
+    var today   = today_();
+    var paidAt  = (prevEnd && prevEnd >= today) ? prevEnd : today;
 
-    // Сдвигаем только если ещё не оплачено — защита от двойного сдвига
-    if (currentPay !== 'paid') {
-      var day = newDate.getDate();
-      newDate.setDate(1);
-      newDate.setMonth(newDate.getMonth() + months);
-      var lastDay = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
-      newDate.setDate(Math.min(day, lastDay));
-    }
-
-    writeRow_(t, row, {
-      pay:       'paid',
-      nextPay:   dateOut_(newDate),
-      payMonths: String(months)   // запоминаем для отката
-    });
+    var newDate = writePay_(t, rowNumber, 'paid', paidAt, months);
     SpreadsheetApp.flush();
-    return { ok: true, client: refetchClient_(id) };
+
+    return {
+      ok: true,
+      client: refetchClient_(id),
+      from: prevEnd ? dateOut_(prevEnd) : '',
+      to: dateOut_(newDate),
+      months: months
+    };
   });
 }
 
 /**
- * cancelPayment_: отменяет оплату — откатывает дату назад на то количество
- * месяцев, на которое была оплата. Берёт payMonths из записи клиента.
+ * cancelPayment_: снимает оплату. Период обнуляется, платёж снова
+ * ожидается с даты «Оплачено с» — то есть с начала неоплаченного периода.
  */
 function cancelPayment_(req) {
   var id = str_(req.id);
@@ -1957,27 +2029,65 @@ function cancelPayment_(req) {
 
   return withLock_(function () {
     var t = clientsTable_();
-    var row = findRow_(t, id);
-    if (!row) throw new Error('Клиент ' + id + ' не найден');
+    var rowNumber = findRow_(t, id);
+    if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
 
-    var months  = parseInt(str_(val_(t, row, 'payMonths')), 10) || 1;
-    var nextPay = parseDate_(val_(t, row, 'nextPay'));
-    var newDate = nextPay ? new Date(nextPay.getTime()) : today_();
+    var row     = t.rows[rowNumber - 2];
+    var prevEnd = parseDate_(val_(t, row, 'nextPay'));
+    var paidAt  = parseDate_(val_(t, row, 'paidAt')) || prevEnd || today_();
 
-    // Откатываем дату назад
-    var day = newDate.getDate();
-    newDate.setDate(1);
-    newDate.setMonth(newDate.getMonth() - months);
-    var lastDay = new Date(newDate.getFullYear(), newDate.getMonth() + 1, 0).getDate();
-    newDate.setDate(Math.min(day, lastDay));
-
-    writeRow_(t, row, {
-      pay:       'due',
-      nextPay:   dateOut_(newDate),
-      payMonths: ''
-    });
+    var newDate = writePay_(t, rowNumber, 'due', paidAt, 0);
     SpreadsheetApp.flush();
-    return { ok: true, client: refetchClient_(id) };
+
+    return {
+      ok: true,
+      client: refetchClient_(id),
+      from: prevEnd ? dateOut_(prevEnd) : '',
+      to: dateOut_(newDate),
+      months: 0
+    };
+  });
+}
+
+/**
+ * setPayment_: ручной ввод из CRM — дата начала периода и/или число месяцев.
+ * Следующий платёж пересчитывается по тому же инварианту, поэтому руками
+ * его задать нельзя: он всегда производная от «Оплачено с» и месяцев.
+ */
+function setPayment_(req) {
+  var id = str_(req.id);
+  if (!id) throw new Error('Нужен id клиента');
+
+  return withLock_(function () {
+    var t = clientsTable_();
+    var rowNumber = findRow_(t, id);
+    if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
+
+    var row = t.rows[rowNumber - 2];
+
+    var paidAt = req.paidAt === undefined
+      ? (parseDate_(val_(t, row, 'paidAt')) || today_())
+      : (str_(req.paidAt) ? parseDate_(req.paidAt) : null);
+    if (req.paidAt !== undefined && str_(req.paidAt) && !paidAt) {
+      throw new Error('Не разобрал дату: ' + str_(req.paidAt));
+    }
+
+    var months = req.months === undefined
+      ? (parseInt(str_(val_(t, row, 'payMonths')), 10) || 0)
+      : (parseInt(req.months, 10) || 0);
+    if (months < 0 || months > 24) throw new Error('Месяцев должно быть от 0 до 24');
+
+    var prevEnd = parseDate_(val_(t, row, 'nextPay'));
+    var newDate = writePay_(t, rowNumber, months > 0 ? 'paid' : 'due', paidAt, months);
+    SpreadsheetApp.flush();
+
+    return {
+      ok: true,
+      client: refetchClient_(id),
+      from: prevEnd ? dateOut_(prevEnd) : '',
+      to: dateOut_(newDate),
+      months: months
+    };
   });
 }
 
