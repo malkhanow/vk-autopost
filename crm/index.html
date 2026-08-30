@@ -610,7 +610,7 @@
                       Нажмите «Собрать письмо» — ИИ проверит бриф и подготовит текст
                     </div>
                   </sc-if>
-                  <sc-if value="{{ !letter1Empty }}" hint-placeholder-val="{{ true }}">
+                  <sc-if value="{{ letter1HasText }}" hint-placeholder-val="{{ true }}">
                     <div style="position: relative">
                       <textarea rows="18" value="{{ letter1Text }}" onChange="{{ onSetLetter1 }}" style="width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid #dedeD9; border-radius: 4px; background: #fafaf8; font-size: 12px; line-height: 1.6; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
                       <button onClick="{{ onCopyLetter1 }}" style="position: absolute; top: 8px; right: 8px; border: 1px solid #d9d9d4; background: #fff; color: #5d636b; font-size: 11px; padding: 4px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a; color: #14171a">{{ copyLetter1Label }}</button>
@@ -643,7 +643,7 @@
                       Заполните поля выше и нажмите «Собрать письмо о запуске»
                     </div>
                   </sc-if>
-                  <sc-if value="{{ !letter2Empty }}" hint-placeholder-val="{{ true }}">
+                  <sc-if value="{{ letter2HasText }}" hint-placeholder-val="{{ true }}">
                     <div style="position: relative">
                       <textarea rows="18" value="{{ letter2Text }}" onChange="{{ onSetLetter2 }}" style="width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid #dedeD9; border-radius: 4px; background: #fafaf8; font-size: 12px; line-height: 1.6; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
                       <button onClick="{{ onCopyLetter2 }}" style="position: absolute; top: 8px; right: 8px; border: 1px solid #d9d9d4; background: #fff; color: #5d636b; font-size: 11px; padding: 4px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a; color: #14171a">{{ copyLetter2Label }}</button>
@@ -2440,6 +2440,7 @@ class Component extends DCLogic {
       /* ---- вкладка «Связь с клиентом» ---- */
       letter1Text: c.letterSetup || '',
       letter1Empty: !c.letterSetup,
+      letter1HasText: !!c.letterSetup,
       letter1Label: busy === 'letter1' ? 'Генерирую…' : c.letterSetup ? 'Перегенерировать' : 'Собрать письмо',
       letter1BtnStyle: busy ? this.btn('off') : this.btn('ghost'),
       onLetter1: () => this.act('letter1',
@@ -2464,6 +2465,7 @@ class Component extends DCLogic {
       },
       letter2Text: c.letterLaunch || '',
       letter2Empty: !c.letterLaunch,
+      letter2HasText: !!c.letterLaunch,
       letter2Label: busy === 'letter2' ? 'Генерирую…' : c.letterLaunch ? 'Перегенерировать' : 'Собрать письмо о запуске',
       letter2BtnStyle: busy ? this.btn('off') : this.btn('primary'),
       onLetter2: () => {
