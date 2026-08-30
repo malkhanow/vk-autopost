@@ -590,7 +590,67 @@
         </div>
       </sc-if>
 
-      <sc-if value="{{ isPayments }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ tabComms }}" hint-placeholder-val="{{ false }}">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start">
+
+                <!-- ПИСЬМО 1 -->
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
+                    <h2 style="margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Письмо 1 — Настройка</h2>
+                    <div style="flex: 1"></div>
+                    <button onClick="{{ onLetter1 }}" style="{{ letter1BtnStyle }}" style-hover="opacity: 0.85">{{ letter1Label }}</button>
+                  </div>
+                  <p style="margin: 0 0 10px; font-size: 11.5px; color: #8a8f96">Отправляется после получения брифа. ИИ анализирует бриф, находит пробелы и вписывает конкретные просьбы дополнить. Генерируется автоматически при создании карточки.</p>
+                  <sc-if value="{{ letter1Empty }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding: 20px; border: 1px dashed #d9d9d4; border-radius: 5px; text-align: center; color: #8a8f96; font-size: 12.5px">
+                      Нажмите «Собрать письмо» — ИИ проверит бриф и подготовит текст
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ !letter1Empty }}" hint-placeholder-val="{{ true }}">
+                    <div style="position: relative">
+                      <textarea rows="18" value="{{ letter1Text }}" onChange="{{ onSetLetter1 }}" style="width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid #dedeD9; border-radius: 4px; background: #fafaf8; font-size: 12px; line-height: 1.6; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                      <button onClick="{{ onCopyLetter1 }}" style="position: absolute; top: 8px; right: 8px; border: 1px solid #d9d9d4; background: #fff; color: #5d636b; font-size: 11px; padding: 4px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a; color: #14171a">{{ copyLetter1Label }}</button>
+                    </div>
+                  </sc-if>
+                </section>
+
+                <!-- ПИСЬМО 2 -->
+                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
+                    <h2 style="margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">Письмо 2 — Запуск</h2>
+                    <div style="flex: 1"></div>
+                    <button onClick="{{ onLetter2 }}" style="{{ letter2BtnStyle }}" style-hover="opacity: 0.9">{{ letter2Label }}</button>
+                  </div>
+                  <p style="margin: 0 0 12px; font-size: 11.5px; color: #8a8f96">Отправляется когда всё настроено. Заполните два поля — письмо соберётся из конфига клиента: слоты, рубрики, нужные папки.</p>
+
+                  <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; padding: 11px 12px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
+                    <div>
+                      <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 5px">Ссылка на папку Яндекс.Диска</div>
+                      <input type="text" value="{{ letter2DiskLink }}" onChange="{{ onLetter2DiskLink }}" placeholder="https://disk.yandex.ru/d/…" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
+                    </div>
+                    <div>
+                      <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 5px">Дата первого поста</div>
+                      <input type="date" value="{{ letter2FirstDate }}" onChange="{{ onLetter2FirstDate }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
+                    </div>
+                  </div>
+
+                  <sc-if value="{{ letter2Empty }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding: 20px; border: 1px dashed #d9d9d4; border-radius: 5px; text-align: center; color: #8a8f96; font-size: 12.5px">
+                      Заполните поля выше и нажмите «Собрать письмо о запуске»
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ !letter2Empty }}" hint-placeholder-val="{{ true }}">
+                    <div style="position: relative">
+                      <textarea rows="18" value="{{ letter2Text }}" onChange="{{ onSetLetter2 }}" style="width: 100%; box-sizing: border-box; padding: 10px 11px; border: 1px solid #dedeD9; border-radius: 4px; background: #fafaf8; font-size: 12px; line-height: 1.6; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                      <button onClick="{{ onCopyLetter2 }}" style="position: absolute; top: 8px; right: 8px; border: 1px solid #d9d9d4; background: #fff; color: #5d636b; font-size: 11px; padding: 4px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a; color: #14171a">{{ copyLetter2Label }}</button>
+                    </div>
+                  </sc-if>
+                </section>
+
+              </div>
+            </sc-if>
+
+      <sc-if value="{{ isPayments }}"" hint-placeholder-val="{{ false }}">
         <div style="padding: 20px 22px 40px; max-width: 1100px">
           <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Оплаты</h1>
           <p style="margin: 4px 0 16px; font-size: 12.5px; color: #6b7078">Все подписки и даты платежей. Клик по строке — карточка клиента, вкладка «Оплаты»: там дата начала периода и срок.</p>
@@ -879,7 +939,8 @@ function client(o) {
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
     lastPostDate: '—', lastPostStatus: 'Не запущен',
     tgChannel: '', morningPhoto: false, holidaysExtra: '',
-    paidAt: null, payMonths: 0
+    paidAt: null, payMonths: 0,
+    letterSetup: '', letterLaunch: '', diskLink: '', firstPostDate: null
   }, o);
 }
 
@@ -967,6 +1028,7 @@ function fromApi(o) {
     startedAt: parseDate(o.startedAt),
     nextPay: parseDate(o.nextPay),
     paidAt: parseDate(o.paidAt),
+    firstPostDate: parseDate(o.firstPostDate),
     payMonths: parseInt(o.payMonths, 10) || 0,
     active: o.active !== false,
     styleAnswers: padAnswers(o.styleAnswers),
@@ -1369,7 +1431,8 @@ class Component extends DCLogic {
       { key: 'brief', label: 'Бриф' },
       { key: 'onboarding', label: 'Онбординг' },
       { key: 'content', label: 'Согласование контента' },
-      { key: 'payments', label: 'Оплаты' }
+      { key: 'payments', label: 'Оплаты' },
+      { key: 'comms', label: 'Связь с клиентом' }
     ].map(t => ({
       label: t.label,
       onClick: () => this.setState({ tab: t.key }),
@@ -1723,6 +1786,7 @@ class Component extends DCLogic {
       back: () => this.setState({ view: 'list' }),
       tabBrief: st.tab === 'brief', tabOnboarding: st.tab === 'onboarding',
       tabContent: st.tab === 'content', tabPayments: st.tab === 'payments',
+      tabComms: st.tab === 'comms',
       // подсказка честно показывает, дойдут ли праздники до постинга
       holidayHint: c.tariff === 'СТАРТ'
         ? 'Тариф СТАРТ — праздничные посты не выходят, включая эти.'
@@ -2085,6 +2149,52 @@ class Component extends DCLogic {
             this.flash('Демо: отмена не записана в таблицу');
           });
       },
+
+      /* ---- вкладка «Связь с клиентом» ---- */
+      letter1Text: c.letterSetup || '',
+      letter1Empty: !c.letterSetup,
+      letter1Label: busy === 'letter1' ? 'Генерирую…' : c.letterSetup ? 'Перегенерировать' : 'Собрать письмо',
+      letter1BtnStyle: busy ? this.btn('off') : this.btn('ghost'),
+      onLetter1: () => this.act('letter1',
+        () => apiPost(conn, 'letter_setup', { id: c.id }).then(r => {
+          this.applyClient(r.client);
+          this.flash('Письмо 1 собрано' + (r.gaps && r.gaps.length ? ' · пробелов в брифе: ' + r.gaps.length : ' · бриф заполнен полно'));
+        }),
+        () => {
+          this.patch(c.id, { letterSetup: '[Демо] Здравствуйте, ' + (c.name.split(' ')[0] || '') + '! Письмо сгенерировано в демо-режиме.' });
+          this.flash('Демо: письмо не записано в таблицу');
+        }),
+      onSetLetter1: e => this.patch(c.id, { letterSetup: e.target.value }),
+      onCopyLetter1: () => this.copy(c.letterSetup || '', 'l1', 'Письмо 1 скопировано'),
+      copyLetter1Label: st.copied === 'l1' ? 'Скопировано ✓' : 'Копировать',
+
+      letter2DiskLink: c.diskLink || '',
+      letter2FirstDate: c.firstPostDate ? isoDate(c.firstPostDate) : '',
+      onLetter2DiskLink: e => this.patch(c.id, { diskLink: e.target.value }),
+      onLetter2FirstDate: e => {
+        const d = parseDate(e.target.value);
+        this.patch(c.id, { firstPostDate: d });
+      },
+      letter2Text: c.letterLaunch || '',
+      letter2Empty: !c.letterLaunch,
+      letter2Label: busy === 'letter2' ? 'Генерирую…' : c.letterLaunch ? 'Перегенерировать' : 'Собрать письмо о запуске',
+      letter2BtnStyle: busy ? this.btn('off') : this.btn('primary'),
+      onLetter2: () => {
+        const diskLink = c.diskLink || '';
+        const firstPostDate = c.firstPostDate ? isoDate(c.firstPostDate) : '';
+        this.act('letter2',
+          () => apiPost(conn, 'letter_launch', { id: c.id, diskLink, firstPostDate }).then(r => {
+            this.applyClient(r.client);
+            this.flash('Письмо 2 собрано');
+          }),
+          () => {
+            this.patch(c.id, { letterLaunch: '[Демо] ' + c.business + ', автопостинг настроен! Это демо-режим.' });
+            this.flash('Демо: письмо не записано в таблицу');
+          });
+      },
+      onSetLetter2: e => this.patch(c.id, { letterLaunch: e.target.value }),
+      onCopyLetter2: () => this.copy(c.letterLaunch || '', 'l2', 'Письмо 2 скопировано'),
+      copyLetter2Label: st.copied === 'l2' ? 'Скопировано ✓' : 'Копировать',
 
       openRow: function() {
         if (!c.rowUrl) return this.flash(st.demo
