@@ -546,20 +546,30 @@
                     <div style="display: flex; justify-content: space-between"><span style="color: #6b7078">Следующий платёж</span><span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{ c.nextPay }}</span></div>
                   </div>
 
-                  <div style="margin-bottom: 10px">
-                    <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 8px">Отметить оплату:</div>
+                  <div style="margin-bottom: 14px">
+                    <div style="font-size: 11.5px; color: #6b7078; margin-bottom: 6px">Оплачено с</div>
+                    <input type="date" value="{{ payFrom }}" onChange="{{ onPayFrom }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px; font-family: 'IBM Plex Mono', monospace" />
+
+                    <div style="font-size: 11.5px; color: #6b7078; margin: 12px 0 6px">Период</div>
                     <div style="display: flex; gap: 6px; flex-wrap: wrap">
                       <sc-for list="{{ payBtns }}" as="b" hint-placeholder-count="4">
                         <button onClick="{{ b.onClick }}" style="{{ b.style }}" style-hover="opacity: 0.85">{{ b.label }}</button>
                       </sc-for>
                     </div>
+
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 9px 11px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
+                      <span style="font-size: 11.5px; color: #6b7078">Период подписки</span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; font-weight: 600">{{ payPreview }}</span>
+                    </div>
+
+                    <button onClick="{{ onSavePay }}" style="{{ savePayStyle }}" style-hover="opacity: 0.9">{{ savePayLabel }}</button>
                   </div>
 
                   <sc-if value="{{ canCancelPay }}" hint-placeholder-val="{{ false }}">
-                    <button onClick="{{ onCancelPayment }}" style="width: 100%; border: 1px solid #e2e2dd; background: #fff; color: #b3261e; font-size: 12px; font-weight: 500; padding: 7px 13px; border-radius: 5px; cursor: pointer; margin-bottom: 10px" style-hover="border-color: #b3261e; background: #fbe9e7">Отменить оплату</button>
+                    <button onClick="{{ onCancelPayment }}" style="{{ cancelPayStyle }}" style-hover="border-color: #b3261e; background: #fbe9e7">{{ cancelPayLabel }}</button>
                   </sc-if>
 
-                  <p style="margin: 4px 0 0; font-size: 11px; color: #8a8f96">Оплата сдвигает дату вперёд. Отмена откатывает её назад на то же количество месяцев.</p>
+                  <p style="margin: 4px 0 0; font-size: 11px; color: #8a8f96">Кнопки периода только выбирают срок — дата в таблице меняется по «Сохранить». Следующий платёж = «Оплачено с» + период, поэтому повторное сохранение ничего не сдвигает.</p>
                 </section>
 
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
@@ -583,7 +593,7 @@
       <sc-if value="{{ isPayments }}" hint-placeholder-val="{{ false }}">
         <div style="padding: 20px 22px 40px; max-width: 1100px">
           <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Оплаты</h1>
-          <p style="margin: 4px 0 16px; font-size: 12.5px; color: #6b7078">Все подписки и даты платежей. Клик по строке — карточка клиента; подтверждение сдвигает дату на месяц.</p>
+          <p style="margin: 4px 0 16px; font-size: 12.5px; color: #6b7078">Все подписки и даты платежей. Клик по строке — карточка клиента, вкладка «Оплаты»: там дата начала периода и срок.</p>
 
           <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px">
             <div style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 12px 14px">
@@ -839,6 +849,22 @@ function fmt(dt) { return dt ? dt.getDate() + ' ' + MONTHS[dt.getMonth()].slice(
 function fmtLong(dt) { return dt ? dt.getDate() + ' ' + MONTHS[dt.getMonth()] + ' ' + dt.getFullYear() : '—'; }
 function addMonth(dt) { const n = new Date(dt); n.setMonth(n.getMonth() + 1); return n; }
 function shift(dt, days) { const n = new Date(dt); n.setDate(n.getDate() + days); return n; }
+// тот же расчёт, что addMonths_ в Apps Script: конец месяца не «уползает»
+function addMonths(dt, m) {
+  const n = new Date(dt.getTime());
+  const day = n.getDate();
+  n.setDate(1);
+  n.setMonth(n.getMonth() + m);
+  const last = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
+  n.setDate(Math.min(day, last));
+  return n;
+}
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function dmy(dt) { return dt ? pad2(dt.getDate()) + '.' + pad2(dt.getMonth() + 1) + '.' + dt.getFullYear() : '—'; }
+function shortDate(v) {
+  const dt = v instanceof Date ? v : parseDate(v);
+  return dt ? pad2(dt.getDate()) + '.' + pad2(dt.getMonth() + 1) : '—';
+}
 const NOW = new Date();
 const TODAY = d(NOW.getFullYear(), NOW.getMonth() + 1, NOW.getDate());
 const priceOf = t => PRICE[t] || 0;
@@ -852,7 +878,8 @@ function client(o) {
     checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
     lastPostDate: '—', lastPostStatus: 'Не запущен',
-    tgChannel: '', morningPhoto: false, holidaysExtra: ''
+    tgChannel: '', morningPhoto: false, holidaysExtra: '',
+    paidAt: null, payMonths: 0
   }, o);
 }
 
@@ -939,6 +966,8 @@ function fromApi(o) {
   return client(Object.assign(clean, {
     startedAt: parseDate(o.startedAt),
     nextPay: parseDate(o.nextPay),
+    paidAt: parseDate(o.paidAt),
+    payMonths: parseInt(o.payMonths, 10) || 0,
     active: o.active !== false,
     styleAnswers: padAnswers(o.styleAnswers),
     clientNumber: String(o.clientNumber || ''),
@@ -1151,7 +1180,8 @@ class Component extends DCLogic {
     conn: loadConn(), props: {}, demo: false, loading: true, syncAt: 'загрузка…',
     settingsSaved: false, tested: null, deployed: {},
     showNew: false, form: { business: '', name: '', phone: '', email: '', tg: '', city: 'Санкт-Петербург' },
-    newTariff: 'ПРО', newSource: 'Avito'
+    newTariff: 'ПРО', newSource: 'Avito',
+    payDraft: null, payCancelArm: null
   };
 
   /* ---- загрузка данных ------------------------------------------- */
@@ -1391,6 +1421,24 @@ class Component extends DCLogic {
     const doneCount = CHECKS.filter(k => c.checks[k.key]).length;
     const styleFilled = c.styleAnswers.filter(a => a.trim()).length;
     const maxSlots = c.tariff === 'СТАРТ' ? 1 : 2;
+
+    /* ---- вкладка «Оплаты» ------------------------------------------
+     * Черновик живёт в state.payDraft и в таблицу ничего не пишет.
+     * Пишет только «Сохранить» -> action=set_payment.
+     * Инвариант тот же, что в Apps Script: nextPay = paidAt + months,
+     * поэтому повторное сохранение не сдвигает дату.
+     * ---------------------------------------------------------------- */
+    const payDraft = st.payDraft && st.payDraft.id === c.id ? st.payDraft : null;
+    const payFrom = payDraft ? payDraft.paidAt : isoDate(c.paidAt || c.nextPay || TODAY);
+    const payMonths = payDraft ? payDraft.months : (c.payMonths || 1);
+    const payFromDate = parseDate(payFrom);
+    const payToDate = payFromDate ? addMonths(payFromDate, payMonths) : null;
+    const payNeedsSave = !!payDraft || !c.paidAt || (c.payMonths || 0) !== payMonths;
+    const payCancelArmed = st.payCancelArm === c.id;
+    const setPayDraft = ch => this.setState({
+      payDraft: Object.assign({ id: c.id, paidAt: payFrom, months: payMonths }, ch),
+      payCancelArm: null
+    });
 
     const reminders = c.nextPay ? [
       { label: 'За 3 дня', date: fmt(shift(c.nextPay, -3)) },
@@ -1970,37 +2018,74 @@ class Component extends DCLogic {
         }),
 
       payRaw: c.payRaw || '—',
-      canCancelPay: c.pay === 'paid',
-      payBtns: [1, 3, 6, 12].map(function(m) {
+
+      /* --- вкладка «Оплаты»: выбор периода, запись только по «Сохранить» --- */
+      payFrom: payFrom,
+      onPayFrom: e => setPayDraft({ paidAt: e.target.value }),
+      payPreview: dmy(payFromDate) + ' → ' + dmy(payToDate),
+      payBtns: [1, 3, 6, 12].map(m => {
+        const on = m === payMonths;
         return {
-          label: 'Оплачено ' + m + ' мес',
-          style: 'border: 1px solid #136c41; background: #e6f4ec; color: #136c41; font-size: 12px; font-weight: 500; padding: 7px 11px; border-radius: 5px; cursor: pointer;',
-          onClick: function() {
-            if (busy) return;
-            this.act('pay',
-              function() { return apiPost(conn, 'confirm_payment', { id: c.id, months: m }).then(function(r) {
-                this.applyClient(r.client);
-                this.flash('Оплата на ' + m + ' мес отмечена · следующий платёж сдвинут');
-              }.bind(this)); }.bind(this),
-              function() {
-                this.patch(c.id, { pay: 'paid' });
-                this.flash('Демо: оплата не записана в таблицу');
-              }.bind(this));
-          }.bind(this)
+          label: m + ' мес',
+          style: 'border: 1px solid ' + (on ? '#136c41' : '#dedeD9') +
+            '; background: ' + (on ? '#e6f4ec' : '#fff') +
+            '; color: ' + (on ? '#136c41' : '#5d636b') +
+            '; font-size: 12px; font-weight: ' + (on ? '600' : '500') +
+            '; padding: 7px 13px; border-radius: 5px; cursor: pointer;',
+          onClick: () => setPayDraft({ months: m })
         };
-      }.bind(this)),
-      onCancelPayment: function() {
-        if (busy) return;
+      }),
+      savePayLabel: busy === 'pay' ? 'Сохраняю…' : payNeedsSave ? 'Сохранить' : 'Сохранено',
+      savePayStyle: 'width: 100%; box-sizing: border-box; margin-top: 12px; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; ' +
+        (busy || !payNeedsSave
+          ? 'border: 1px solid #e2e2dd; background: #f4f4f1; color: #9a9ea4; cursor: not-allowed;'
+          : 'border: 1px solid #136c41; background: #136c41; color: #fff; cursor: pointer;'),
+      onSavePay: () => {
+        if (busy || !payNeedsSave) return;
+        if (!payFromDate) return this.flash('Не разобрал дату «Оплачено с»');
+        const was = c.nextPay;
         this.act('pay',
-          function() { return apiPost(conn, 'cancel_payment', { id: c.id }).then(function(r) {
+          () => apiPost(conn, 'set_payment', { id: c.id, paidAt: payFrom, months: payMonths }).then(r => {
             this.applyClient(r.client);
-            this.flash('Оплата отменена · дата откатилась назад');
-          }.bind(this)); }.bind(this),
-          function() {
-            this.patch(c.id, { pay: 'due' });
+            this.setState({ payDraft: null, payCancelArm: null });
+            this.flash('Оплата сохранена · ' + shortDate(r.from) + ' → ' + shortDate(r.to));
+          }),
+          () => {
+            this.patch(c.id, { pay: 'paid', paidAt: payFromDate, payMonths: payMonths, nextPay: payToDate });
+            this.setState({ payDraft: null, payCancelArm: null });
+            this.flash('Демо: ' + shortDate(was) + ' → ' + shortDate(payToDate) + ' — в таблицу не записано');
+          });
+      },
+
+      canCancelPay: c.pay === 'paid' || (c.payMonths || 0) > 0,
+      cancelPayLabel: payCancelArmed ? 'Нажмите ещё раз — период обнулится' : 'Отменить оплату',
+      cancelPayStyle: 'width: 100%; box-sizing: border-box; font-size: 12px; font-weight: 500; padding: 7px 13px; border-radius: 5px; cursor: pointer; margin-bottom: 10px; ' +
+        (payCancelArmed
+          ? 'border: 1px solid #b3261e; background: #fbe9e7; color: #b3261e; font-weight: 600;'
+          : 'border: 1px solid #e2e2dd; background: #fff; color: #b3261e;'),
+      onCancelPayment: () => {
+        if (busy) return;
+        if (!payCancelArmed) {
+          clearTimeout(this._pc);
+          this.setState({ payCancelArm: c.id });
+          this._pc = setTimeout(() => this.setState({ payCancelArm: null }), 5000);
+          return;
+        }
+        clearTimeout(this._pc);
+        const was = c.nextPay;
+        this.act('pay',
+          () => apiPost(conn, 'cancel_payment', { id: c.id }).then(r => {
+            this.applyClient(r.client);
+            this.setState({ payDraft: null, payCancelArm: null });
+            this.flash('Оплата отменена · ' + shortDate(r.from) + ' → ' + shortDate(r.to));
+          }),
+          () => {
+            this.patch(c.id, { pay: 'due', payMonths: 0, nextPay: c.paidAt || was });
+            this.setState({ payDraft: null, payCancelArm: null });
             this.flash('Демо: отмена не записана в таблицу');
-          }.bind(this));
-      }.bind(this),
+          });
+      },
+
       openRow: function() {
         if (!c.rowUrl) return this.flash(st.demo
           ? 'Демо-режим: задайте WEBAPP_URL, чтобы открыть строку в таблице'
