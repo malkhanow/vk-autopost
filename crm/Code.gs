@@ -276,7 +276,7 @@ var HEAD_CLIENTS_EXTRA = [
   'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
   'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
   'Telegram-канал', 'Утро фото', 'Свои праздники', 'Номер клиента', 'Месяцев оплачено',
-  'Оплачено с'
+  'Оплачено с', 'Письмо 1', 'Письмо 2', 'Ссылка Диск', 'Дата первого поста'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -306,6 +306,10 @@ var F = {
   clientNumber: 'Номер клиента',
   payMonths:    'Месяцев оплачено',
   paidAt:       'Оплачено с',
+  letterSetup:   'Письмо 1',
+  letterLaunch:  'Письмо 2',
+  diskLink:      'Ссылка Диск',
+  firstPostDate: 'Дата первого поста',
   stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
@@ -879,6 +883,10 @@ function rowToClient_(t, row, rowNumber) {
     checks: jsonCell_(val_(t, row, 'checks'), {}),
     iterations: num_(val_(t, row, 'iterations')),
     photoQueue: num_(val_(t, row, 'photoQueue')),
+    letterSetup: str_(val_(t, row, 'letterSetup')),
+    letterLaunch: str_(val_(t, row, 'letterLaunch')),
+    diskLink: str_(val_(t, row, 'diskLink')),
+    firstPostDate: dateOut_(parseDate_(val_(t, row, 'firstPostDate'))),
     lastPostDate: str_(val_(t, row, 'lastPostDate')) || '—',
     lastPostStatus: str_(val_(t, row, 'lastPostStatus')) || 'Не запущен'
   };
@@ -965,6 +973,10 @@ var TO_CELL = {
   checks:        function (v) { return JSON.stringify(v || {}); },
   iterations:    function (v) { return num_(v); },
   photoQueue:    function (v) { return num_(v); },
+  letterSetup:   function (v) { return str_(v); },
+  letterLaunch:  function (v) { return str_(v); },
+  diskLink:      function (v) { return str_(v); },
+  firstPostDate: function (v) { return v ? parseDate_(v) : ''; },
   lastPostDate:  function (v) { return str_(v); },
   lastPostStatus:function (v) { return str_(v); }
 };
@@ -1184,11 +1196,22 @@ var POST_ACTIONS = {
     var business = str_(src.business);
     var name = str_(src.name);
     if (!business && !name) throw new Error('Нужны название бизнеса и ФИО');
-    return withLock_(function () {
-      var created = createClient_(src);
-      if (req.briefRow) markBrief_(num_(req.briefRow), created.id, 'создан клиент');
-      return { client: created };
+
+    // Блокировка снимается ДО обращения к ИИ: запрос к RouterAI занимает
+    // до десятка секунд, держать на нём лок таблицы нельзя.
+    var created = withLock_(function () {
+      var c = createClient_(src);
+      if (req.briefRow) markBrief_(num_(req.briefRow), c.id, 'создан клиент');
+      return c;
     });
+
+    // Письмо собирается сразу — карточка открывается с готовым текстом.
+    // Ошибка ИИ не должна отменять создание клиента.
+    try {
+      return { client: letterSetup_({ id: created.id }).client };
+    } catch (e) {
+      return { client: created, letterError: String((e && e.message) || e) };
+    }
   },
 
   /** action=brief_dismiss — отложить бриф, чтобы он не висел в списке. */
@@ -1237,7 +1260,9 @@ var POST_ACTIONS = {
   cancel_payment:      function (req) { return cancelPayment_(req); },
   set_payment:         function (req) { return setPayment_(req); },
   gen_examples:  function (req) { return aiGenExamples_(req); },
-  apply_edits:   function (req) { return aiApplyEdits_(req); }
+  apply_edits:   function (req) { return aiApplyEdits_(req); },
+  letter_setup:  function (req) { return letterSetup_(req); },
+  letter_launch: function (req) { return letterLaunch_(req); }
 };
 
 /** Оставляет только известные поля — лишнее из браузера в таблицу не попадёт. */
@@ -2464,3 +2489,452 @@ function installTriggers() {
 
 // Ежедневных напоминаний об оплате здесь нет: их шлёт checkPayments
 // из первой части файла, по своему триггеру в 9:00.
+
+
+/* ========================================================================
+ *  ПИСЬМА КЛИЕНТУ — вкладка «Связь с клиентом»
+ *
+ *  Письмо 1 «Настройка» — собирается сразу при создании карточки из брифа.
+ *  Текст письма детерминированный (шаблон ниже), ИИ отвечает только за
+ *  один блок: какие ответы брифа заполнены плохо и что переспросить.
+ *  Так тон писем не плавает от клиента к клиенту, а модель делает ровно
+ *  ту работу, которую человек делать не хочет — вчитывается в бриф.
+ *
+ *  Письмо 2 «Запуск» — собирается по кнопке уже после настройки, потому
+ *  что ссылки на Яндекс.Диск и даты первого поста в момент брифа ещё нет.
+ *  ИИ здесь не нужен: всё берётся из готового конфига клиента.
+ * ==================================================================== */
+
+var TARIFF_PRICE = { 'СТАРТ': 1900, 'ПРО': 3900, 'БИЗНЕС': 6900 };
+
+/** Реквизиты. Меняются в Script Properties -> PAY_DETAILS, без правки кода. */
+var PAY_DETAILS_DEFAULT =
+  'Сбербанк: +7 966 877 61 91\n' +
+  'Получатель: Владимир Андреевич М.';
+
+function payDetails_() {
+  return prop_('PAY_DETAILS') || PAY_DETAILS_DEFAULT;
+}
+
+/** Что клиент делает в каждой соцсети, чтобы выдать права. */
+var ADMIN_STEPS = {
+  'VK': 'ВКонтакте\n' +
+    'Управление сообществом → Участники → Руководители → добавить меня →\n' +
+    'поставить галочку «Администратор»',
+  'Telegram': 'Telegram\n' +
+    'Канал → Администраторы → добавить меня →\n' +
+    'включить ползунок «Добавление администраторов»',
+  'MAX': 'MAX\n' +
+    'Канал → Администраторы → добавить меня →\n' +
+    'включить ползунок «Назначать и удалять администраторов»'
+};
+
+/**
+ * Какие поля брифа вообще спрашивались на этом тарифе. У СТАРТ в форме
+ * нет вопросов про ЧЗВ, тон, темы и праздники — переспрашивать то, чего
+ * не спрашивали, нельзя.
+ */
+function briefFieldsOf_(tariff) {
+  var base = ['about', 'audience', 'cta', 'links', 'limits', 'tg', 'hasPhoto'];
+  if (tariffIn_(tariff) === 'СТАРТ') return base;
+  return base.concat(['faq', 'topics', 'tone']);
+}
+
+var GAP_TITLES = {
+  about: 'Чем занимаетесь и что продаёте',
+  audience: 'Описание типичного клиента',
+  cta: 'Призыв к действию',
+  links: 'Ссылки на существующие соцсети',
+  limits: 'О чём нельзя писать',
+  tg: 'Telegram для связи',
+  hasPhoto: 'Фото товаров или работ',
+  faq: 'Часто задаваемые вопросы',
+  topics: 'Темы постов',
+  tone: 'Тон общения'
+};
+
+/* ---------------------------------------------------------------- *
+ *  Письмо 1 — настройка
+ * ---------------------------------------------------------------- */
+
+/**
+ * Спрашивает модель, что в брифе заполнено плохо. Возвращает массив
+ * { field, ask }. Падение ИИ не должно ломать создание карточки, поэтому
+ * все вызовы этой функции обёрнуты в try/catch выше по стеку.
+ */
+function aiBriefGaps_(c) {
+  var fields = briefFieldsOf_(c.tariff);
+  var shown = {
+    about: str_(c.about),
+    audience: str_(c.audience),
+    cta: str_(c.cta),
+    links: str_(c.links),
+    limits: (c.limits || []).join('; ') + (c.limitsText ? ' | ' + c.limitsText : ''),
+    tg: str_(c.tg),
+    hasPhoto: c.hasPhoto ? 'да, пришлёт папку с фото' : 'нет, только текстовые посты',
+    faq: str_(c.faq),
+    topics: (c.topics || []).join(', '),
+    tone: str_(c.tone)
+  };
+
+  var dump = fields.map(function (f) {
+    return '[' + f + '] ' + GAP_TITLES[f] + ':\n' + (shown[f] || '(пусто)');
+  }).join('\n\n');
+
+  var content = ai_([
+    {
+      role: 'system',
+      content: 'Ты помогаешь SMM-специалисту проверять брифы клиентов. ' +
+        'Твоя задача — найти ответы, которых не хватит для настройки ' +
+        'автопостинга, и сформулировать вежливую просьбу дополнить. ' +
+        'Отвечай только JSON.'
+    },
+    {
+      role: 'user',
+      content:
+        'Бизнес: ' + c.business + ' (' + (c.niche || 'ниша не указана') + ', ' + c.city + ')\n' +
+        'Тариф: ' + c.tariff + '\n\n' +
+        'ОТВЕТЫ КЛИЕНТА:\n\n' + dump + '\n\n' +
+        'Отметь только те поля, где ответ реально мешает работе:\n' +
+        '- обещание прислать позже («вышлю файлом», «скину потом», «-», «позже»);\n' +
+        '- ответ в одно-два слова там, где нужна развёрнутая картина;\n' +
+        '- призыв к действию без единого контакта (ни телефона, ни ссылки, ни @ника);\n' +
+        '- ЧЗВ не в формате «Вопрос - Ответ» или меньше двух вопросов;\n' +
+        '- «ограничений нет» в нише, где это рискованно (медицина, финансы, ' +
+        'недвижимость, юридические услуги, косметология);\n' +
+        '- пустые ссылки на соцсети — тогда нужно уточнить, создаём с нуля или аккаунты есть.\n\n' +
+        'Ответ, который выглядит нормально, НЕ трогай. Пустой список — ' +
+        'нормальный результат, не выдумывай замечания.\n\n' +
+        'Для каждой находки напиши ask — просьбу к клиенту от первого лица, ' +
+        'на «вы», одно-два предложения, без упрёков, с примером того, ' +
+        'что именно прислать. Не пиши «вы не заполнили» — пиши что нужно.\n\n' +
+        'Внутри значений JSON не используй двойные кавычки, только «ёлочки».\n\n' +
+        'Верни JSON: {"gaps": [{"field": "faq", "ask": "…"}]}'
+    }
+  ], { json: true, temperature: 0.3, maxTokens: 1500 });
+
+  var raw = parseJsonLoose_(content).gaps;
+  if (!Array.isArray(raw)) return [];
+  var allowed = {};
+  fields.forEach(function (f) { allowed[f] = true; });
+
+  var out = [];
+  var seen = {};
+  raw.forEach(function (g) {
+    var field = str_(g && g.field);
+    var ask = str_(g && g.ask);
+    if (!field || !ask || !allowed[field] || seen[field]) return;
+    seen[field] = true;
+    out.push({ field: field, title: GAP_TITLES[field] || field, ask: ask });
+  });
+  return out;
+}
+
+/** Собирает текст письма 1 из брифа и найденных пробелов. */
+function letterSetupText_(c, gaps) {
+  var firstName = str_(c.name).split(/\s+/)[0] || '';
+  var nets = (c.networks || []).length ? c.networks : NETWORKS_KNOWN;
+  var price = TARIFF_PRICE[tariffIn_(c.tariff)] || 0;
+
+  var L = [];
+  L.push('SAS — Smart Automation System');
+  L.push('');
+  L.push('Здравствуйте' + (firstName ? ', ' + firstName : '') + '! 👋');
+  L.push('');
+  L.push('Получил ваш бриф — спасибо. Готов приступить к настройке.');
+  L.push('');
+
+  var step = 0;
+  var num = ['①', '②', '③', '④'];
+
+  if (gaps.length) {
+    L.push('Прежде чем начать, нужно сделать ' + (nets.length ? 'три' : 'две') + ' вещи.');
+    L.push('');
+    L.push('─────────────────────');
+    L.push(num[step++] + ' ДОПОЛНИТЬ БРИФ');
+    L.push('─────────────────────');
+    L.push('По паре пунктов не хватает деталей — без них система будет писать');
+    L.push('общими словами. Уточните, пожалуйста:');
+    L.push('');
+    gaps.forEach(function (g) {
+      L.push('• ' + g.title);
+      L.push('  ' + g.ask);
+      L.push('');
+    });
+  } else {
+    L.push('Бриф заполнен полно — вопросов по нему нет. Осталось два шага.');
+    L.push('');
+  }
+
+  L.push('─────────────────────');
+  L.push(num[step++] + ' ВЫДАТЬ ПРАВА АДМИНИСТРАТОРА');
+  L.push('─────────────────────');
+  L.push('Без этого система не сможет публиковать посты.');
+  L.push('');
+  nets.forEach(function (n) {
+    var text = ADMIN_STEPS[n];
+    if (!text) return;
+    L.push(text);
+    L.push('');
+  });
+  L.push('Важно: ползунки про назначение администраторов нужно включить —');
+  L.push('без них бот не получит доступ к публикации.');
+  L.push('');
+
+  L.push('─────────────────────');
+  L.push(num[step++] + ' ОПЛАТИТЬ ТАРИФ');
+  L.push('─────────────────────');
+  L.push('Тариф ' + tariffIn_(c.tariff) +
+    (price ? ' — ' + price.toLocaleString('ru-RU') + ' ₽ за месяц' : ''));
+  L.push('');
+  L.push(payDetails_());
+  L.push('');
+  L.push('После оплаты пришлите, пожалуйста, скриншот чека.');
+  L.push('');
+
+  L.push('─────────────────────');
+  L.push('');
+  L.push('Как только всё готово — напишите мне. Я соберу примеры постов');
+  L.push('в вашем стиле и пришлю на согласование.');
+  L.push('');
+  L.push('Если всё устраивает — ответьте «По постам согласовано».');
+  L.push('Если что-то не так — напишите, что именно поправить, я переделаю');
+  L.push('и пришлю снова. Правок столько, сколько нужно.');
+
+  return L.join('\n');
+}
+
+/**
+ * action=letter_setup — собрать письмо 1 и записать его в таблицу.
+ * Вызывается из интерфейса кнопкой и автоматически при создании клиента.
+ */
+function letterSetup_(req) {
+  var id = str_(req.id || (req.client && req.client.id));
+  if (!id) throw new Error('Не передан client_id');
+  var c = refetchClient_(id);
+  if (!c) throw new Error('Клиент ' + id + ' не найден');
+
+  var gaps = [];
+  try {
+    gaps = aiBriefGaps_(c);
+  } catch (e) {
+    // Разбор брифа не удался — письмо всё равно нужно, просто без блока ①
+    gaps = [];
+  }
+
+  var text = letterSetupText_(c, gaps);
+  withLock_(function () {
+    var t = clientsTable_();
+    var row = findRow_(t, id);
+    if (row) writeRow_(t, row, { letterSetup: text });
+    SpreadsheetApp.flush();
+  });
+
+  return { letter: text, gaps: gaps, client: refetchClient_(id) };
+}
+
+/* ---------------------------------------------------------------- *
+ *  Письмо 2 — запуск
+ * ---------------------------------------------------------------- */
+
+/**
+ * Название рубрики -> папка с фото. Порт rubric_folder() из clients_post.py:
+ * если разойдутся, письмо начнёт называть клиенту несуществующие папки.
+ */
+function rubricFolder_(name) {
+  var n = norm_(name);
+  if (n.indexOf('совет') >= 0 || n.indexOf('польз') >= 0) return 'rubrics/tips';
+  if (n.indexOf('вопрос') >= 0 || n.indexOf('чзв') >= 0 || n.indexOf('faq') >= 0) return 'rubrics/faq';
+  if (n.indexOf('иде') >= 0 || n.indexOf('вдохнов') >= 0) return 'rubrics/ideas';
+  if (n.indexOf('отзыв') >= 0 || n.indexOf('результат') >= 0) return 'rubrics/reviews';
+  return null;
+}
+
+/**
+ * Описание папок для клиента. loop = фото крутятся по кругу и папку
+ * достаточно наполнить один раз; иначе фото расходуется и папку надо
+ * пополнять. Совпадает с rubric_loops_photos() в clients_post.py.
+ */
+var FOLDER_INFO = {
+  'to_post': {
+    icon: '📁',
+    title: 'to_post',
+    loop: false,
+    text: 'Фото ваших работ, товаров, объектов, рабочих моментов. ' +
+      'Система берёт по одному фото на пост и убирает использованное, ' +
+      'поэтому чем больше загрузите сразу — тем дольше не придётся возвращаться.'
+  },
+  'rubrics/reviews': {
+    icon: '📁',
+    title: 'rubrics/reviews',
+    loop: false,
+    text: 'Скриншоты отзывов от клиентов. Получили хороший отзыв — сделали ' +
+      'скриншот и закинули сюда. Система сама прочитает текст с картинки ' +
+      'и напишет благодарственный пост.'
+  },
+  'rubrics/ideas': {
+    icon: '📁',
+    title: 'rubrics/ideas',
+    loop: false,
+    text: 'Красивые фото по вашей теме — для рубрики с идеями и вдохновением. ' +
+      'Тоже расходуются, пополняйте по мере необходимости.'
+  },
+  'rubrics/tips': {
+    icon: '📁',
+    title: 'rubrics/tips',
+    loop: true,
+    text: 'Фоновые картинки для рубрики с советами. Крутятся по кругу — ' +
+      'достаточно загрузить 5–10 штук один раз и больше не возвращаться.'
+  },
+  'rubrics/faq': {
+    icon: '📁',
+    title: 'rubrics/faq',
+    loop: true,
+    text: 'Фоновые картинки для рубрики с вопросами и ответами. ' +
+      'Тоже по кругу — 5–10 штук хватит навсегда.'
+  }
+};
+
+/** Слоты клиента -> «10:00 и 19:00 МСК». */
+function slotsMskText_(slots) {
+  var hours = (slots || []).map(function (k) {
+    var h = SLOT_MSK_HOUR[k];
+    return h === undefined ? null : (h < 10 ? '0' : '') + h + ':00';
+  }).filter(String);
+  if (!hours.length) return '';
+  if (hours.length === 1) return hours[0] + ' МСК';
+  return hours.join(' и ') + ' МСК';
+}
+
+var DAYS_ORDER = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+function daysText_(days) {
+  var list = str_(days).split(/[,;]/).map(function (d) { return norm_(d); }).filter(String);
+  if (list.length >= 7) return 'каждый день';
+  var sorted = DAYS_ORDER.filter(function (d) { return list.indexOf(d) >= 0; });
+  return sorted.length ? sorted.join(', ') : str_(days);
+}
+
+/** Собирает текст письма 2 из настроенного конфига клиента. */
+function letterLaunchText_(c) {
+  var firstName = str_(c.name).split(/\s+/)[0] || '';
+  var rubrics = c.rubrics || [];
+  var slotsText = slotsMskText_(c.slots);
+
+  var first = parseDate_(c.firstPostDate);
+  var firstText = first ? Utilities.formatDate(first, tz_(), 'd MMMM') : '[дата первого поста]';
+  var nextPay = first ? addMonths_(first, 1) : null;
+  var nextPayText = nextPay ? Utilities.formatDate(nextPay, tz_(), 'd MMMM') : '[дата следующего платежа]';
+
+  var L = [];
+  L.push((firstName ? firstName + ', в' : 'В') + 'сё настроено — автопостинг запущен. 🎉');
+  L.push('');
+
+  if (slotsText) {
+    L.push('Посты выходят ' + (rubrics.length ? 'по расписанию' : 'ежедневно') + ', в ' + slotsText + '.');
+  }
+  L.push('');
+
+  if (rubrics.length) {
+    L.push('РУБРИКИ');
+    rubrics.forEach(function (r) {
+      L.push('• ' + str_(r.name) + ' — ' + daysText_(r.days));
+    });
+    L.push('');
+  }
+
+  // Какие папки реально нужны этому клиенту — по его рубрикам
+  var need = {};
+  var needToPost = false;
+  rubrics.forEach(function (r) {
+    var folder = rubricFolder_(r.name);
+    if (folder) need[folder] = true;
+    else needToPost = true;
+  });
+  if (needToPost || c.hasPhoto) need['to_post'] = true;
+
+  var refill = [];
+  var once = [];
+  ['to_post', 'rubrics/reviews', 'rubrics/ideas', 'rubrics/tips', 'rubrics/faq'].forEach(function (key) {
+    if (!need[key]) return;
+    var info = FOLDER_INFO[key];
+    (info.loop ? once : refill).push(info);
+  });
+
+  if (refill.length || once.length) {
+    L.push('─────────────────────');
+    L.push('ЧТО ЗАГРУЖАТЬ НА ЯНДЕКС.ДИСК');
+    L.push('─────────────────────');
+    L.push('');
+  }
+
+  if (refill.length) {
+    L.push('Пополнять регулярно:');
+    L.push('');
+    refill.forEach(function (info) {
+      L.push(info.icon + ' ' + info.title);
+      L.push(info.text);
+      L.push('');
+    });
+  }
+
+  if (once.length) {
+    L.push('Заполнить один раз:');
+    L.push('');
+    once.forEach(function (info) {
+      L.push(info.icon + ' ' + info.title);
+      L.push(info.text);
+      L.push('');
+    });
+  }
+
+  L.push('Ссылка на вашу папку: ' + (str_(c.diskLink) || '[вставить ссылку]'));
+  if (c.email) L.push('Доступ также отправлен на ' + c.email);
+  L.push('');
+
+  L.push('─────────────────────');
+  L.push('');
+  L.push('Отсчёт ежемесячной оплаты начинается с ' + firstText + '.');
+  L.push('Следующий платёж — ' + nextPayText + '.');
+  L.push('');
+  L.push('Если появятся вопросы — пишите, всегда на связи. 🙌');
+
+  return L.join('\n');
+}
+
+/**
+ * action=letter_launch — собрать письмо 2. Ссылку на диск и дату первого
+ * поста интерфейс присылает вместе с запросом: их вводят руками прямо
+ * перед сборкой письма.
+ */
+function letterLaunch_(req) {
+  var id = str_(req.id || (req.client && req.client.id));
+  if (!id) throw new Error('Не передан client_id');
+
+  var patch = {};
+  if (req.diskLink !== undefined) patch.diskLink = str_(req.diskLink);
+  if (req.firstPostDate !== undefined) {
+    var d = str_(req.firstPostDate) ? parseDate_(req.firstPostDate) : null;
+    if (str_(req.firstPostDate) && !d) throw new Error('Не разобрал дату первого поста');
+    patch.firstPostDate = d;
+  }
+
+  var c = withLock_(function () {
+    var t = clientsTable_();
+    var row = findRow_(t, id);
+    if (!row) throw new Error('Клиент ' + id + ' не найден');
+    if (Object.keys(patch).length) writeRow_(t, row, patch);
+    SpreadsheetApp.flush();
+    return refetchClient_(id);
+  });
+
+  var text = letterLaunchText_(c);
+  withLock_(function () {
+    var t = clientsTable_();
+    var row = findRow_(t, id);
+    if (row) writeRow_(t, row, { letterLaunch: text });
+    SpreadsheetApp.flush();
+  });
+
+  return { letter: text, client: refetchClient_(id) };
+}
