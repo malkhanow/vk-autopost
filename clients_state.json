@@ -7,6 +7,9 @@
     "tie_index": 11,
     "used_photos": [],
     "photo_tie_index": 2,
-    "text_tie_index": 2
+    "text_tie_index": 3,
+    "slot_done": {
+      "evening": "2026-08-30"
+    }
   }
 }
