@@ -1159,6 +1159,16 @@ def main():
     for client in clients:
         cid = client["client_id"]
 
+        # Слот отрабатывает ровно один раз в день. Запусков у нас два источника:
+        # точный триггер Apps Script и запасное расписание GitHub. Если GitHub
+        # случайно сработает вовремя, оба попадут в окно ±2 часа — и клиент
+        # получит два поста подряд. Отметка в состоянии это исключает.
+        cs = client_state(state, cid)
+        slot_done = cs.setdefault("slot_done", {})
+        if not test_mode and SLOT and slot_done.get(SLOT) == today.isoformat():
+            print(f"{cid}: слот «{SLOT}» сегодня уже отработал, пропускаю.")
+            continue
+
         # канал проверяем до выбора рубрики: иначе очередь рубрик сдвинулась бы
         # у клиента, который всё равно не может опубликоваться
         channel = client.get("tg_channel")
@@ -1210,6 +1220,10 @@ def main():
         try:
             post_to_telegram(channel, text, photo_path)
             posted_any = True
+            # отметку ставим только после реальной публикации: если пост упал,
+            # следующий запуск в том же окне должен попробовать ещё раз
+            if not test_mode and SLOT:
+                slot_done[SLOT] = today.isoformat()
             if holiday:
                 mark_holiday_done(state, cid, today, holiday, kind)
             if photo_meta:
