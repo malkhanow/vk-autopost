@@ -1,0 +1,197 @@
+{
+  "_meta": {
+    "version": 1,
+    "updated": "2026-08-31",
+    "note": "Единый реестр тарифов. Источник правды для CRM (Code.gs), фронтенда и clients_post.py. Менять только здесь."
+  },
+
+  "aliases": {
+    "СТАРТ": "start",
+    "Старт": "start",
+    "START": "start",
+    "ПРО": "pro",
+    "ПРОФИ": "pro",
+    "Профи": "pro",
+    "PRO": "pro",
+    "БИЗНЕС": "business",
+    "Бизнес": "business",
+    "BUSINESS": "business",
+    "ПРЕМИУМ": "premium",
+    "Премиум": "premium",
+    "PREMIUM": "premium",
+    "МАКСИМУМ": "max",
+    "Максимум": "max",
+    "MAX": "max",
+    "ENTERPRISE": "max"
+  },
+
+  "platforms_default": ["tg", "vk", "max"],
+
+  "enums": {
+    "style_mode": {
+      "template_brief": "Шаблон ниши + данные брифа",
+      "tov_brief": "Tone of Voice собирается из брифа",
+      "tov_samples": "Tone of Voice по текстам клиента (10-15 постов)",
+      "tov_tuned": "Tone of Voice по текстам + постоянная донастройка"
+    },
+    "visual_mode": {
+      "brand_colors": "Карточка в фирменных цветах клиента",
+      "brand_logo": "Карточка с логотипом, цветами и шрифтом",
+      "niche_photos": "Логотип + нишевая фотобиблиотека",
+      "custom_photos": "Логотип + индивидуальные фото под клиента"
+    },
+    "report": {
+      "none": "Отчёт не предоставляется",
+      "pdf": "PDF-отчёт раз в месяц",
+      "pdf_call": "PDF-отчёт раз в месяц + созвон"
+    }
+  },
+
+  "tariffs": {
+    "start": {
+      "id": "start",
+      "name": "СТАРТ",
+      "order": 1,
+      "price": 2400,
+      "public": true,
+      "flexible": false,
+      "inherits": null,
+      "tagline": "Регулярное присутствие в соцсетях без вашего участия",
+      "limits": {
+        "posts_per_week": 3,
+        "slots_per_day": 1,
+        "rubrics_max": 2,
+        "custom_rubrics_max": 0,
+        "holidays_enabled": false,
+        "holidays_extra": false,
+        "holiday_posts": 0,
+        "holiday_promo": false,
+        "platforms": ["tg", "vk", "max"],
+        "style_mode": "template_brief",
+        "visual_mode": "brand_colors",
+        "content_plan": false,
+        "preapprove_first_posts": 3,
+        "rubric_edits_per_month": 1,
+        "report": "none",
+        "support_sla_hours": 24
+      }
+    },
+
+    "pro": {
+      "id": "pro",
+      "name": "ПРОФИ",
+      "order": 2,
+      "price": 3900,
+      "public": false,
+      "flexible": false,
+      "inherits": null,
+      "tagline": "Скрытый тариф удержания. Предлагать точечно при возражении по цене на БИЗНЕС.",
+      "limits": {
+        "posts_per_week": 5,
+        "slots_per_day": 1,
+        "rubrics_max": 3,
+        "custom_rubrics_max": 0,
+        "holidays_enabled": true,
+        "holidays_extra": false,
+        "holiday_posts": 1,
+        "holiday_promo": false,
+        "platforms": ["tg", "vk", "max"],
+        "style_mode": "template_brief",
+        "visual_mode": "brand_colors",
+        "content_plan": false,
+        "preapprove_first_posts": 3,
+        "rubric_edits_per_month": 1,
+        "report": "none",
+        "support_sla_hours": 24
+      }
+    },
+
+    "business": {
+      "id": "business",
+      "name": "БИЗНЕС",
+      "order": 3,
+      "price": 6900,
+      "public": true,
+      "flexible": false,
+      "inherits": null,
+      "tagline": "Ежедневные посты в вашем стиле с согласованием контент-плана",
+      "limits": {
+        "posts_per_week": 7,
+        "slots_per_day": 1,
+        "rubrics_max": 4,
+        "custom_rubrics_max": 0,
+        "holidays_enabled": true,
+        "holidays_extra": false,
+        "holiday_posts": 2,
+        "holiday_promo": false,
+        "platforms": ["tg", "vk", "max"],
+        "style_mode": "tov_brief",
+        "visual_mode": "brand_logo",
+        "content_plan": true,
+        "preapprove_first_posts": 0,
+        "rubric_edits_per_month": 2,
+        "report": "none",
+        "support_sla_hours": 12
+      }
+    },
+
+    "premium": {
+      "id": "premium",
+      "name": "ПРЕМИУМ",
+      "order": 4,
+      "price": 11900,
+      "public": true,
+      "flexible": false,
+      "inherits": null,
+      "tagline": "Живая лента с вашим голосом, своими праздниками и ежемесячным отчётом",
+      "limits": {
+        "posts_per_week": 10,
+        "slots_per_day": 2,
+        "rubrics_max": 5,
+        "custom_rubrics_max": 0,
+        "holidays_enabled": true,
+        "holidays_extra": true,
+        "holiday_posts": 3,
+        "holiday_promo": false,
+        "platforms": ["tg", "vk", "max"],
+        "style_mode": "tov_samples",
+        "visual_mode": "niche_photos",
+        "content_plan": true,
+        "preapprove_first_posts": 0,
+        "rubric_edits_per_month": 4,
+        "report": "pdf",
+        "support_sla_hours": 4
+      }
+    },
+
+    "max": {
+      "id": "max",
+      "name": "МАКСИМУМ",
+      "order": 5,
+      "price": 19900,
+      "price_from": true,
+      "public": true,
+      "flexible": true,
+      "inherits": "premium",
+      "tagline": "Два поста в день, свои рубрики, индивидуальный визуал. Состав обсуждается.",
+      "limits": {
+        "posts_per_week": 14,
+        "slots_per_day": 2,
+        "rubrics_max": 5,
+        "custom_rubrics_max": 2,
+        "holidays_enabled": true,
+        "holidays_extra": true,
+        "holiday_posts": 3,
+        "holiday_promo": true,
+        "platforms": ["tg", "vk", "max"],
+        "style_mode": "tov_tuned",
+        "visual_mode": "custom_photos",
+        "content_plan": true,
+        "preapprove_first_posts": 0,
+        "rubric_edits_per_month": 8,
+        "report": "pdf_call",
+        "support_sla_hours": 0
+      }
+    }
+  }
+}
