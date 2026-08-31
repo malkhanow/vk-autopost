@@ -312,6 +312,8 @@ var F = {
   diskLink:      'Ссылка Диск',
   firstPostDate: 'Дата первого поста',
   stylePrompt: 'style_prompt', postFormat: 'Формат постов', pushed: 'Конфиг закоммичен',
+  limitsOverride: 'Лимиты (JSON)',
+  tariffHistory:  'История тарифов (JSON)',
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
   iterations: 'Итерации', photoQueue: 'Фото в очереди',
@@ -878,6 +880,8 @@ function rowToClient_(t, row, rowNumber) {
     paidAt: dateOut_(parseDate_(val_(t, row, 'paidAt'))),
     stylePrompt: str_(val_(t, row, 'stylePrompt')),
     postFormat: str_(val_(t, row, 'postFormat')),
+    limitsOverride: jsonCell_(val_(t, row, 'limitsOverride'), null),
+    tariffHistory: jsonCell_(val_(t, row, 'tariffHistory'), []),
     configPushed: str_(val_(t, row, 'pushed')),
     niche: str_(val_(t, row, 'niche')),
     topics: pickList_(val_(t, row, 'topics'), TOPICS_KNOWN),
@@ -925,6 +929,11 @@ function normRubrics_(v) {
     // флаг manual важно сохранять: без него пересборка плана
     // удаляет рубрики добавленные вручную
     if (r.manual) out.manual = true;
+    // dormant — рубрика уснула при понижении тарифа. Настройки целы,
+    // постинг её пропускает. Стирать нельзя: при возврате всё вернётся.
+    if (r.dormant) out.dormant = true;
+    if (r.dormantSince) out.dormantSince = str_(r.dormantSince);
+    if (r.custom) out.custom = true;
     return out;
   });
 }
@@ -969,6 +978,11 @@ var TO_CELL = {
   payMonths:      function (v) { return str_(v); },
   stylePrompt:   function (v) { return str_(v); },
   postFormat:    function (v) { return str_(v); },
+  limitsOverride: function (v) {
+    if (!v || (typeof v === 'object' && !Object.keys(v).length)) return '';
+    return typeof v === 'string' ? v : JSON.stringify(v);
+  },
+  tariffHistory: function (v) { return Array.isArray(v) && v.length ? JSON.stringify(v) : ''; },
   configPushed:  function (v) { return str_(v); },
   niche:         function (v) { return str_(v); },
   topics:        function (v) { return pickList_(v, TOPICS_KNOWN).join('\n'); },
@@ -1265,8 +1279,114 @@ var POST_ACTIONS = {
   gen_examples:  function (req) { return aiGenExamples_(req); },
   apply_edits:   function (req) { return aiApplyEdits_(req); },
   letter_setup:  function (req) { return letterSetup_(req); },
-  letter_launch: function (req) { return letterLaunch_(req); }
+  letter_launch: function (req) { return letterLaunch_(req); },
+  plan_tariff_change: function (req) { return planTariffChangeAction_(req); },
+  set_tariff:         function (req) { return setTariff_(req); }
 };
+
+
+/* ========================================================================
+ *  СМЕНА ТАРИФА
+ * ==================================================================== */
+
+function planTariffChangeAction_(req) {
+  var id = str_(req.id || (req.client && req.client.id));
+  if (!id) throw new Error('Не передан client_id');
+  var t = clientsTable_();
+  var rowNumber = findRow_(t, id);
+  if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
+  var c = readClient_(t, id);
+  var to = str_(req.tariff);
+  if (!to) throw new Error('Не передан целевой тариф');
+  return { plan: planTariffChange_(c, to) };
+}
+
+function setTariff_(req) {
+  var id = str_(req.id || (req.client && req.client.id));
+  if (!id) throw new Error('Не передан client_id');
+  var toId = normalizeTariff_(req.tariff);
+
+  return withLock_(function () {
+    var t = clientsTable_();
+    var rowNumber = findRow_(t, id);
+    if (!rowNumber) throw new Error('Клиент ' + id + ' не найден');
+
+    var c = readClient_(t, id);
+    var fromId = normalizeTariff_(c.tariff);
+    var lim = tariffLimits_({ tariff: toId });
+    var stamp = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd');
+
+    var keep = (req.keepRubrics || []).map(function (x) { return norm_(x); });
+    var all = normRubrics_(c.rubrics || []);
+
+    if (!keep.length) {
+      var quotaR = (lim.rubrics_max || 0), quotaC = (lim.custom_rubrics_max || 0);
+      all.forEach(function (r) {
+        var isCustom = !!r.custom;
+        var quota = isCustom ? quotaC : quotaR;
+        if (quota > 0) {
+          keep.push(norm_(r.name));
+          if (isCustom) quotaC--; else quotaR--;
+        }
+      });
+    }
+
+    var rubrics = all.map(function (r) {
+      var stay = keep.indexOf(norm_(r.name)) >= 0;
+      var out = {};
+      for (var k in r) out[k] = r[k];
+      if (stay) {
+        delete out.dormant;
+        delete out.dormantSince;
+      } else if (!out.dormant) {
+        out.dormant = true;
+        out.dormantSince = stamp;
+      }
+      return out;
+    });
+
+    var slots = (c.slots || []).slice();
+    if (Array.isArray(req.keepSlots) && req.keepSlots.length) {
+      slots = req.keepSlots.filter(function (k) { return !!slotDef_(k); });
+    }
+    var maxSlots = lim.slots_per_day || 1;
+    if (slots.length > maxSlots) slots = slots.slice(0, maxSlots);
+
+    var override = c.limitsOverride || null;
+    if (req.limitsOverride !== undefined) {
+      override = req.limitsOverride;
+      if (typeof override === 'string') override = jsonCell_(override, null);
+    }
+    if (fromId !== toId && req.limitsOverride === undefined) override = null;
+
+    var history = Array.isArray(c.tariffHistory) ? c.tariffHistory.slice() : [];
+    if (fromId !== toId) {
+      history.push({
+        from: fromId, to: toId, date: stamp,
+        slept: rubrics.filter(function (r) { return r.dormant; }).map(function (r) { return r.name; })
+      });
+      if (history.length > 40) history = history.slice(-40);
+    }
+
+    var patch = {
+      tariff: tariffName_(toId),
+      rubrics: rubrics,
+      slots: slots,
+      limitsOverride: override === null ? '' : override,
+      tariffHistory: history
+    };
+    writeRow_(t, rowNumber, cleanPatch_(patch));
+    SpreadsheetApp.flush();
+
+    var fresh = refetchClient_(id);
+    return {
+      client: fresh,
+      violations: validateAgainstTariff_(fresh),
+      slept: rubrics.filter(function (r) { return r.dormant; }).map(function (r) { return r.name; }),
+      woke: rubrics.filter(function (r) { return !r.dormant; }).map(function (r) { return r.name; })
+    };
+  });
+}
 
 /** Оставляет только известные поля — лишнее из браузера в таблицу не попадёт. */
 function cleanPatch_(src) {
@@ -1392,13 +1512,15 @@ function buildConfig_(c) {
     forbidden: (c.limits || []).concat(c.limitsText ? [c.limitsText] : []),
     cta: c.cta,
     faq: c.faq ? c.faq.split('\n') : [],
-    rubrics: (c.rubrics || []).map(function (r) {
+    rubrics: (c.rubrics || []).filter(function (r) { return !r.dormant; }).map(function (r) {
       return {
         name: r.name,
         days: String(r.days || '').split(',').map(function (d) { return d.trim(); }).filter(String),
         prompt: r.prompt
       };
     }),
+    tariff_id: normalizeTariff_(c.tariff),
+    limits: tariffLimits_(c),
     tg_channel: c.tgChannel || null,
     morning_photo: !!c.morningPhoto,
     holidays_extra: c.holidaysExtra || '',
