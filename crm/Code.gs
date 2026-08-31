@@ -276,7 +276,8 @@ var HEAD_CLIENTS_EXTRA = [
   'Ниша', 'Темы', 'Ответы на задания (JSON)', 'Чек-лист (JSON)', 'Итерации',
   'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
   'Telegram-канал', 'Утро фото', 'Свои праздники', 'Номер клиента', 'Месяцев оплачено',
-  'Оплачено с', 'Письмо 1', 'Письмо 2', 'Ссылка Диск', 'Дата первого поста'
+  'Оплачено с', 'Письмо 1', 'Письмо 2', 'Ссылка Диск', 'Дата первого поста',
+  'Лимиты (JSON)', 'История тарифов (JSON)', 'Формат постов'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -310,7 +311,7 @@ var F = {
   letterLaunch:  'Письмо 2',
   diskLink:      'Ссылка Диск',
   firstPostDate: 'Дата первого поста',
-  stylePrompt: 'style_prompt', pushed: 'Конфиг закоммичен',
+  stylePrompt: 'style_prompt', postFormat: 'Формат постов', pushed: 'Конфиг закоммичен',
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
   iterations: 'Итерации', photoQueue: 'Фото в очереди',
@@ -876,6 +877,7 @@ function rowToClient_(t, row, rowNumber) {
     payMonths: str_(val_(t, row, 'payMonths')),
     paidAt: dateOut_(parseDate_(val_(t, row, 'paidAt'))),
     stylePrompt: str_(val_(t, row, 'stylePrompt')),
+    postFormat: str_(val_(t, row, 'postFormat')),
     configPushed: str_(val_(t, row, 'pushed')),
     niche: str_(val_(t, row, 'niche')),
     topics: pickList_(val_(t, row, 'topics'), TOPICS_KNOWN),
@@ -966,6 +968,7 @@ var TO_CELL = {
   clientNumber:   function (v) { return str_(v); },
   payMonths:      function (v) { return str_(v); },
   stylePrompt:   function (v) { return str_(v); },
+  postFormat:    function (v) { return str_(v); },
   configPushed:  function (v) { return str_(v); },
   niche:         function (v) { return str_(v); },
   topics:        function (v) { return pickList_(v, TOPICS_KNOWN).join('\n'); },
@@ -1334,6 +1337,7 @@ function createClient_(src) {
     // дату оплаты и статус проставляет Владимир дропдауном в листе
     active: src.active === undefined ? true : bool_(src.active),
     stylePrompt: str_(src.stylePrompt),
+    postFormat: str_(src.postFormat) || '',
     configPushed: '',
     niche: str_(src.niche) || 'не указана',
     topics: src.topics || [],
@@ -1398,7 +1402,8 @@ function buildConfig_(c) {
     tg_channel: c.tgChannel || null,
     morning_photo: !!c.morningPhoto,
     holidays_extra: c.holidaysExtra || '',
-    yandex_folder: 'clients/' + c.id,
+    yandex_folder: (prop_('YANDEX_ROOT') || 'Autopost WORK/') + c.id,
+    post_format: c.postFormat || null,
     // без active скрипт постинга считает клиента включённым по умолчанию —
     // тумблер в CRM тогда не остановил бы публикации
     active: c.active !== false,
