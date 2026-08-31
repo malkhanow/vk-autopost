@@ -3422,13 +3422,16 @@ function pdfPageBreak_() {
 
 /** Собирает весь документ. */
 function pdfExamplesHtml_(c, rubrics) {
+  var lim = tariffLimits_(c) || {};
   var H = [];
   H.push('<html><head><meta charset="utf-8"/></head>');
   H.push('<body style="font-family: Arial, Helvetica, sans-serif; color: #14171a; margin: 0">');
 
   H.push(pdfCoverPage_(c));
   H.push(pdfPageBreak_());
-  H.push(pdfHowItWorksPage_(c));
+  H.push(pdfTariffPage_(c, lim));
+  H.push(pdfPageBreak_());
+  H.push(pdfHowItWorksPage_(c, lim));
 
   rubrics.forEach(function (r, i) {
     H.push(pdfPageBreak_());
@@ -3436,7 +3439,7 @@ function pdfExamplesHtml_(c, rubrics) {
   });
 
   H.push(pdfPageBreak_());
-  H.push(pdfFinalPage_(c));
+  H.push(pdfFinalPage_(c, lim));
 
   H.push('</body></html>');
   return H.join('\n');
@@ -3474,7 +3477,7 @@ function pdfCoverPage_(c) {
  *  Страница 2 — как это работает
  * ---------------------------------------------------------------- */
 
-function pdfHowItWorksPage_(c) {
+function pdfHowItWorksPage_(c, lim) {
   var slots = (c.slots || []).map(function (key) {
     for (var i = 0; i < SLOT_DEF.length; i++) {
       if (SLOT_DEF[i].key === key) return SLOT_DEF[i];
@@ -3496,15 +3499,21 @@ function pdfHowItWorksPage_(c) {
     {
       n: '2',
       title: 'Система пишет пост',
-      text: 'Каждый пост собирается по инструкции своей рубрики и под ваш стиль: ' +
-        'манера письма, обращение к клиенту, длина фраз, призыв к действию. ' +
-        'Цены, сроки и гарантии не выдумываются — только то, что вы указали.'
+      // Формулировка зависит от тарифа: обещать работу над манерой речи
+      // там, где она не входит в пакет, нельзя.
+      text: pdfStyleMode_(lim).long +
+        ' Цены, сроки и гарантии не выдумываются — только то, что вы указали.'
     },
     {
       n: '3',
       title: 'Пост выходит сам',
-      text: 'Публикация уходит ' + pdfEsc_(when) +
-        ' сразу в Telegram, VK и MAX. Ваше участие не требуется: ни согласований, ни ручной отправки.'
+      text: 'Публикация уходит ' + pdfEsc_(when) + ' сразу в ' +
+        pdfEsc_(pdfNetworks_(c, lim).join(', ')) +
+        (num_(lim.posts_per_week)
+          ? ' — ' + num_(lim.posts_per_week) + ' ' +
+            plural_(num_(lim.posts_per_week), 'публикация', 'публикации', 'публикаций') + ' в неделю'
+          : '') +
+        '. Ваше участие не требуется: ни согласований, ни ручной отправки.'
     }
   ];
 
@@ -3524,6 +3533,128 @@ function pdfHowItWorksPage_(c) {
     L.push('</tr></table>');
   });
 
+  L.push('</div>');
+  return L.join('\n');
+}
+
+/* ---------------------------------------------------------------- *
+ *  Страница тарифа
+ *
+ *  Документ уходит клиенту, поэтому обещать в нём то, чего в тарифе нет,
+ *  нельзя. Всё на этой странице собирается из tariffLimits_ — включая
+ *  особые условия отдельных клиентов.
+ * ---------------------------------------------------------------- */
+
+/** Как описывать работу над стилем на каждом уровне. */
+var PDF_STYLE_MODE = {
+  template_brief: {
+    short: 'Проверенный шаблон для вашей ниши',
+    long: 'Посты пишутся по отработанному шаблону для вашей сферы и данным брифа: ' +
+      'чем вы занимаетесь, для кого, что важно упомянуть и чего касаться нельзя. ' +
+      'Выбранный тон общения соблюдается.'
+  },
+  tov_brief: {
+    short: 'Tone of Voice по брифу',
+    long: 'Для вас собирается описание манеры речи: как строятся фразы, как вы ' +
+      'обращаетесь к клиенту, какие обороты используете. Посты пишутся по нему.'
+  },
+  tov_samples: {
+    short: 'Tone of Voice по вашим текстам',
+    long: 'Манера речи собирается по вашим настоящим постам — система разбирает ' +
+      'их и повторяет вашу интонацию, а не усреднённую.'
+  },
+  tov_tuned: {
+    short: 'Tone of Voice по текстам с донастройкой',
+    long: 'Манера речи собирается по вашим текстам и постоянно донастраивается ' +
+      'по ходу работы: что нравится — закрепляется, что нет — убирается.'
+  }
+};
+
+function pdfStyleMode_(lim) {
+  return PDF_STYLE_MODE[str_(lim.style_mode)] || PDF_STYLE_MODE.template_brief;
+}
+
+var PDF_NETWORK_LABEL = { tg: 'Telegram', vk: 'VK', max: 'MAX' };
+
+// В карточке сети записаны как «Telegram», в тарифах — кодом «tg».
+var PDF_NETWORK_CODE = { telegram: 'tg', tg: 'tg', vk: 'vk', max: 'max' };
+
+function pdfNetworks_(c, lim) {
+  var allowed = (lim.platforms || []).map(function (p) { return String(p).toLowerCase(); });
+  var chosen = (c.networks || []).map(function (n) {
+    return PDF_NETWORK_CODE[String(n).toLowerCase()] || String(n).toLowerCase();
+  });
+  var use = chosen.filter(function (n) { return !allowed.length || allowed.indexOf(n) >= 0; });
+  if (!use.length) use = allowed;
+  return use.map(function (n) { return PDF_NETWORK_LABEL[n] || n.toUpperCase(); });
+}
+
+/** Русское склонение после числа: 1 пост, 2 поста, 5 постов. */
+function plural_(n, one, few, many) {
+  var a = Math.abs(n) % 100;
+  var b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  if (b === 1) return one;
+  return many;
+}
+
+/** Состав тарифа человеческим языком. */
+function pdfTariffRows_(c, lim) {
+  var rows = [];
+  var nets = pdfNetworks_(c, lim);
+
+  if (num_(lim.posts_per_week)) {
+    rows.push(['Публикаций в неделю', String(num_(lim.posts_per_week))]);
+  }
+  if (nets.length) rows.push(['Площадки', nets.join(', ')]);
+  if (num_(lim.rubrics_max)) rows.push(['Постоянных рубрик', String(num_(lim.rubrics_max))]);
+
+  rows.push(['Тексты', pdfStyleMode_(lim).short]);
+
+  if (lim.holidays_enabled) {
+    var hp = num_(lim.holiday_posts);
+    rows.push(['Праздничные посты', hp ? 'Входят, до ' + hp + ' к празднику' : 'Входят']);
+  }
+  if (num_(lim.preapprove_first_posts)) {
+    var pp = num_(lim.preapprove_first_posts);
+    rows.push(['Согласование',
+      'Первые ' + pp + ' ' + plural_(pp, 'пост', 'поста', 'постов') + ' перед публикацией']);
+  }
+  if (num_(lim.rubric_edits_per_month)) {
+    var re = num_(lim.rubric_edits_per_month);
+    rows.push(['Правки рубрик', re + ' ' + plural_(re, 'раз', 'раза', 'раз') + ' в месяц']);
+  }
+  if (str_(lim.report) === 'pdf') rows.push(['Отчётность', 'Ежемесячный отчёт']);
+  if (str_(lim.report) === 'pdf_call') rows.push(['Отчётность', 'Ежемесячный отчёт и созвон']);
+  if (num_(lim.support_sla_hours)) {
+    rows.push(['Ответ на обращения', 'В течение ' + num_(lim.support_sla_hours) + ' ч']);
+  }
+  return rows;
+}
+
+function pdfTariffPage_(c, lim) {
+  var L = [];
+  L.push('<div style="padding: 60px 60px 0">');
+  L.push(pdfH1_('Ваш тариф — ' + (str_(c.tariff) || 'подключённый пакет')));
+  L.push('<div style="font-size: 13px; color: #6b7078; line-height: 1.6; margin-bottom: 26px">' +
+    'Что входит в работу по вашему пакету.</div>');
+
+  L.push('<table style="width: 100%; border-collapse: collapse">');
+  pdfTariffRows_(c, lim).forEach(function (r) {
+    L.push('<tr>' +
+      '<td style="width: 210px; vertical-align: top; padding: 9px 0; border-bottom: 1px solid #eeeeea;' +
+      ' font-size: 12.5px; color: #8a8f96">' + pdfEsc_(r[0]) + '</td>' +
+      '<td style="vertical-align: top; padding: 9px 0; border-bottom: 1px solid #eeeeea;' +
+      ' font-size: 12.5px; color: #14171a">' + pdfEsc_(r[1]) + '</td>' +
+      '</tr>');
+  });
+  L.push('</table>');
+
+  if (!lim.holidays_enabled) {
+    L.push('<div style="margin-top: 22px; font-size: 11.5px; line-height: 1.6; color: #8a8f96">' +
+      'Праздничные посты в этот пакет не входят — они доступны на следующих уровнях.</div>');
+  }
   L.push('</div>');
   return L.join('\n');
 }
@@ -3569,7 +3700,7 @@ function pdfBubble_(text) {
  *  Финальная страница
  * ---------------------------------------------------------------- */
 
-function pdfFinalPage_(c) {
+function pdfFinalPage_(c, lim) {
   var L = [];
   L.push('<div style="padding: 60px 60px 0">');
   L.push(pdfH1_('Что дальше'));
@@ -3577,7 +3708,8 @@ function pdfFinalPage_(c) {
   var next = [
     'Посмотрите примеры и отметьте всё, что хочется поправить: тон, длину, обращение, темы рубрик.',
     'Пришлите правки одним сообщением — своими словами, формулировки не важны.',
-    'Правки вносятся в настройки, примеры пересобираются. Столько раз, сколько нужно.',
+    'Правки вносятся в настройки, примеры пересобираются — на этапе согласования ' +
+      'сколько потребуется.',
     'Когда всё устраивает — согласуем и запускаем публикации.'
   ];
   L.push('<table style="width: 100%; border-collapse: collapse; margin-bottom: 34px">');
@@ -3596,7 +3728,10 @@ function pdfFinalPage_(c) {
       '<span style="display: inline-block; width: 84px; color: #8a8f96">' + pdfEsc_(k.label) + '</span>' +
       pdfEsc_(k.value) + '</div>');
   });
-  L.push('<div style="font-size: 11.5px; color: #8a8f96; margin-top: 12px">Отвечаю на правки в течение суток.</div>');
+  L.push('<div style="font-size: 11.5px; color: #8a8f96; margin-top: 12px">' +
+    (num_(lim.support_sla_hours)
+      ? 'Отвечаю на обращения в течение ' + num_(lim.support_sla_hours) + ' ч.'
+      : 'Отвечаю на обращения в рабочее время.') + '</div>');
   L.push('</div>');
 
   L.push('<div style="margin-top: 46px; font-size: 10.5px; color: #a0a4aa">' +
