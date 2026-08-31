@@ -1875,9 +1875,85 @@ function aiAnalyzeStyleText_(req) {
 }
 
 /** buildPlan: данные брифа -> рубрики с промптами. */
+/**
+ * Квота плана по тарифу и брифу.
+ *
+ * Раньше сборщик плана просил у модели «4–6 рубрик» независимо ни от чего:
+ * ни тариф, ни выбранные в брифе чипы не учитывались. Клиент на СТАРТе
+ * с двумя отмеченными темами всё равно получал четыре рубрики.
+ */
+function planQuota_(c) {
+  var lim = tariffLimits_(c) || {};
+  var topics = (c.topics || []).filter(String);
+
+  var rubricsMax = num_(lim.rubrics_max) || 0;
+  var count = rubricsMax || 5;
+  // Чипы в брифе — это прямой выбор клиента, он главнее дефолта.
+  if (topics.length) count = rubricsMax ? Math.min(topics.length, rubricsMax) : topics.length;
+
+  return {
+    count: Math.max(1, count),
+    rubricsMax: rubricsMax,
+    postsPerWeek: num_(lim.posts_per_week) || 0,
+    perDay: (c.slots || []).length || num_(lim.slots_per_day) || 1,
+    topics: topics
+  };
+}
+
+var WEEK_DAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+function daysList_(v) {
+  return String(v || '').split(',').map(function (d) {
+    return d.trim().toLowerCase();
+  }).filter(function (d) { return WEEK_DAYS.indexOf(d) >= 0; });
+}
+
+/**
+ * Приводит план к квоте уже после ответа модели. Полагаться только на
+ * инструкцию нельзя: модель регулярно возвращает больше, чем просили.
+ */
+function enforcePlanLimits_(rubrics, q) {
+  var out = rubrics.slice(0, q.count);
+
+  if (q.postsPerWeek) {
+    var days = out.map(function (r) { return daysList_(r.days); });
+    var total = function () {
+      return days.reduce(function (a, d) { return a + d.length; }, 0);
+    };
+    // Лишние дни снимаем с самой нагруженной рубрики — так расписание
+    // остаётся равномерным, а не обрезанным с хвоста.
+    var guard = 0;
+    while (total() > q.postsPerWeek && guard++ < 60) {
+      var big = 0;
+      for (var i = 1; i < days.length; i++) if (days[i].length > days[big].length) big = i;
+      if (!days[big].length) break;
+      days[big].pop();
+    }
+    out = out.map(function (r, i) {
+      return { name: r.name, days: days[i].join(', '), prompt: r.prompt, manual: r.manual };
+    }).filter(function (r) { return r.days; });
+  }
+
+  return normRubrics_(out);
+}
+
 function aiBuildPlan_(req) {
   var c = aiClient_(req);
-  var perDay = (c.slots || []).length || 1;
+  var q = planQuota_(c);
+  var perDay = q.perDay;
+
+  var quotaHint = '\n\nЖЁСТКИЕ ОГРАНИЧЕНИЯ ТАРИФА «' + (c.tariff || '') + '» — нарушать нельзя:\n' +
+    '- ровно ' + q.count + ' рубрик' + (q.count === 1 ? 'а' : '') + ', не больше и не меньше;\n' +
+    (q.postsPerWeek
+      ? '- всего ' + q.postsPerWeek + ' публикаций в неделю: суммарное число дней ' +
+        'по всем рубрикам вместе должно быть ровно ' + q.postsPerWeek + ';\n'
+      : '') +
+    '- ' + perDay + ' публикаци(я/и) в день.\n' +
+    (q.topics.length
+      ? 'Клиент отметил в брифе конкретные темы, и рубрики должны соответствовать ' +
+        'именно им, а не твоим идеям: ' + q.topics.join('; ') + '. ' +
+        'Название можешь сформулировать живее, но суть рубрики должна остаться той же.\n'
+      : '');
 
   // Зафиксированные рубрики: название и дни берём у клиента,
   // промпт ИИ напишет заново — так и работает замок в интерфейсе.
@@ -1901,10 +1977,11 @@ function aiBuildPlan_(req) {
     {
       role: 'user',
       content: briefContext_(c) +
-        '\n\nСобери контент-план на неделю: 4–6 рубрик. Для каждой рубрики:\n' +
+        quotaHint +
+        '\n\nСобери контент-план на неделю. Для каждой рубрики:\n' +
         '- name — название рубрики по-русски;\n' +
         '- days — дни недели через запятую (пн, вт, ср, чт, пт, сб, вс), ' +
-        'всего ' + perDay + ' публикаци(и/й) в день, воскресенье можно оставить пустым;\n' +
+        'не больше ' + perDay + ' публикаци(и/й) в один день;\n' +
         '- prompt — подробная инструкция для нейросети, 4–7 предложений. ' +
         'По этому промпту потом пишутся сотни постов, поэтому он должен задавать ' +
         'рамку, а не один конкретный пост. Обязательно опиши:\n' +
@@ -1930,7 +2007,7 @@ function aiBuildPlan_(req) {
     }
   ], { json: true, temperature: 0.6, maxTokens: 4000 });
 
-  var allRubrics = normRubrics_(parseJsonLoose_(content).rubrics || []);
+  var allRubrics = enforcePlanLimits_(normRubrics_(parseJsonLoose_(content).rubrics || []), q);
   if (!allRubrics.length) throw new Error('Модель не вернула ни одной рубрики');
 
   // Восстанавливаем флаг manual для зафиксированных рубрик по названию
