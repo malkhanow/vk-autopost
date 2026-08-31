@@ -203,6 +203,7 @@ def list_folder(path):
         timeout=30,
     )
     if resp.status_code != 200:
+        print(f"Яндекс Диск {resp.status_code} для пути '{path}': {resp.text[:200]}")
         return []
     items = resp.json().get("_embedded", {}).get("items", [])
     return [
