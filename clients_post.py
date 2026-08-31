@@ -141,7 +141,6 @@ BASE_HOLIDAYS = [
     {"key": "womens_day", "month": 3,  "day": 8,  "name": "Международный женский день",   "solemn": False},
     {"key": "spring_may", "month": 5,  "day": 1,  "name": "Праздник Весны и Труда",       "solemn": False},
     {"key": "knowledge",  "month": 9,  "day": 1,  "name": "День знаний",                  "solemn": False},
-    {"key": "nye",        "month": 12, "day": 31, "name": "Канун Нового года",            "solemn": False},
 ]
 
 # что публикуем: за 7 дней и за 1 день — вечером, в сам день — утром
@@ -181,7 +180,7 @@ def yandex_headers():
     return {"Authorization": f"OAuth {YANDEX_TOKEN}"}
 
 
-def list_folder(path):
+def list_folder(path, quiet=False):
     if not YANDEX_TOKEN:
         return []
     resp = requests.get(
@@ -195,7 +194,11 @@ def list_folder(path):
         timeout=30,
     )
     if resp.status_code != 200:
-        print(f"Яндекс Диск {resp.status_code} для пути '{path}': {resp.text[:200]}")
+        # quiet=True — путь необязательный (личная папка клиента, подпапка
+        # праздника): её отсутствие это норма, а не ошибка, и засорять лог
+        # четырьмя «404» на каждый праздничный пост не нужно.
+        if not (quiet and resp.status_code == 404):
+            print(f"Яндекс Диск {resp.status_code} для пути '{path}': {resp.text[:200]}")
         return []
     items = resp.json().get("_embedded", {}).get("items", [])
     return [
@@ -695,39 +698,62 @@ def build_holiday_post(client, holiday, kind):
     )
 
 
-def holiday_photo(client, holiday, state=None, client_id=""):
+# Какая подпапка праздника отвечает за какой пост: анонсы за неделю и за
+# день берут фото из before/, поздравление в сам день — из day/.
+HOLIDAY_PHOTO_SUBFOLDER = {
+    "before7": "before",
+    "before1": "before",
+    "day": "day",
+}
+
+
+def holiday_photo(client, holiday, kind, state=None, client_id=""):
     """
     Фото к празднику из собственной библиотеки на Яндекс.Диске.
 
-    Порядок поиска:
-      1. {yandex_folder}/holidays/{key} — личная папка клиента, если к
-         празднику у него должны быть свои картинки;
-      2. {HOLIDAYS_FOLDER}/{key} — общая библиотека для всех клиентов.
+    У каждого праздника две подпапки: before/ — предпраздничные картинки
+    для анонсов за 7 и за 1 день, day/ — праздничные, для поздравления в
+    сам день. Если нужной подпапки нет, скрипт берёт фото из корня папки
+    праздника — так можно обойтись одним набором на всё.
+
+    Полный порядок поиска (первая непустая папка выигрывает):
+      1. {yandex_folder}/holidays/{key}/{before|day} — личные фото клиента
+      2. {yandex_folder}/holidays/{key}
+      3. {HOLIDAYS_FOLDER}/{key}/{before|day}        — общая библиотека
+      4. {HOLIDAYS_FOLDER}/{key}
 
     Файлы не расходуются: перебираются по кругу по алфавиту, как рубрики
-    tips/faq, — один раз положил 3–5 штук и больше за папкой не следишь.
-    Папки нет или она пуста — праздничный пост уходит текстом, без фото.
+    tips/faq, — один раз положил несколько штук и больше за папкой не
+    следишь. Нигде ничего не нашлось — праздничный пост уходит текстом.
 
     Фотосток здесь сознательно не используется: поиск по запросу выдаёт
     случайные кадры, проверить их перед публикацией нечем.
     """
     key = holiday["key"]
-    sources = []
+    sub = HOLIDAY_PHOTO_SUBFOLDER.get(kind, "day")
+
+    roots = []
     own = (client.get("yandex_folder") or "").strip()
     if own:
-        sources.append(f"{own}/holidays/{key}")
+        roots.append(f"{own}/holidays/{key}")
     if HOLIDAYS_FOLDER:
-        sources.append(f"{HOLIDAYS_FOLDER}/{key}")
+        roots.append(f"{HOLIDAYS_FOLDER}/{key}")
 
-    for source in sources:
-        files = list_folder(source)
+    sources = []
+    for root in roots:
+        sources.append((f"{root}/{sub}", f"{key}_{sub}"))
+        sources.append((root, key))
+
+    for source, loop_id in sources:
+        files = list_folder(source, quiet=True)
         if not files:
             continue
         names = sorted(f["name"] for f in files)
         chosen_name = names[0]
         if state is not None and client_id:
+            # у before/ и day/ очереди раздельные: свой ключ на каждую папку
             cs = client_state(state, client_id)
-            loop_key = f"holiday_loop_{key}"
+            loop_key = f"holiday_loop_{loop_id}"
             last_name = cs.get(loop_key, "")
             if last_name in names:
                 chosen_name = names[(names.index(last_name) + 1) % len(names)]
@@ -738,11 +764,13 @@ def holiday_photo(client, holiday, state=None, client_id=""):
         except Exception as e:
             print(f"Не удалось скачать {chosen['path']}: {e}")
             return None
-        print(f"Фото к празднику «{holiday['name']}»: {source}/{chosen_name}")
+        print(f"Фото к празднику «{holiday['name']}» ({HOLIDAY_KINDS[kind]}): "
+              f"{source}/{chosen_name}")
         return local_path
 
-    print(f"Нет фото для праздника «{holiday['name']}»: пусто в "
-          f"{' и в '.join(sources) or '—'}. Пост уйдёт текстом.")
+    print(f"Нет фото для праздника «{holiday['name']}» ({HOLIDAY_KINDS[kind]}): "
+          f"пусто в {', '.join(src for src, _ in sources) or '—'}. "
+          "Пост уйдёт текстом.")
     return None
 
 
@@ -939,8 +967,8 @@ def holiday_for_run(client, today, slot, state, test_mode):
     """
     Что публикуем сегодня в этот слот: (праздник, вид) или (None, None).
     Приоритет — сам праздник, потом «завтра», потом «через неделю»: 31 декабря
-    это одновременно Канун НГ, канун Нового года и неделя до Рождества, и
-    получить три поста в один день клиент не должен.
+    это одновременно канун Нового года и неделя до Рождества, и получить два
+    поста в один день клиент не должен.
     Тестовый прогон праздники не трогает — он проверяет обычный конвейер.
     """
     from datetime import timedelta
@@ -1149,8 +1177,9 @@ def main():
             # фото из очереди клиента не тратим — оно ждёт своей рубрики;
             # к празднику картинка берётся из библиотеки праздничных фото
             # и в posted/ не переезжает (photo_meta = None)
-            photo_path, photo_meta = holiday_photo(holiday=holiday, client=client,
-                                                   state=state, client_id=cid), None
+            photo_path, photo_meta = holiday_photo(client=client, holiday=holiday,
+                                                   kind=kind, state=state,
+                                                   client_id=cid), None
         else:
             rubric = pick_rubric_for_run(client, SLOT, today_abbr, state, test_mode)
             if not rubric:
