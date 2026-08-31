@@ -242,11 +242,13 @@ eq("тестовый прогон праздники не трогает",
    cp.holiday_for_run(client(), nyd, "midday", {}, True), (None, None))
 
 
-# ---------- фотосток ----------
+# ---------- праздничные фото ----------
 
-cp.PEXELS_KEY = ""
-eq("без ключа праздничный пост уходит без фото", cp.fetch_stock_photo("new year"), None)
-c.ok("у каждого базового праздника есть запасной запрос",
-     all(h["key"] in cp.HOLIDAY_IMAGE_QUERIES for h in cp.BASE_HOLIDAYS))
+cp.YANDEX_TOKEN = ""
+cp.HOLIDAYS_FOLDER = "Autopost WORK/holidays"
+eq("без доступа к Диску праздничный пост уходит без фото",
+   cp.holiday_photo({"yandex_folder": "x"}, cp.BASE_HOLIDAYS[0], {}, "test"), None)
+c.ok("у каждого базового праздника есть ключ для папки",
+     all(h.get("key") for h in cp.BASE_HOLIDAYS))
 
 sys.exit(c.finish())
