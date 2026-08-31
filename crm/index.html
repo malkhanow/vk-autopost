@@ -594,6 +594,7 @@
                     <div style="flex: 1"></div>
                     <button onClick="{{ buildPlan }}" style="{{ planBtn }}">{{ planLabel }}</button>
                     <button onClick="{{ genExamples }}" style="{{ examplesBtn }}">{{ examplesLabel }}</button>
+                    <button onClick="{{ buildPdf }}" style="{{ pdfBtn }}" title="{{ pdfTitle }}">{{ pdfLabel }}</button>
                   </div>
                   <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Бриф → Gemini → рубрики с расписанием и промптами. Примеры постов клиенту не публикуются — только на согласование.</p>
                   <sc-if value="{{ hasRubrics }}" hint-placeholder-val="{{ true }}">
@@ -1591,6 +1592,24 @@ function fromApi(o) {
     })),
     edits: ''
   }));
+}
+
+/**
+ * Файл из ответа Web App -> скачивание на компьютер. Данные приходят в
+ * base64 и нигде не хранятся: ни на Google Диске, ни на сервере.
+ */
+function downloadBase64(b64, filename, mime) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime || 'application/octet-stream' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 /** Объект клиента -> тело запроса save. */
@@ -2743,6 +2762,30 @@ class Component extends DCLogic {
             });
             this.flash('Демо: примеры не от модели');
           });
+      },
+
+      // PDF с примерами постов: собирается в Apps Script и приходит в ответе
+      // base64 — браузер скачивает файл на компьютер. Google Диск не участвует.
+      pdfLabel: busy === 'pdf' ? 'Собираю PDF…' : 'Собрать PDF',
+      pdfBtn: (!c.rubrics.some(r => !r.dormant && (r.example || '').trim()) || busy)
+        ? this.btn('off') : this.btn('ghost'),
+      pdfTitle: 'Документ с примерами постов для отправки клиенту',
+      buildPdf: () => {
+        if (!c.rubrics.some(r => !r.dormant && (r.example || '').trim())) {
+          return this.flash('Сначала сгенерируйте примеры постов');
+        }
+        this.act('pdf',
+          () => apiPost(conn, 'build_pdf_examples', { id: c.id, client: toApi(c) }).then(r => {
+            if (r.client) this.applyClient(r.client);
+            if (!r.base64) return this.flash('PDF собран, но файл не вернулся');
+            try {
+              downloadBase64(r.base64, r.name || 'examples.pdf', 'application/pdf');
+              this.flash('PDF скачан (' + (r.sizeKb || '?') + ' КБ) — отправляйте клиенту файлом');
+            } catch (e) {
+              this.flash('Не удалось сохранить файл: ' + ((e && e.message) || e));
+            }
+          }),
+          () => this.flash('Демо: PDF не собирается без подключения к Web App'));
       },
       rubrics: c.rubrics.map((r, i) => {
         const upd = (key, val) => this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { [key]: val }) : x)) });

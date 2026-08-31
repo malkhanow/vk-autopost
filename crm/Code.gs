@@ -1281,7 +1281,8 @@ var POST_ACTIONS = {
   letter_setup:  function (req) { return letterSetup_(req); },
   letter_launch: function (req) { return letterLaunch_(req); },
   plan_tariff_change: function (req) { return planTariffChangeAction_(req); },
-  set_tariff:         function (req) { return setTariff_(req); }
+  set_tariff:         function (req) { return setTariff_(req); },
+  build_pdf_examples: function (req) { return buildPdfExamples_(req); }
 };
 
 
@@ -3064,4 +3065,288 @@ function letterLaunch_(req) {
   });
 
   return { letter: text, client: refetchClient_(id) };
+}
+
+
+/* ========================================================================
+ *  PDF С ПРИМЕРАМИ ПОСТОВ
+ *
+ *  Кнопка «Собрать PDF» в Блоке Б карточки клиента. Документ собирается
+ *  из рубрик и уже сгенерированных примеров и сразу скачивается в браузер.
+ *  На Google Диск ничего не пишется — место на нём не расходуется.
+ *
+ *  Конвертация: Utilities.newBlob(html, 'text/html').getAs('application/pdf').
+ *  Внешних зависимостей нет, кириллица работает без подключения шрифтов.
+ *  Конвертер понимает только простой инлайновый CSS — поэтому вёрстка
+ *  ниже намеренно примитивная: таблицы, отступы, page-break-after.
+ * ==================================================================== */
+
+/** Контакты в финальном блоке документа. */
+var PDF_CONTACTS = [
+  { label: 'Telegram', value: 't.me/cstmstd' },
+  { label: 'VK',       value: 'vk.ru/malkhanow' },
+  { label: 'MAX',      value: 'clck.su/hcJzu' }
+];
+
+/**
+ * action=build_pdf_examples
+ * Вход:  { id, client? }  — client, если на фронте есть несохранённые правки.
+ * Выход: { name, base64, sizeKb, rubrics, client }
+ */
+function buildPdfExamples_(req) {
+  if (req.client) POST_ACTIONS.save({ client: req.client });
+
+  var id = str_(req.id || (req.client && req.client.id));
+  if (!id) throw new Error('Не передан client_id');
+
+  var c = refetchClient_(id);
+  if (!c) throw new Error('Клиент ' + id + ' не найден');
+
+  // Спящие рубрики (понижение тарифа) в документ не идут: клиент не должен
+  // видеть в примерах то, что по его тарифу публиковаться не будет.
+  var rubrics = normRubrics_(c.rubrics).filter(function (r) {
+    return !r.dormant && str_(r.example);
+  });
+  if (!rubrics.length) {
+    throw new Error('Нет ни одного примера поста — сначала нажмите «Сгенерировать примеры»');
+  }
+
+  var html = pdfExamplesHtml_(c, rubrics);
+  var title = 'SAS — примеры постов — ' + (str_(c.business) || str_(c.name) || c.id);
+  var name = title + ' — ' + Utilities.formatDate(new Date(), tz_(), 'dd.MM.yyyy') + '.pdf';
+
+  var blob = Utilities.newBlob(html, 'text/html', 'examples.html').getAs('application/pdf').setName(name);
+
+  // Файл никуда не сохраняется: PDF уходит в ответе, браузер скачивает его
+  // на компьютер. Google Диск не задействован и место на нём не расходуется.
+  return {
+    name: name,
+    base64: Utilities.base64Encode(blob.getBytes()),
+    sizeKb: Math.round(blob.getBytes().length / 1024),
+    rubrics: rubrics.length,
+    client: c
+  };
+}
+
+function pdfEsc_(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Текст поста -> HTML с сохранением абзацев. */
+function pdfText_(v) {
+  return pdfEsc_(v).replace(/\r\n/g, '\n').replace(/\n/g, '<br/>');
+}
+
+function pdfPageBreak_() {
+  return '<div style="page-break-after: always"></div>';
+}
+
+/** Собирает весь документ. */
+function pdfExamplesHtml_(c, rubrics) {
+  var H = [];
+  H.push('<html><head><meta charset="utf-8"/></head>');
+  H.push('<body style="font-family: Arial, Helvetica, sans-serif; color: #14171a; margin: 0">');
+
+  H.push(pdfCoverPage_(c));
+  H.push(pdfPageBreak_());
+  H.push(pdfHowItWorksPage_(c));
+
+  rubrics.forEach(function (r, i) {
+    H.push(pdfPageBreak_());
+    H.push(pdfRubricPage_(r, i + 1, rubrics.length));
+  });
+
+  H.push(pdfPageBreak_());
+  H.push(pdfFinalPage_(c));
+
+  H.push('</body></html>');
+  return H.join('\n');
+}
+
+/* ---------------------------------------------------------------- *
+ *  Страница 1 — обложка
+ * ---------------------------------------------------------------- */
+
+function pdfCoverPage_(c) {
+  var business = str_(c.business) || str_(c.name) || 'Ваш проект';
+  var date = Utilities.formatDate(new Date(), tz_(), 'd MMMM yyyy');
+  var L = [];
+  L.push('<div style="padding: 90px 60px 0">');
+  L.push('<div style="font-size: 13px; letter-spacing: 3px; color: #8a8f96; text-transform: uppercase">SAS</div>');
+  L.push('<div style="font-size: 30px; font-weight: bold; margin-top: 10px">Smart Automation System</div>');
+  L.push('<div style="height: 3px; width: 90px; background: #2b4acf; margin: 26px 0 34px"></div>');
+  L.push('<div style="font-size: 15px; color: #5d636b">Примеры постов, подготовленные системой</div>');
+  L.push('<div style="font-size: 26px; font-weight: bold; margin-top: 12px">' + pdfEsc_(business) + '</div>');
+  if (str_(c.city)) {
+    L.push('<div style="font-size: 14px; color: #8a8f96; margin-top: 6px">' + pdfEsc_(c.city) + '</div>');
+  }
+  L.push('<div style="font-size: 13px; color: #8a8f96; margin-top: 30px">' + pdfEsc_(date) + '</div>');
+  L.push('<div style="margin-top: 150px; padding: 14px 16px; background: #f6f6f3; border-left: 3px solid #d9d9d4;' +
+    ' font-size: 11px; line-height: 1.6; color: #6b7078">' +
+    'Это демонстрационные материалы. Финальные публикации формируются с учётом ваших фото, ' +
+    'ваших правок и фактических данных бизнеса. Тексты в этом документе — образец манеры письма ' +
+    'и наполнения рубрик, а не готовый контент-план к публикации.' +
+    '</div>');
+  L.push('</div>');
+  return L.join('\n');
+}
+
+/* ---------------------------------------------------------------- *
+ *  Страница 2 — как это работает
+ * ---------------------------------------------------------------- */
+
+function pdfHowItWorksPage_(c) {
+  var slots = (c.slots || []).map(function (key) {
+    for (var i = 0; i < SLOT_DEF.length; i++) {
+      if (SLOT_DEF[i].key === key) return SLOT_DEF[i];
+    }
+    return null;
+  }).filter(function (x) { return !!x; });
+
+  var when = slots.length
+    ? slots.map(function (s) { return s.label.toLowerCase(); }).join(' и ')
+    : 'в согласованное время';
+
+  var steps = [
+    {
+      n: '1',
+      title: 'Вы загружаете фото',
+      text: 'Один раз получаете папку на Яндекс.Диске и складываете туда фото работ, ' +
+        'товаров и рабочих моментов. Дальше возвращаетесь к ней, только когда снимки заканчиваются.'
+    },
+    {
+      n: '2',
+      title: 'Система пишет пост',
+      text: 'Каждый пост собирается по инструкции своей рубрики и под ваш стиль: ' +
+        'манера письма, обращение к клиенту, длина фраз, призыв к действию. ' +
+        'Цены, сроки и гарантии не выдумываются — только то, что вы указали.'
+    },
+    {
+      n: '3',
+      title: 'Пост выходит сам',
+      text: 'Публикация уходит ' + pdfEsc_(when) +
+        ' сразу в Telegram, VK и MAX. Ваше участие не требуется: ни согласований, ни ручной отправки.'
+    }
+  ];
+
+  var L = [];
+  L.push('<div style="padding: 60px 60px 0">');
+  L.push(pdfH1_('Как это работает'));
+  L.push('<div style="font-size: 13px; color: #6b7078; line-height: 1.6; margin-bottom: 30px">' +
+    'Три шага. Первый вы делаете один раз, остальные система берёт на себя.</div>');
+
+  steps.forEach(function (s) {
+    L.push('<table style="width: 100%; border-collapse: collapse; margin-bottom: 22px"><tr>');
+    L.push('<td style="width: 46px; vertical-align: top; font-size: 26px; font-weight: bold; color: #2b4acf">' + s.n + '</td>');
+    L.push('<td style="vertical-align: top">' +
+      '<div style="font-size: 15px; font-weight: bold; margin-bottom: 5px">' + pdfEsc_(s.title) + '</div>' +
+      '<div style="font-size: 12.5px; line-height: 1.65; color: #3e434a">' + s.text + '</div>' +
+      '</td>');
+    L.push('</tr></table>');
+  });
+
+  L.push('</div>');
+  return L.join('\n');
+}
+
+/* ---------------------------------------------------------------- *
+ *  Страницы рубрик
+ * ---------------------------------------------------------------- */
+
+function pdfRubricPage_(r, num, total) {
+  var L = [];
+  L.push('<div style="padding: 60px 60px 0">');
+  L.push('<div style="font-size: 10.5px; letter-spacing: 2px; text-transform: uppercase; color: #8a8f96">' +
+    'Рубрика ' + num + ' из ' + total + '</div>');
+  L.push(pdfH1_(r.name));
+  L.push('<div style="font-size: 12px; color: #6b7078; margin: -14px 0 22px">' +
+    'Дни выхода: <b>' + pdfEsc_(r.days) + '</b></div>');
+
+  if (str_(r.prompt)) {
+    L.push('<div style="padding: 11px 13px; background: #f6f6f3; border-radius: 4px;' +
+      ' font-size: 11.5px; line-height: 1.6; color: #6b7078; margin-bottom: 24px">' +
+      '<b style="color: #3e434a">О чём эта рубрика.</b> ' + pdfText_(r.prompt) + '</div>');
+  }
+
+  L.push('<div style="font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #8a8f96;' +
+    ' margin-bottom: 12px">Пример поста</div>');
+  L.push(pdfBubble_(r.example));
+  L.push('</div>');
+  return L.join('\n');
+}
+
+/** Текст поста в рамке, стилизованной под сообщение в мессенджере. */
+function pdfBubble_(text) {
+  return '<table style="width: 100%; border-collapse: collapse"><tr>' +
+    '<td style="background: #eef4ff; border: 1px solid #d5e0fa; border-radius: 10px;' +
+    ' padding: 16px 18px; font-size: 13px; line-height: 1.7; color: #14171a">' +
+    pdfText_(text) +
+    '</td></tr></table>';
+}
+
+/* ---------------------------------------------------------------- *
+ *  Финальная страница
+ * ---------------------------------------------------------------- */
+
+function pdfFinalPage_(c) {
+  var L = [];
+  L.push('<div style="padding: 60px 60px 0">');
+  L.push(pdfH1_('Что дальше'));
+
+  var next = [
+    'Посмотрите примеры и отметьте всё, что хочется поправить: тон, длину, обращение, темы рубрик.',
+    'Пришлите правки одним сообщением — своими словами, формулировки не важны.',
+    'Правки вносятся в настройки, примеры пересобираются. Столько раз, сколько нужно.',
+    'Когда всё устраивает — согласуем и запускаем публикации.'
+  ];
+  L.push('<table style="width: 100%; border-collapse: collapse; margin-bottom: 34px">');
+  next.forEach(function (t, i) {
+    L.push('<tr>' +
+      '<td style="width: 26px; vertical-align: top; padding: 7px 0; font-size: 13px; font-weight: bold; color: #2b4acf">' + (i + 1) + '.</td>' +
+      '<td style="vertical-align: top; padding: 7px 0; font-size: 12.5px; line-height: 1.65">' + pdfEsc_(t) + '</td>' +
+      '</tr>');
+  });
+  L.push('</table>');
+
+  L.push('<div style="padding: 18px 20px; background: #f6f6f3; border-radius: 5px">');
+  L.push('<div style="font-size: 13px; font-weight: bold; margin-bottom: 10px">Связаться</div>');
+  PDF_CONTACTS.forEach(function (k) {
+    L.push('<div style="font-size: 12.5px; line-height: 1.9; color: #3e434a">' +
+      '<span style="display: inline-block; width: 84px; color: #8a8f96">' + pdfEsc_(k.label) + '</span>' +
+      pdfEsc_(k.value) + '</div>');
+  });
+  L.push('<div style="font-size: 11.5px; color: #8a8f96; margin-top: 12px">Отвечаю на правки в течение суток.</div>');
+  L.push('</div>');
+
+  L.push('<div style="margin-top: 46px; font-size: 10.5px; color: #a0a4aa">' +
+    'SAS — Smart Automation System · ' + pdfEsc_(Utilities.formatDate(new Date(), tz_(), 'dd.MM.yyyy')) +
+    '</div>');
+  L.push('</div>');
+  return L.join('\n');
+}
+
+function pdfH1_(text) {
+  return '<div style="font-size: 24px; font-weight: bold; margin: 10px 0 8px">' + pdfEsc_(text) + '</div>' +
+    '<div style="height: 3px; width: 54px; background: #2b4acf; margin-bottom: 22px"></div>';
+}
+
+/**
+ * Ручная проверка из редактора Apps Script: собирает PDF по первому
+ * клиенту, у которого есть примеры, и печатает ссылку в лог.
+ */
+function pdfSelfTest() {
+  var t = clientsTable_();
+  for (var i = 0; i < t.rows.length; i++) {
+    var id = str_(val_(t, t.rows[i], 'id'));
+    if (!id) continue;
+    var c = readClient_(t, id);
+    var has = normRubrics_(c.rubrics).some(function (r) { return !r.dormant && str_(r.example); });
+    if (!has) continue;
+    var res = buildPdfExamples_({ id: id });
+    console.log('PDF собран для ' + id + ': ' + res.rubrics + ' рубрик, ' + res.sizeKb + ' КБ, «' + res.name + '»');
+    return { name: res.name, sizeKb: res.sizeKb, rubrics: res.rubrics };
+  }
+  console.log('Нет ни одного клиента с готовыми примерами постов');
+  return null;
 }
