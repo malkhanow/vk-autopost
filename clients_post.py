@@ -1052,11 +1052,8 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     Если слот один — обычное расписание по дням недели (как у клиентов
     на тарифе СТАРТ: один слот, всё по расписанию).
 
-    Тестовый прогон всегда идёт по кругу по всем рубрикам.
+    При тестовом запуске (TEST_CLIENT_ID задан) слотовая логика сохраняется.
     """
-    if test_mode:
-        return pick_rubric(client, today_abbr, state, test_mode)
-
     slot_names = [s.get("name") for s in client.get("slots", []) if s.get("name")]
     ordered_slots = [s for s in SLOT_ORDER if s in slot_names]
 
@@ -1111,8 +1108,11 @@ def main():
     today_abbr = DOW_ABBR[today.weekday()]
 
     test_mode = bool(TEST_CLIENT_ID)
-    if not test_mode and not SLOT:
+    if not SLOT and not test_mode:
         print("Не задан ни SLOT, ни TEST_CLIENT_ID — нечего делать.")
+        sys.exit(0)
+    if test_mode and not SLOT:
+        print(f"TEST_CLIENT_ID задан без SLOT — укажи slot в workflow_dispatch.")
         sys.exit(0)
 
     # Расписание GitHub Actions — «по возможности»: сам GitHub пишет, что при
