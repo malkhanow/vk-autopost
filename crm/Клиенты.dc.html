@@ -90,6 +90,15 @@
             </div>
           </sc-if>
 
+          <div style="display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid #e3e3df; margin-bottom: 12px">
+            <sc-for list="{{ tariffTabs }}" as="tt" hint-placeholder-count="6">
+              <button onClick="{{ tt.onClick }}" style="{{ tt.style }}">
+                <span>{{ tt.label }}</span>
+                <span style="{{ tt.badgeStyle }}">{{ tt.badge }}</span>
+              </button>
+            </sc-for>
+          </div>
+
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px">
             <input type="text" placeholder="Поиск: имя, бизнес, город, client_id" value="{{ q }}" onChange="{{ onSearch }}" style="width: 300px; padding: 7px 10px; border: 1px solid #d9d9d4; border-radius: 5px; background: #fff; font-size: 12.5px" />
             <div style="display: flex; gap: 4px; background: #eaeae6; padding: 3px; border-radius: 6px">
@@ -137,6 +146,115 @@
       <sc-if value="{{ isCard }}" hint-placeholder-val="{{ true }}">
         <div>
 
+          <sc-if value="{{ moveOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position: fixed; inset: 0; background: rgba(20,23,26,0.42); z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto">
+              <div style="background: #fff; border-radius: 8px; width: 100%; max-width: 720px; box-shadow: 0 18px 44px rgba(0,0,0,0.24)">
+
+                <div style="padding: 18px 20px 14px; border-bottom: 1px solid #eeeeea">
+                  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+                    <h2 style="margin: 0; font-size: 17px; font-weight: 600">Смена тарифа</h2>
+                    <span style="{{ moveDirStyle }}">{{ moveDir }}</span>
+                    <div style="flex: 1"></div>
+                    <button onClick="{{ closeMove }}" style="border: none; background: none; font-size: 20px; line-height: 1; color: #8a8f96; cursor: pointer; padding: 0 2px">×</button>
+                  </div>
+                  <p style="margin: 6px 0 0; font-size: 12.5px; color: #6b7078">{{ moveFromName }} · {{ moveFromPrice }} ₽ → {{ moveToName }} · {{ moveToPrice }} ₽. Ничего не удаляется: лишние рубрики засыпают и вернутся при повышении.</p>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px">
+                    <sc-for list="{{ moveTariffBtns }}" as="b" hint-placeholder-count="5">
+                      <button onClick="{{ b.onClick }}" style="{{ b.style }}">{{ b.label }}</button>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="padding: 16px 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+
+                  <div>
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 600; margin-bottom: 7px">Появится</div>
+                    <sc-if value="{{ moveHasGains }}" hint-placeholder-val="{{ true }}">
+                      <div style="display: flex; flex-direction: column; gap: 5px">
+                        <sc-for list="{{ moveGains }}" as="g" hint-placeholder-count="4">
+                          <div style="font-size: 12px; padding: 6px 9px; background: #f2f9f5; border: 1px solid #d6ebde; border-radius: 5px">
+                            <span style="font-weight: 500">{{ g.title }}</span>
+                            <span style="color: #6b7078"> · {{ g.from }} → {{ g.to }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ moveNoGains }}" hint-placeholder-val="{{ false }}">
+                      <p style="margin: 0; font-size: 12px; color: #8a8f96">—</p>
+                    </sc-if>
+                  </div>
+
+                  <div>
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 600; margin-bottom: 7px">Отключится</div>
+                    <sc-if value="{{ moveHasLosses }}" hint-placeholder-val="{{ true }}">
+                      <div style="display: flex; flex-direction: column; gap: 5px">
+                        <sc-for list="{{ moveLosses }}" as="l" hint-placeholder-count="4">
+                          <div style="font-size: 12px; padding: 6px 9px; background: #fdf6ea; border: 1px solid #f0e2c4; border-radius: 5px">
+                            <span style="font-weight: 500">{{ l.title }}</span>
+                            <span style="color: #6b7078"> · {{ l.from }} → {{ l.to }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ moveNoLosses }}" hint-placeholder-val="{{ false }}">
+                      <p style="margin: 0; font-size: 12px; color: #8a8f96">—</p>
+                    </sc-if>
+                  </div>
+
+                  <div>
+                    <div style="display: flex; align-items: baseline; gap: 7px; margin-bottom: 7px">
+                      <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 600">Рубрики</span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7c8189">{{ moveRubricCount }}</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px">
+                      <sc-for list="{{ moveRubricRows }}" as="r" hint-placeholder-count="4">
+                        <button onClick="{{ r.onToggle }}" style="{{ r.rowStyle }}">
+                          <span style="{{ r.boxStyle }}"><span style="{{ r.markStyle }}">✓</span></span>
+                          <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.name }}</span>
+                          <span style="{{ r.tagStyle }}">{{ r.tag }}</span>
+                          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">{{ r.days }}</span>
+                        </button>
+                      </sc-for>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style="display: flex; align-items: baseline; gap: 7px; margin-bottom: 7px">
+                      <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 600">Слоты и объём</span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #7c8189">{{ moveWeek }} постов/нед</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 4px">
+                      <sc-for list="{{ moveSlotRows }}" as="s" hint-placeholder-count="3">
+                        <button onClick="{{ s.onToggle }}" style="{{ s.rowStyle }}">
+                          <span style="{{ s.boxStyle }}"><span style="{{ s.markStyle }}">✓</span></span>
+                          <span style="flex: 1">{{ s.label }}</span>
+                          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">{{ s.times }}</span>
+                        </button>
+                      </sc-for>
+                    </div>
+                  </div>
+
+                </div>
+
+                <sc-if value="{{ moveHasConflicts }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin: 0 20px 4px; padding: 10px 12px; background: #fbe9e7; border: 1px solid #f0cdc9; border-radius: 6px">
+                    <div style="font-size: 12px; font-weight: 600; color: #a91f18; margin-bottom: 4px">Разрешите конфликты</div>
+                    <sc-for list="{{ moveConflicts }}" as="k" hint-placeholder-count="2">
+                      <div style="font-size: 12px; color: #a91f18">· {{ k.text }}</div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+
+                <div style="display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid #eeeeea; margin-top: 10px">
+                  <button onClick="{{ applyMove }}" style="{{ moveApplyBtn }}">{{ moveApplyLabel }}</button>
+                  <button onClick="{{ closeMove }}" style="border: 1px solid #dedeD9; background: #fff; font-family: inherit; font-size: 12.5px; padding: 8px 13px; border-radius: 5px; cursor: pointer">Отмена</button>
+                  <span style="font-size: 11.5px; color: #8a8f96">Снятая галочка = рубрика уснёт. Настройки и промпты сохранятся в таблице.</span>
+                </div>
+
+              </div>
+            </div>
+          </sc-if>
+
           <div style="background: #fff; border-bottom: 1px solid #e3e3df; padding: 14px 22px 0">
             <button onClick="{{ back }}" style="border: none; background: none; padding: 0; font-size: 12px; color: #6b7078; cursor: pointer" style-hover="color: #14171a">← Все клиенты</button>
             <div style="display: flex; align-items: flex-start; gap: 14px; margin-top: 8px; flex-wrap: wrap">
@@ -153,6 +271,7 @@
                 </div>
               </div>
               <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto">
+                <button onClick="{{ openMove }}" style="border: 1px solid #d9d9d4; background: #fff; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">Сменить тариф</button>
                 <button onClick="{{ onSave }}" style="border: 1px solid #d9d9d4; background: #fff; font-size: 12.5px; font-weight: 500; padding: 8px 13px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">{{ saveLabel }}</button>
                 <button onClick="{{ onPush }}" style="{{ btnPush }}" style-hover="opacity: 0.88">{{ pushLabel }}</button>
               </div>
@@ -828,8 +947,10 @@
               <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">Тариф</span>
               <select value="{{ newTariff }}" onChange="{{ setNewTariff }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px">
                 <option>СТАРТ</option>
-                <option>ПРО</option>
+                <option>ПРОФИ</option>
                 <option>БИЗНЕС</option>
+                <option>ПРЕМИУМ</option>
+                <option>МАКСИМУМ</option>
               </select>
             </label>
             <label style="display: block">
@@ -861,7 +982,123 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Обычная&quot;,&quot;Плотная&quot;],&quot;default&quot;:&quot;Обычная&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Список&quot;},&quot;showStats&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Список&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#2b4acf&quot;,&quot;options&quot;:[&quot;#2b4acf&quot;,&quot;#136c41&quot;,&quot;#14171a&quot;,&quot;#8a3ffc&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Оформление&quot;}}">
 const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-const PRICE = { 'СТАРТ': 1900, 'ПРО': 3900, 'БИЗНЕС': 6900 };
+/* ------------------------------------------------------------------
+ * РЕЕСТР ТАРИФОВ
+ * Зеркало tariffs.json из корня репозитория. При загрузке страницы
+ * подменяется свежей копией с ../tariffs.json — правки в репозитории
+ * подхватываются без пересборки CRM. Этот объект нужен как запасной,
+ * чтобы интерфейс отрисовался до ответа сети и работал в демо-режиме.
+ * ------------------------------------------------------------------ */
+let TARIFFS = {
+  aliases: {
+    'СТАРТ': 'start', 'START': 'start',
+    'ПРО': 'pro', 'ПРОФИ': 'pro', 'PRO': 'pro',
+    'БИЗНЕС': 'business', 'BUSINESS': 'business',
+    'ПРЕМИУМ': 'premium', 'PREMIUM': 'premium',
+    'МАКСИМУМ': 'max', 'MAX': 'max', 'ENTERPRISE': 'max'
+  },
+  enums: {
+    style_mode: {
+      template_brief: 'Шаблон ниши + данные брифа',
+      tov_brief: 'Tone of Voice из брифа',
+      tov_samples: 'Tone of Voice по текстам клиента',
+      tov_tuned: 'Tone of Voice + донастройка'
+    },
+    visual_mode: {
+      brand_colors: 'Карточка в фирменных цветах',
+      brand_logo: 'Карточка с логотипом и шрифтом',
+      niche_photos: 'Логотип + нишевая фотобиблиотека',
+      custom_photos: 'Логотип + индивидуальные фото'
+    },
+    report: { none: 'нет', pdf: 'PDF раз в месяц', pdf_call: 'PDF раз в месяц + созвон' }
+  },
+  tariffs: {
+    start: { id: 'start', name: 'СТАРТ', order: 1, price: 2400, public: true, inherits: null, limits: {
+      posts_per_week: 3, slots_per_day: 1, rubrics_max: 2, custom_rubrics_max: 0,
+      holidays_enabled: false, holidays_extra: false, holiday_posts: 0, holiday_promo: false,
+      style_mode: 'template_brief', visual_mode: 'brand_colors', content_plan: false,
+      preapprove_first_posts: 3, rubric_edits_per_month: 1, report: 'none', support_sla_hours: 24 } },
+    pro: { id: 'pro', name: 'ПРОФИ', order: 2, price: 3900, public: false, inherits: null, limits: {
+      posts_per_week: 5, slots_per_day: 1, rubrics_max: 3, custom_rubrics_max: 0,
+      holidays_enabled: true, holidays_extra: false, holiday_posts: 1, holiday_promo: false,
+      style_mode: 'template_brief', visual_mode: 'brand_colors', content_plan: false,
+      preapprove_first_posts: 3, rubric_edits_per_month: 1, report: 'none', support_sla_hours: 24 } },
+    business: { id: 'business', name: 'БИЗНЕС', order: 3, price: 6900, public: true, inherits: null, limits: {
+      posts_per_week: 7, slots_per_day: 1, rubrics_max: 4, custom_rubrics_max: 0,
+      holidays_enabled: true, holidays_extra: false, holiday_posts: 2, holiday_promo: false,
+      style_mode: 'tov_brief', visual_mode: 'brand_logo', content_plan: true,
+      preapprove_first_posts: 0, rubric_edits_per_month: 2, report: 'none', support_sla_hours: 12 } },
+    premium: { id: 'premium', name: 'ПРЕМИУМ', order: 4, price: 11900, public: true, inherits: null, limits: {
+      posts_per_week: 10, slots_per_day: 2, rubrics_max: 5, custom_rubrics_max: 0,
+      holidays_enabled: true, holidays_extra: true, holiday_posts: 3, holiday_promo: false,
+      style_mode: 'tov_samples', visual_mode: 'niche_photos', content_plan: true,
+      preapprove_first_posts: 0, rubric_edits_per_month: 4, report: 'pdf', support_sla_hours: 4 } },
+    max: { id: 'max', name: 'МАКСИМУМ', order: 5, price: 19900, price_from: true, public: true, inherits: 'premium', limits: {
+      posts_per_week: 14, slots_per_day: 2, rubrics_max: 5, custom_rubrics_max: 2,
+      holidays_enabled: true, holidays_extra: true, holiday_posts: 3, holiday_promo: true,
+      style_mode: 'tov_tuned', visual_mode: 'custom_photos', content_plan: true,
+      preapprove_first_posts: 0, rubric_edits_per_month: 8, report: 'pdf_call', support_sla_hours: 0 } }
+  }
+};
+
+/** Все id по возрастанию order. */
+function tariffIds() {
+  const T = TARIFFS.tariffs;
+  return Object.keys(T).sort((a, b) => (T[a].order || 0) - (T[b].order || 0));
+}
+
+function defaultTariffId() { return tariffIds()[0] || 'start'; }
+
+function tariffDef(id) { return TARIFFS.tariffs[id] || TARIFFS.tariffs[defaultTariffId()] || null; }
+
+function tariffName(id) { const d = tariffDef(id); return d ? d.name : ''; }
+
+/** Любое написание (id, имя, алиас, «БИЗНЕС — 2 поста в день») -> id. */
+function normTariff(v) {
+  const T = TARIFFS.tariffs, A = TARIFFS.aliases || {};
+  const s = String(v === null || v === undefined ? '' : v)
+    .toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+  if (!s) return defaultTariffId();
+  if (T[s]) return s;
+  for (const a in A) if (a.toLowerCase() === s && T[A[a]]) return A[a];
+  for (const id in T) if (String(T[id].name).toLowerCase() === s) return id;
+  const desc = tariffIds().slice().reverse();
+  for (let i = 0; i < desc.length; i++) {
+    if (s.indexOf(String(T[desc[i]].name).toLowerCase()) >= 0 || s.indexOf(desc[i]) >= 0) return desc[i];
+  }
+  for (const a2 in A) if (T[A[a2]] && s.indexOf(a2.toLowerCase()) >= 0) return A[a2];
+  return defaultTariffId();
+}
+
+/** Лимиты: наследование -> собственные -> персональный оверрайд клиента. */
+function tariffLimits(tariffOrClient) {
+  let id, override = null;
+  if (tariffOrClient && typeof tariffOrClient === 'object') {
+    id = normTariff(tariffOrClient.tariffId || tariffOrClient.tariff);
+    override = tariffOrClient.limitsOverride || null;
+    if (typeof override === 'string') { try { override = JSON.parse(override); } catch (e) { override = null; } }
+  } else {
+    id = normTariff(tariffOrClient);
+  }
+  const def = tariffDef(id);
+  const out = {};
+  if (!def) return out;
+  const put = src => { for (const k in src) if (k.charAt(0) !== '_') out[k] = src[k]; };
+  if (def.inherits && tariffDef(def.inherits)) put(tariffDef(def.inherits).limits || {});
+  put(def.limits || {});
+  if (override) put(override);
+  return out;
+}
+
+/** Подпись значения лимита для человека. */
+function limitLabel(key, value) {
+  const e = TARIFFS.enums || {};
+  if (e[key] && e[key][value] !== undefined) return e[key][value];
+  if (value === true) return 'да';
+  if (value === false) return 'нет';
+  if (key === 'support_sla_hours') return Number(value) === 0 ? 'прямой контакт' : 'до ' + value + ' ч';
+  return String(value);
+}
 const SLOTS = [
   { key: 'morning', label: 'Утро', times: '07:00 UTC · 10:00 МСК' },
   { key: 'midday', label: 'День', times: '11:00 UTC · 14:00 МСК' },
@@ -927,7 +1164,9 @@ function shortDate(v) {
 }
 const NOW = new Date();
 const TODAY = d(NOW.getFullYear(), NOW.getMonth() + 1, NOW.getDate());
-const priceOf = t => PRICE[t] || 0;
+const priceOf = t => (tariffDef(normTariff(t)) || {}).price || 0;
+const tariffLabel = t => tariffName(normTariff(t));
+const tariffOrderOf = t => (tariffDef(normTariff(t)) || {}).order || 0;
 
 function client(o) {
   return Object.assign({
@@ -940,7 +1179,8 @@ function client(o) {
     lastPostDate: '—', lastPostStatus: 'Не запущен',
     tgChannel: '', morningPhoto: false, holidaysExtra: '',
     paidAt: null, payMonths: 0,
-    letterSetup: '', letterLaunch: '', diskLink: '', firstPostDate: null
+    letterSetup: '', letterLaunch: '', diskLink: '', firstPostDate: null,
+    limitsOverride: null, tariffHistory: []
   }, o);
 }
 
@@ -1035,10 +1275,13 @@ function fromApi(o) {
     clientNumber: String(o.clientNumber || ''),
     styleSourceText: '',
     checks: o.checks || {},
+    limitsOverride: o.limitsOverride || null,
+    tariffHistory: Array.isArray(o.tariffHistory) ? o.tariffHistory : [],
     rubrics: (o.rubrics || []).map(r => ({
       name: String(r.name || ''), days: String(r.days || ''),
       prompt: String(r.prompt || ''), example: String(r.example || ''),
-      manual: !!r.manual
+      manual: !!r.manual, dormant: !!r.dormant, custom: !!r.custom,
+      dormantSince: String(r.dormantSince || '')
     })),
     edits: ''
   }));
@@ -1060,7 +1303,8 @@ function toApi(c) {
     stylePrompt: c.stylePrompt, niche: c.niche,
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
-    lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus
+    lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus,
+    limitsOverride: c.limitsOverride || null, tariffHistory: c.tariffHistory || []
   };
 }
 
@@ -1236,14 +1480,15 @@ const PILL = 'display: inline-block; font-size: 11.5px; font-weight: 500; paddin
 
 class Component extends DCLogic {
   state = {
-    view: 'list', current: '', tab: 'brief', q: '', filter: 'Все',
+    view: 'list', current: '', tab: 'brief', q: '', filter: 'Все', tariffTab: 'all',
     clients: [], busy: null, copied: null, toast: null, saved: false, pushed: false,
     briefs: [], log: [], logFilter: 'Все',
     conn: loadConn(), props: {}, demo: false, loading: true, syncAt: 'загрузка…',
     settingsSaved: false, tested: null, deployed: {},
     showNew: false, form: { business: '', name: '', phone: '', email: '', tg: '', city: 'Санкт-Петербург' },
     newTariff: 'ПРО', newSource: 'Avito',
-    payDraft: null, payCancelArm: null
+    payDraft: null, payCancelArm: null,
+    tariffMove: null   // { to, keep: [имена рубрик], keepSlots: [ключи] }
   };
 
   /* ---- загрузка данных ------------------------------------------- */
@@ -1252,7 +1497,24 @@ class Component extends DCLogic {
   bootOnce() {
     if (this._booted) return;
     this._booted = true;
-    setTimeout(() => this.boot(), 0);
+    setTimeout(() => { this.loadTariffs(); this.boot(); }, 0);
+  }
+
+  /**
+   * Свежий реестр тарифов из ../tariffs.json (тот же репозиторий, что и
+   * GitHub Pages). Молча оставляет встроенную копию, если файла нет —
+   * интерфейс не должен ломаться из-за отсутствующего справочника.
+   */
+  loadTariffs() {
+    if (typeof fetch !== 'function') return;
+    fetch('../tariffs.json', { cache: 'no-cache' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (!j || !j.tariffs || !Object.keys(j.tariffs).length) return;
+        TARIFFS = j;
+        this.setState({});   // перерисовка с новым справочником
+      })
+      .catch(() => {});
   }
 
   /** GET clients + briefs + log + settings. Без WEBAPP_URL — демо-режим. */
@@ -1391,19 +1653,20 @@ class Component extends DCLogic {
     const q = st.q.trim().toLowerCase();
     const filtered = cs.filter(x => {
       const matchQ = !q || [x.business, x.name, x.city, x.id, x.niche].join(' ').toLowerCase().indexOf(q) >= 0;
+      const matchT = st.tariffTab === 'all' || normTariff(x.tariff) === st.tariffTab;
       const f = st.filter;
       const matchF = f === 'Все' ? true
         : f === 'Неактивные' ? !x.active
         : f === 'Оплачено' ? x.pay === 'paid'
         : f === 'Ждут' ? x.pay === 'due' || x.pay === 'brief'
         : x.pay === 'overdue';
-      return matchQ && matchF;
+      return matchQ && matchF && matchT;
     });
 
     const rows = filtered.map(x => ({
       business: x.business,
       sub: x.name + ' · ' + x.niche + ' · ' + x.city,
-      tariff: x.tariff, slots: slotLabel(x),
+      tariff: tariffLabel(x.tariff), slots: slotLabel(x),
       payLabel: payOf(x.pay).label, payStyle: pillOf(x.pay),
       nextPay: fmt(x.nextPay),
       lastPost: x.lastPostStatus.indexOf('Ошибка') === 0 ? '⚠ ' + x.lastPostDate : x.lastPostDate,
@@ -1419,6 +1682,29 @@ class Component extends DCLogic {
         this.quietSave(x.id, { active: next }, { active: x.active });
       }
     }));
+
+    /* Вкладки по тарифам. Считаются по всем клиентам, а не по отфильтрованным,
+       иначе счётчик прыгал бы при вводе в поиск. Тариф без клиентов всё равно
+       показывается — так видно, что раздел существует. */
+    const countByTariff = {};
+    cs.forEach(x => {
+      const id = normTariff(x.tariff);
+      countByTariff[id] = (countByTariff[id] || 0) + 1;
+    });
+    const tariffTabs = [{ key: 'all', label: 'Все', badge: cs.length }].concat(
+      tariffIds().map(id => ({ key: id, label: tariffName(id), badge: countByTariff[id] || 0 }))
+    ).map(t => {
+      const on = st.tariffTab === t.key;
+      return {
+        label: t.label,
+        badge: String(t.badge),
+        onClick: () => this.setState({ tariffTab: t.key }),
+        style: 'display: inline-flex; align-items: center; gap: 6px; border: none; background: none; cursor: pointer; font-family: inherit; font-size: 12.5px; padding: 7px 11px; margin-bottom: -1px; border-bottom: 2px solid ' +
+          (on ? accent + '; font-weight: 600; color: #14171a;' : 'transparent; font-weight: 500; color: #6b7078;'),
+        badgeStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; ' +
+          (on ? 'background: ' + accent + '; color: #fff;' : 'background: #eeeeea; color: #7c8189;')
+      };
+    });
 
     const filters = ['Все', 'Оплачено', 'Ждут', 'Просрочка', 'Неактивные'].map(f => ({
       label: f,
@@ -1481,9 +1767,84 @@ class Component extends DCLogic {
       });
     });
 
+    /* ---- смена тарифа --------------------------------------------------
+     * Зеркало planTariffChange_ из tariffs.gs. Считаем на фронте, чтобы
+     * диалог открывался мгновенно; применяет всё равно сервер, он же
+     * и перепроверяет — браузеру верить нельзя.
+     * ------------------------------------------------------------------ */
+    const LIMIT_META = {
+      posts_per_week: { title: 'Постов в неделю', cmp: 'more' },
+      slots_per_day: { title: 'Слотов в день', cmp: 'more' },
+      rubrics_max: { title: 'Рубрик', cmp: 'more' },
+      custom_rubrics_max: { title: 'Своих рубрик', cmp: 'more' },
+      holidays_enabled: { title: 'Праздничные посты', cmp: 'bool' },
+      holidays_extra: { title: 'Свои праздничные даты', cmp: 'bool' },
+      holiday_posts: { title: 'Постов на праздник', cmp: 'more' },
+      holiday_promo: { title: 'Промо-серии к праздникам', cmp: 'bool' },
+      style_mode: { title: 'Стиль', cmp: 'rank', rank: ['template_brief', 'tov_brief', 'tov_samples', 'tov_tuned'] },
+      visual_mode: { title: 'Визуал', cmp: 'rank', rank: ['brand_colors', 'brand_logo', 'niche_photos', 'custom_photos'] },
+      content_plan: { title: 'Согласование контент-плана', cmp: 'bool' },
+      rubric_edits_per_month: { title: 'Правок рубрик в месяц', cmp: 'more' },
+      report: { title: 'Отчёт', cmp: 'rank', rank: ['none', 'pdf', 'pdf_call'] },
+      support_sla_hours: { title: 'Ответ поддержки', cmp: 'sla' }
+    };
+    const limitCmp = (key, a, b) => {
+      const m = LIMIT_META[key] || {};
+      if (m.cmp === 'more') { const x = Number(a) || 0, y = Number(b) || 0; return y > x ? 1 : (y < x ? -1 : 0); }
+      if (m.cmp === 'bool') { const x = !!a, y = !!b; return (y && !x) ? 1 : ((!y && x) ? -1 : 0); }
+      if (m.cmp === 'rank') { const i = m.rank.indexOf(a), j = m.rank.indexOf(b); if (i < 0 || j < 0) return 0; return j > i ? 1 : (j < i ? -1 : 0); }
+      if (m.cmp === 'sla') { const x = Number(a) === 0 ? -1 : Number(a), y = Number(b) === 0 ? -1 : Number(b); return y < x ? 1 : (y > x ? -1 : 0); }
+      return 0;
+    };
+    const rubricDays = r => String(r.days || '').split(',').map(d2 => d2.trim()).filter(Boolean).length;
+
+    const move = st.tariffMove && st.tariffMove.id === c.id ? st.tariffMove : null;
+    const moveTo = move ? move.to : normTariff(c.tariff);
+    const limFrom = tariffLimits(c);
+    const limTo = tariffLimits(moveTo);
+
+    const moveGains = [], moveLosses = [];
+    Object.keys(LIMIT_META).forEach(k => {
+      if (limFrom[k] === undefined && limTo[k] === undefined) return;
+      const cmp = limitCmp(k, limFrom[k], limTo[k]);
+      if (!cmp) return;
+      (cmp > 0 ? moveGains : moveLosses).push({
+        title: LIMIT_META[k].title,
+        from: limitLabel(k, limFrom[k]),
+        to: limitLabel(k, limTo[k])
+      });
+    });
+
+    const allRubrics = c.rubrics || [];
+    const liveRubrics = allRubrics.filter(r => !r.dormant);
+    const sleeping = allRubrics.filter(r => r.dormant);
+    // при повышении спящие возвращаются автоматически, если влезают
+    const moveKeep = move ? move.keep : liveRubrics.map(r => r.name);
+    const roomR = (limTo.rubrics_max || 0);
+    const keptRegular = moveKeep.filter(n => {
+      const r = allRubrics.find(x => x.name === n);
+      return r && !r.custom;
+    });
+    const keptCustom = moveKeep.filter(n => {
+      const r = allRubrics.find(x => x.name === n);
+      return r && r.custom;
+    });
+
+    const moveSlots = move && move.keepSlots ? move.keepSlots : (c.slots || []);
+    const maxSlotsTo = limTo.slots_per_day || 1;
+    let weekTo = 0;
+    moveKeep.forEach(n => { const r = allRubrics.find(x => x.name === n); if (r) weekTo += rubricDays(r); });
+
+    const moveConflicts = [];
+    if (keptRegular.length > roomR) moveConflicts.push('Оставлено рубрик ' + keptRegular.length + ', тариф даёт ' + roomR);
+    if (keptCustom.length > (limTo.custom_rubrics_max || 0)) moveConflicts.push('Оставлено своих рубрик ' + keptCustom.length + ', тариф даёт ' + (limTo.custom_rubrics_max || 0));
+    if (moveSlots.length > maxSlotsTo) moveConflicts.push('Выбрано слотов ' + moveSlots.length + ', тариф даёт ' + maxSlotsTo);
+    if (weekTo > (limTo.posts_per_week || 0)) moveConflicts.push('Постов в неделю ' + weekTo + ', тариф даёт ' + (limTo.posts_per_week || 0));
+
     const doneCount = CHECKS.filter(k => c.checks[k.key]).length;
     const styleFilled = c.styleAnswers.filter(a => a.trim()).length;
-    const maxSlots = c.tariff === 'СТАРТ' ? 1 : 2;
+    const lim = tariffLimits(c);
+    const maxSlots = lim.slots_per_day || 1;
 
     /* ---- вкладка «Оплаты» ------------------------------------------
      * Черновик живёт в state.payDraft и в таблицу ничего не пишет.
@@ -1637,7 +1998,7 @@ class Component extends DCLogic {
       payRows: cs.slice().sort((a, b) => (a.nextPay ? a.nextPay.getTime() : 9e15) - (b.nextPay ? b.nextPay.getTime() : 9e15)).map(x => {
         const days = x.nextPay ? Math.round((x.nextPay - TODAY) / 86400000) : null;
         return {
-          id: x.id, business: x.business, tariff: x.tariff, price: priceOf(x.tariff).toLocaleString('ru-RU'),
+          id: x.id, business: x.business, tariff: tariffLabel(x.tariff), price: priceOf(x.tariff).toLocaleString('ru-RU'),
           nextPay: fmt(x.nextPay),
           due: days === null ? 'бриф не обработан' : days < 0 ? 'просрочка ' + Math.abs(days) + ' дн.' : days === 0 ? 'сегодня' : 'через ' + days + ' дн.',
           payLabel: payOf(x.pay).label, payStyle: pillOf(x.pay),
@@ -1777,7 +2138,7 @@ class Component extends DCLogic {
       statDue: cs.filter(x => x.pay === 'due' || x.pay === 'brief').length,
       statOverdue: cs.filter(x => x.pay === 'overdue').length,
       q: st.q, onSearch: e => this.setState({ q: e.target.value }),
-      rows, filters, tabs,
+      rows, filters, tabs, tariffTabs,
       navActive: 'background: ' + accent + '; color: #fff;',
       btnPrimary: this.btn('primary', ' width: 100%; margin-top: 14px;'),
       btnPush: this.btn('primary', ' flex: none;'),
@@ -1788,11 +2149,13 @@ class Component extends DCLogic {
       tabContent: st.tab === 'content', tabPayments: st.tab === 'payments',
       tabComms: st.tab === 'comms',
       // подсказка честно показывает, дойдут ли праздники до постинга
-      holidayHint: c.tariff === 'СТАРТ'
-        ? 'Тариф СТАРТ — праздничные посты не выходят, включая эти.'
+      holidayHint: lim.holidays_enabled === false
+        ? 'Тариф ' + tariffLabel(c.tariff) + ' — праздничные посты не выходят, включая эти.'
         : String(c.holidays || '').indexOf('Не нужны') === 0
           ? 'В брифе выбрано «Не нужны» — праздничные посты не выходят.'
-          : 'Плюс базовый список: Новый год, Рождество, 14 февраля, 23 февраля, 8 марта, 1 мая, 1 сентября, 31 декабря. Анонсы за 7 и за 1 день — вечером, поздравление — утром.',
+          : lim.holidays_extra === false
+            ? 'Свои даты доступны с тарифа ПРЕМИУМ — сохранятся, но публиковаться не будут. Базовый список выходит: Новый год, Рождество, 14 февраля, 23 февраля, 8 марта, 1 мая, 1 сентября, 31 декабря.'
+            : 'Плюс базовый список: Новый год, Рождество, 14 февраля, 23 февраля, 8 марта, 1 мая, 1 сентября, 31 декабря. На праздник выходит постов: ' + (lim.holiday_posts || 0) + '.',
       morningPhotoOn: !!c.morningPhoto,
       hasNicheHolidays: nicheHolidayChips.length > 0,
       nicheHolidayChips,
@@ -1804,7 +2167,7 @@ class Component extends DCLogic {
       set,
       c: {
         id: c.id, business: c.business, name: c.name, niche: c.niche, city: c.city,
-        tariff: c.tariff, price: priceOf(c.tariff).toLocaleString('ru-RU'),
+        tariff: tariffLabel(c.tariff), price: priceOf(c.tariff).toLocaleString('ru-RU'),
         about: c.about, audience: c.audience, tone: c.tone, holidays: c.holidays,
         faq: c.faq, cta: c.cta, limitsText: c.limitsText,
         phone: c.phone, tg: c.tg, email: c.email, source: c.source,
@@ -1823,13 +2186,105 @@ class Component extends DCLogic {
       lastStatusStyle: c.lastPostStatus.indexOf('Ошибка') === 0
         ? PILL + 'background: #fbe9e7; color: #a91f18; border: 1px solid #f0cdc9;'
         : PILL + 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;',
-      slotsHint: c.tariff === 'СТАРТ' ? 'СТАРТ: один слот' : c.tariff + ': до двух слотов',
+      /* ---- диалог смены тарифа ---- */
+      moveOpen: !!move,
+      moveFromName: tariffLabel(c.tariff),
+      moveToName: tariffName(moveTo),
+      moveFromPrice: priceOf(c.tariff).toLocaleString('ru-RU'),
+      moveToPrice: priceOf(moveTo).toLocaleString('ru-RU'),
+      moveDir: tariffOrderOf(moveTo) > tariffOrderOf(c.tariff) ? 'Повышение'
+             : tariffOrderOf(moveTo) < tariffOrderOf(c.tariff) ? 'Понижение' : 'Без изменения',
+      moveDirStyle: PILL + (tariffOrderOf(moveTo) >= tariffOrderOf(c.tariff)
+        ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
+        : 'background: #fbf0da; color: #8a5a00; border: 1px solid #eddcb4;'),
+      moveGains, moveLosses,
+      moveHasGains: moveGains.length > 0,
+      moveNoGains: moveGains.length === 0,
+      moveHasLosses: moveLosses.length > 0,
+      moveNoLosses: moveLosses.length === 0,
+      moveConflicts: moveConflicts.map(m => ({ text: m })),
+      moveHasConflicts: moveConflicts.length > 0,
+      moveWeek: weekTo + ' / ' + (limTo.posts_per_week || 0),
+      moveRubricCount: (keptRegular.length + keptCustom.length) + ' / ' + (roomR + (limTo.custom_rubrics_max || 0)),
+      moveTariffBtns: tariffIds().map(id => ({
+        label: tariffName(id),
+        onClick: () => this.setState({ tariffMove: { id: c.id, to: id, keep: moveKeep.slice(), keepSlots: moveSlots.slice() } }),
+        style: 'border: 1px solid ' + (moveTo === id ? accent : '#dedeD9') + '; background: ' + (moveTo === id ? accent : '#fff') +
+          '; color: ' + (moveTo === id ? '#fff' : '#14171a') + '; font-family: inherit; font-size: 12px; font-weight: 500; padding: 6px 11px; border-radius: 5px; cursor: pointer;'
+      })),
+      // спящие показываем тоже: при повышении их можно вернуть галочкой
+      moveRubricRows: allRubrics.map(r => {
+        const on = moveKeep.indexOf(r.name) >= 0;
+        return {
+          name: r.name,
+          days: r.days || '—',
+          tag: r.custom ? 'своя' : (r.dormant ? 'спит' : ''),
+          tagStyle: (r.custom || r.dormant)
+            ? PILL + 'font-size: 10px; background: #f1f1ed; color: #7c8189; border: 1px solid #e2e2dd;'
+            : 'display: none;',
+          boxStyle: 'width: 15px; height: 15px; flex: none; border-radius: 3px; border: 1px solid ' +
+            (on ? accent : '#c8c8c3') + '; background: ' + (on ? accent : '#fff') + ';',
+          markStyle: on ? 'color: #fff; font-size: 11px; line-height: 15px; display: block; text-align: center;' : 'display: none;',
+          rowStyle: 'display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 7px 9px; border: 1px solid ' +
+            (on ? '#d3dbfa' : '#eeeeea') + '; background: ' + (on ? '#f7f8fd' : '#fff') +
+            '; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 12.5px;',
+          onToggle: () => {
+            const next = on ? moveKeep.filter(n => n !== r.name) : moveKeep.concat([r.name]);
+            this.setState({ tariffMove: { id: c.id, to: moveTo, keep: next, keepSlots: moveSlots.slice() } });
+          }
+        };
+      }),
+      moveSlotRows: SLOTS.map(sl => {
+        const on = moveSlots.indexOf(sl.key) >= 0;
+        return {
+          label: sl.label, times: sl.times,
+          boxStyle: 'width: 15px; height: 15px; flex: none; border-radius: 3px; border: 1px solid ' +
+            (on ? accent : '#c8c8c3') + '; background: ' + (on ? accent : '#fff') + ';',
+          markStyle: on ? 'color: #fff; font-size: 11px; line-height: 15px; display: block; text-align: center;' : 'display: none;',
+          rowStyle: 'display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 7px 9px; border: 1px solid ' +
+            (on ? '#d3dbfa' : '#eeeeea') + '; background: ' + (on ? '#f7f8fd' : '#fff') +
+            '; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 12.5px;',
+          onToggle: () => {
+            const next = on ? moveSlots.filter(k => k !== sl.key) : moveSlots.concat([sl.key]);
+            this.setState({ tariffMove: { id: c.id, to: moveTo, keep: moveKeep.slice(), keepSlots: next } });
+          }
+        };
+      }),
+      openMove: () => this.setState({ tariffMove: { id: c.id, to: normTariff(c.tariff), keep: liveRubrics.map(r => r.name), keepSlots: (c.slots || []).slice() } }),
+      closeMove: () => this.setState({ tariffMove: null }),
+      moveApplyLabel: busy === 'move' ? 'Применяю…' : 'Перевести на ' + tariffName(moveTo),
+      moveApplyBtn: (moveConflicts.length || busy || moveTo === normTariff(c.tariff)) ? this.btn('off') : this.btn('primary'),
+      applyMove: () => {
+        if (moveConflicts.length) return this.flash('Сначала разрешите конфликты');
+        if (moveTo === normTariff(c.tariff)) return this.flash('Тариф не изменился');
+        const payload = { id: c.id, tariff: moveTo, keepRubrics: moveKeep, keepSlots: moveSlots };
+        const applyLocal = () => {
+          const rubrics = allRubrics.map(r => Object.assign({}, r, moveKeep.indexOf(r.name) >= 0
+            ? { dormant: false, dormantSince: '' }
+            : { dormant: true, dormantSince: isoDate(TODAY) }));
+          this.patch(c.id, { tariff: tariffName(moveTo), rubrics, slots: moveSlots, limitsOverride: null });
+          this.setState({ tariffMove: null });
+        };
+        this.act('move',
+          () => apiPost(conn, 'set_tariff', payload).then(r => {
+            const fresh = fromApi(r.client);
+            this.setState(s2 => ({
+              clients: s2.clients.map(x => (x.id === fresh.id ? fresh : x)),
+              tariffMove: null
+            }));
+            const slept = (r.slept || []).length;
+            this.flash('Тариф: ' + tariffName(moveTo) + (slept ? ' · уснуло рубрик: ' + slept : ''));
+          }),
+          () => { applyLocal(); this.flash('Демо: тариф изменён только на экране'); });
+      },
+
+      slotsHint: tariffLabel(c.tariff) + (maxSlots === 1 ? ': один слот' : ': до ' + maxSlots + ' слотов') + ', до ' + (lim.posts_per_week || 0) + ' постов в неделю',
       slotRows: SLOTS.map(s => {
         const on = c.slots.indexOf(s.key) >= 0;
         return {
           label: s.label, times: s.times,
           onToggle: () => {
-            if (!on && c.slots.length >= maxSlots) return this.flash('Тариф ' + c.tariff + ' — не больше ' + maxSlots + ' слотов');
+            if (!on && c.slots.length >= maxSlots) return this.flash('Тариф ' + tariffLabel(c.tariff) + ' — не больше ' + maxSlots + ' слотов');
             toggleIn('slots', s.key);
           },
           style: 'display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 5px; cursor: pointer; font-size: 12.5px; border: 1px solid ' +
