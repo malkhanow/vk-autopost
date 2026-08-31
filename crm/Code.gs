@@ -3545,11 +3545,9 @@ function pdfRubricPage_(r, num, total) {
   L.push('<div style="font-size: 12px; color: #6b7078; margin: 0 0 22px">' +
     'Дни выхода: <b>' + pdfEsc_(r.days) + '</b></div>');
 
-  if (str_(r.prompt)) {
-    L.push('<div style="padding: 11px 13px; background: #f6f6f3; border-radius: 4px;' +
-      ' font-size: 11.5px; line-height: 1.6; color: #6b7078; margin-bottom: 24px">' +
-      '<b style="color: #3e434a">О чём эта рубрика.</b> ' + pdfText_(r.prompt) + '</div>');
-  }
+  // Промпт рубрики в документ намеренно не идёт: это инструкция для
+  // нейросети в повелительном наклонении, со служебными запретами.
+  // Клиенту рубрику объясняют подпись и сам пример.
 
   L.push('<div style="font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #8a8f96;' +
     ' margin-bottom: 12px">Пример поста</div>');
