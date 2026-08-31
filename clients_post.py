@@ -409,6 +409,26 @@ def strip_model_noise(text):
     return s
 
 
+def append_cta(text, client):
+    """
+    Дописывает призыв к действию из карточки клиента дословно.
+
+    Раньше CTA уходил в промпт строкой «Призыв к действию в конце» — модель
+    считала это темой для пересказа и переписывала его своими словами,
+    теряя телефон и ник. Заглушка клиента меняться не должна.
+    """
+    cta = (client.get("cta") or "").strip()
+    if not cta:
+        return text
+    body = (text or "").rstrip()
+    # Если модель всё же дописала CTA сама — не дублируем.
+    tail = body[-len(cta) - 40:].lower() if body else ""
+    first_line = cta.splitlines()[0].strip().lower()
+    if first_line and first_line in tail:
+        return body
+    return body + "\n\n" + cta
+
+
 def append_hashtags(text, client):
     """
     Дописывает хэштеги из поля hashtags конфига клиента в конец поста.
@@ -484,8 +504,12 @@ def build_post(client, rubric, photo_path=None):
     ]
     if forbidden:
         lines.append("Запрещено упоминать: " + "; ".join(forbidden))
-    if client.get("cta"):
-        lines.append(f"Призыв к действию в конце: {client['cta']}")
+    # CTA намеренно не уходит в промпт: он приклеивается дословно
+    # постобработкой в append_cta. Модель его только портила.
+    lines.append(
+        "Не пиши в конце поста призыв к действию, контакты, ссылки и приглашение "
+        "подписаться — они добавляются автоматически после генерации."
+    )
 
     style = (
         f"строго в стиле, описанном ниже:\n{client['style_prompt']}\n"
@@ -724,8 +748,11 @@ def build_holiday_post(client, holiday, kind):
     ]
     if forbidden:
         lines.append("Запрещено упоминать: " + "; ".join(forbidden))
-    if client.get("cta") and not holiday.get("solemn"):
-        lines.append(f"Призыв к действию в конце: {client['cta']}")
+    # CTA добавляется дословно после генерации (append_cta), в промпт не идёт.
+    lines.append(
+        "Не пиши в конце поста призыв к действию, контакты и ссылки — "
+        "они добавляются автоматически после генерации."
+    )
 
     system = (
         "Ты пишешь праздничные посты для соцсетей малого бизнеса от лица "
@@ -1255,6 +1282,9 @@ def main():
                         pass
                 continue
 
+        # У торжественных праздников призыв к действию неуместен.
+        if not (holiday and holiday.get("solemn")):
+            text = append_cta(text, client)
         text = append_hashtags(text, client)
         print(f"{cid}: публикую {what} в {channel}")
         try:
