@@ -41,8 +41,10 @@ GitHub Secrets:
   ROUTERAI_KEY        — тот же ключ, что в Apps Script Script Properties
   TELEGRAM_BOT_TOKEN  — общий бот, admin во всех каналах клиентов
   YANDEX_TOKEN        — OAuth-токен Яндекс.Диска (общий, папки разные)
-  PEXELS_KEY          — фотосток для праздничных постов. Не задан —
-                        праздничные посты уходят текстом, без картинки.
+
+Фото к праздникам берутся из своей библиотеки на Яндекс.Диске
+(HOLIDAYS_FOLDER, одна папка на праздник), а не с фотостока: сток по
+запросу выдавал случайные кадры и в канал клиента уходил мусор.
 """
 
 import base64
@@ -67,7 +69,10 @@ ROUTERAI_MODEL = os.environ.get("ROUTERAI_MODEL", "google/gemini-3.1-flash-lite"
 ROUTERAI_KEY = os.environ["ROUTERAI_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 YANDEX_TOKEN = os.environ.get("YANDEX_TOKEN", "")
-PEXELS_KEY   = os.environ.get("PEXELS_KEY", "")
+# Общая библиотека праздничных фото на Яндекс.Диске: одна папка на праздник,
+# имя папки = ключ праздника из BASE_HOLIDAYS (для нишевых — extra-ММ-ДД).
+# Фото кладутся руками, не расходуются и перебираются по кругу.
+HOLIDAYS_FOLDER = os.environ.get("HOLIDAYS_FOLDER", "Autopost WORK/holidays")
 WEBAPP_URL   = os.environ.get("WEBAPP_URL", "")
 WEBAPP_TOKEN = os.environ.get("WEBAPP_TOKEN", "")
 
@@ -146,19 +151,6 @@ HOLIDAY_KINDS = {
     "day": "поздравление",
 }
 
-# Запасные запросы к фотостоку: обычно запрос придумывает модель, но если
-# она не ответила — берём отсюда, чтобы пост не остался без картинки.
-# Английский — на стоках по нему в разы больше материала, чем по русскому.
-HOLIDAY_IMAGE_QUERIES = {
-    "new_year":   "new year celebration lights",
-    "christmas":  "christmas candles winter",
-    "valentine":  "valentines day hearts",
-    "defender":   "red carnations memorial",
-    "womens_day": "spring flowers bouquet women",
-    "spring_may": "spring blossom sunny day",
-    "knowledge":  "school books autumn",
-    "nye":        "new year eve fireworks",
-}
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -703,97 +695,55 @@ def build_holiday_post(client, holiday, kind):
     )
 
 
-def holiday_image_query(holiday):
+def holiday_photo(client, holiday, state=None, client_id=""):
     """
-    Поисковый запрос к фотостоку под конкретный праздник. Придумывает модель:
-    она знает, что 23 февраля — это не ёлка, а «День риелтора» — ключи и дом.
-    Просить у модели готовую ссылку на картинку нельзя: URL она выдумает,
-    поэтому её дело — только запрос, а картинку отдаёт сток.
+    Фото к празднику из собственной библиотеки на Яндекс.Диске.
+
+    Порядок поиска:
+      1. {yandex_folder}/holidays/{key} — личная папка клиента, если к
+         празднику у него должны быть свои картинки;
+      2. {HOLIDAYS_FOLDER}/{key} — общая библиотека для всех клиентов.
+
+    Файлы не расходуются: перебираются по кругу по алфавиту, как рубрики
+    tips/faq, — один раз положил 3–5 штук и больше за папкой не следишь.
+    Папки нет или она пуста — праздничный пост уходит текстом, без фото.
+
+    Фотосток здесь сознательно не используется: поиск по запросу выдаёт
+    случайные кадры, проверить их перед публикацией нечем.
     """
-    import re
-    fallback = HOLIDAY_IMAGE_QUERIES.get(holiday["key"], "")
-    try:
-        raw = ai_text(
-            [
-                {"role": "system", "content":
-                 "Ты подбираешь поисковый запрос для фотостока. В ответе — "
-                 "только сам запрос: 2–4 слова на английском, без кавычек, "
-                 "без пояснений и без точки в конце."},
-                {"role": "user", "content":
-                 f"Праздник: {holiday['name']}. Нужна атмосферная фотография "
-                 f"для поздравительного поста. Без надписей и текста на фото, "
-                 f"без узнаваемых людей крупным планом."},
-            ],
-            max_tokens=30, temperature=0.5,
-        )
-        # модель иногда добавляет кавычки, эмодзи или пояснение — чистим
-        cleaned = re.sub(r"[^A-Za-z0-9 ]", " ", raw)
-        cleaned = " ".join(cleaned.split()[:5]).strip()
-        if cleaned:
-            return cleaned
-        print(f"Пустой запрос к стоку для «{holiday['name']}» — беру запасной")
-    except Exception as e:
-        print(f"Не удалось подобрать запрос к стоку ({e}) — беру запасной")
-    return fallback
+    key = holiday["key"]
+    sources = []
+    own = (client.get("yandex_folder") or "").strip()
+    if own:
+        sources.append(f"{own}/holidays/{key}")
+    if HOLIDAYS_FOLDER:
+        sources.append(f"{HOLIDAYS_FOLDER}/{key}")
 
-
-def fetch_stock_photo(query):
-    """
-    Картинка с Pexels по запросу, или None. Без ключа PEXELS_KEY просто
-    возвращает None — праздничный пост тогда уйдёт текстом.
-    """
-    import random
-
-    if not PEXELS_KEY:
-        print("PEXELS_KEY не задан — праздничный пост уйдёт без фото.")
-        return None
-    if not query:
-        return None
-    try:
-        resp = requests.get(
-            "https://api.pexels.com/v1/search",
-            headers={"Authorization": PEXELS_KEY},
-            params={"query": query, "per_page": 15, "orientation": "landscape"},
-            timeout=30,
-        )
-        if resp.status_code != 200:
-            print(f"Pexels: HTTP {resp.status_code} по запросу «{query}»")
+    for source in sources:
+        files = list_folder(source)
+        if not files:
+            continue
+        names = sorted(f["name"] for f in files)
+        chosen_name = names[0]
+        if state is not None and client_id:
+            cs = client_state(state, client_id)
+            loop_key = f"holiday_loop_{key}"
+            last_name = cs.get(loop_key, "")
+            if last_name in names:
+                chosen_name = names[(names.index(last_name) + 1) % len(names)]
+            cs[loop_key] = chosen_name
+        chosen = next(f for f in files if f["name"] == chosen_name)
+        try:
+            local_path = download_yandex_file(chosen["path"])
+        except Exception as e:
+            print(f"Не удалось скачать {chosen['path']}: {e}")
             return None
-        photos = resp.json().get("photos", [])
-        if not photos:
-            print(f"Pexels: ничего не нашлось по запросу «{query}»")
-            return None
-        # не первый попавшийся: иначе один и тот же кадр из года в год
-        photo = random.choice(photos[:10])
-        url = (photo.get("src") or {}).get("large") or (photo.get("src") or {}).get("original")
-        if not url:
-            return None
+        print(f"Фото к празднику «{holiday['name']}»: {source}/{chosen_name}")
+        return local_path
 
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        with requests.get(url, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            size = 0
-            for chunk in r.iter_content(8192):
-                size += len(chunk)
-                if size > MAX_PHOTO_MB * 1024 * 1024:   # телеграм не примет больше
-                    tmp.close()
-                    os.unlink(tmp.name)
-                    print("Картинка со стока слишком большая — пропускаю.")
-                    return None
-                tmp.write(chunk)
-        tmp.close()
-        if os.path.getsize(tmp.name) < 1024:    # пустышка вместо картинки
-            os.unlink(tmp.name)
-            return None
-        print(f"Фото со стока: «{query}» · автор {photo.get('photographer', '—')}")
-        return tmp.name
-    except Exception as e:
-        print(f"Не удалось получить фото со стока ({e}) — пост уйдёт без него.")
-        return None
-
-
-def holiday_photo(holiday):
-    return fetch_stock_photo(holiday_image_query(holiday))
+    print(f"Нет фото для праздника «{holiday['name']}»: пусто в "
+          f"{' и в '.join(sources) or '—'}. Пост уйдёт текстом.")
+    return None
 
 
 # ---------- Telegram (с фолбэками — пост должен уйти всегда) ----------
@@ -1197,8 +1147,10 @@ def main():
                 continue
             what = f"праздник «{holiday['name']}» — {HOLIDAY_KINDS[kind]}"
             # фото из очереди клиента не тратим — оно ждёт своей рубрики;
-            # к празднику картинка приходит с фотостока по теме
-            photo_path, photo_meta = holiday_photo(holiday), None
+            # к празднику картинка берётся из библиотеки праздничных фото
+            # и в posted/ не переезжает (photo_meta = None)
+            photo_path, photo_meta = holiday_photo(holiday=holiday, client=client,
+                                                   state=state, client_id=cid), None
         else:
             rubric = pick_rubric_for_run(client, SLOT, today_abbr, state, test_mode)
             if not rubric:
