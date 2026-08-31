@@ -599,7 +599,8 @@
                   <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Бриф → Gemini → рубрики с расписанием и промптами. Примеры постов клиенту не публикуются — только на согласование.</p>
                   <sc-if value="{{ hasRubrics }}" hint-placeholder-val="{{ true }}">
                     <div style="border: 1px solid #ebebe7; border-radius: 5px; overflow: hidden">
-                      <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+                      <div style="display: grid; grid-template-columns: 18px 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+                        <div></div>
                         <div>Рубрика</div>
                         <div>Дни</div>
                         <div>Промпт</div>
@@ -607,9 +608,13 @@
                         <div></div>
                       </div>
                       <sc-for list="{{ rubrics }}" as="r" hint-placeholder-count="5">
-                        <div style="display: grid; grid-template-columns: 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px; gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start">
+                        <div draggable="{{ r.draggable }}" onDragStart="{{ r.onDragStart }}" onDragOver="{{ r.onDragOver }}" onDrop="{{ r.onDrop }}" onDragEnd="{{ r.onDragEnd }}" style="{{ r.rowStyle }}">
+                          <div onMouseDown="{{ r.onGrab }}" title="Перетащите, чтобы изменить порядок" style="cursor: grab; color: #c2c6cc; font-size: 13px; line-height: 1.6; user-select: none; text-align: center">⠿</div>
                           <div style="min-width: 0">
                             <input type="text" value="{{ r.name }}" onChange="{{ r.setName }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12.5px; font-weight: 500" />
+                            <sc-if value="{{ r.hasCaption }}" hint-placeholder-val="{{ true }}">
+                              <div style="margin-top: 4px; font-size: 10.5px; line-height: 1.4; color: #a0a4aa">{{ r.caption }}</div>
+                            </sc-if>
                           </div>
                           <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
                           <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
@@ -1051,6 +1056,16 @@
     });
   }
 
+  var EVENTS = {
+    click: 'click', change: 'input', input: 'input',
+    // перетаскивание рубрик: порядок меняется мышью
+    dragstart: 'dragstart', dragover: 'dragover', dragenter: 'dragenter',
+    dragleave: 'dragleave', drop: 'drop', dragend: 'dragend',
+    // ручка «⠿»: перетаскивание включается только с неё, чтобы
+    // выделение текста в полях строки продолжало работать
+    mousedown: 'mousedown'
+  };
+
   /* ---- разметка -> дерево описаний ---- */
 
   function build(node, scope, values, out) {
@@ -1090,9 +1105,7 @@
       var name = attr.name.toLowerCase();
       if (name.indexOf('hint-') === 0) continue;      // подсказки редактора холста
       var value = interpolate(attr.value, scope, values);
-      if (name === 'onclick') vnode.events.click = value;
-      else if (name === 'onchange') vnode.events.change = value;
-      else if (name === 'oninput') vnode.events.input = value;
+      if (name.indexOf('on') === 0 && EVENTS[name.slice(2)]) vnode.events[name.slice(2)] = value;
       else vnode.attrs[name] = value;
     }
     buildChildren(node, scope, values, vnode.children);
@@ -1159,8 +1172,6 @@
       if (el.getAttribute(name) !== str) el.setAttribute(name, str);
     });
   }
-
-  var EVENTS = { click: 'click', change: 'input', input: 'input' };
 
   function bindEvents(el, events) {
     el.__handlers = events;
@@ -1585,7 +1596,8 @@ function fromApi(o) {
     limitsOverride: o.limitsOverride || null,
     tariffHistory: Array.isArray(o.tariffHistory) ? o.tariffHistory : [],
     rubrics: (o.rubrics || []).map(r => ({
-      name: String(r.name || ''), days: String(r.days || ''),
+      name: String(r.name || ''), caption: String(r.caption || ''),
+      days: String(r.days || ''),
       prompt: String(r.prompt || ''), example: String(r.example || ''),
       manual: !!r.manual, dormant: !!r.dormant, custom: !!r.custom,
       dormantSince: String(r.dormantSince || '')
@@ -1814,6 +1826,7 @@ class Component extends DCLogic {
     showNew: false, form: { business: '', name: '', phone: '', email: '', tg: '', city: 'Санкт-Петербург' },
     newTariff: 'ПРО', newSource: 'Avito',
     payDraft: null, payCancelArm: null,
+    dragRubric: null, grabRubric: null,   // перетаскивание рубрик мышью
     tariffMove: null   // { to, keep: [имена рубрик], keepSlots: [ключи] }
   };
 
@@ -2212,7 +2225,7 @@ class Component extends DCLogic {
       forbidden: c.limits.concat(c.limitsText ? [c.limitsText] : []),
       cta: c.cta,
       faq: c.faq ? c.faq.split('\n') : [],
-      rubrics: c.rubrics.map(r => ({ name: r.name, days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt, manual: !!r.manual })),
+      rubrics: c.rubrics.map(r => ({ name: r.name, caption: r.caption || '', days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt, manual: !!r.manual })),
       tg_channel: c.tgChannel || null,
       morning_photo: !!c.morningPhoto,
       holidays_extra: c.holidaysExtra || '',
@@ -2789,8 +2802,37 @@ class Component extends DCLogic {
       },
       rubrics: c.rubrics.map((r, i) => {
         const upd = (key, val) => this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { [key]: val }) : x)) });
+        const dragFrom = st.dragRubric;
+        const isDragged = dragFrom === i;
         return {
           name: r.name, days: r.days, prompt: r.prompt, example: r.example || '— примера ещё нет',
+          caption: r.caption || '',
+          hasCaption: !!(r.caption || '').trim(),
+
+          // Перетаскивание начинается только с ручки «⠿»: иначе браузер
+          // перехватывает выделение текста в полях строки.
+          draggable: st.grabRubric === i ? 'true' : 'false',
+          onGrab: () => this.setState({ grabRubric: i }),
+          rowStyle: 'display: grid; grid-template-columns: 18px 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px;'
+            + ' gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start;'
+            + (isDragged ? ' opacity: 0.4;' : '')
+            + (dragFrom !== null && dragFrom !== undefined && dragFrom !== i ? ' background: #fafaf7;' : ''),
+          onDragStart: e => {
+            this.setState({ dragRubric: i });
+            try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); } catch (err) {}
+          },
+          onDragOver: e => { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (err) {} },
+          onDrop: e => {
+            e.preventDefault();
+            const from = st.dragRubric;
+            this.setState({ dragRubric: null, grabRubric: null });
+            if (from === null || from === undefined || from === i) return;
+            const list = c.rubrics.slice();
+            list.splice(i, 0, list.splice(from, 1)[0]);
+            this.patch(c.id, { rubrics: list });
+          },
+          onDragEnd: () => this.setState({ dragRubric: null, grabRubric: null }),
+
           nameBorder: r.manual ? '#2b4acf' : '#e6e6e1',
           lockIcon: r.manual ? '🔒' : '🔓',
           lockTitle: r.manual ? 'Зафиксировано — не удалится при пересборке плана. Нажми чтобы разблокировать.' : 'Нажми чтобы зафиксировать рубрику — она сохранится при пересборке плана.',
@@ -2809,7 +2851,7 @@ class Component extends DCLogic {
           onCopyPrompt: null
         };
       }),
-      addRubric: () => this.patch(c.id, { rubrics: c.rubrics.concat([{ name: 'Новая рубрика', days: 'пн', prompt: '', example: '', manual: true }]) }),
+      addRubric: () => this.patch(c.id, { rubrics: c.rubrics.concat([{ name: 'Новая рубрика', caption: '', days: 'пн', prompt: '', example: '', manual: true }]) }),
 
       // RouterAI: правки клиента -> обновлённые промпты рубрик
       applyLabel: busy === 'edits' ? 'Обновляю промпты…' : 'Применить правки',

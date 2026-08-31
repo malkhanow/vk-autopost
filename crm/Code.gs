@@ -924,7 +924,11 @@ function normRubrics_(v) {
       name: str_(r.name) || 'Рубрика',
       days: days || 'пн',
       prompt: str_(r.prompt),
-      example: str_(r.example)
+      example: str_(r.example),
+      // caption — живое название от модели. Само название рубрики берётся
+      // из чипа брифа и модели не принадлежит: клиент выбрал тему, а не
+      // повод её переименовать.
+      caption: str_(r.caption)
     };
     // флаг manual важно сохранять: без него пересборка плана
     // удаляет рубрики добавленные вручную
@@ -1516,6 +1520,7 @@ function buildConfig_(c) {
     rubrics: (c.rubrics || []).filter(function (r) { return !r.dormant; }).map(function (r) {
       return {
         name: r.name,
+        caption: r.caption || '',
         days: String(r.days || '').split(',').map(function (d) { return d.trim(); }).filter(String),
         prompt: r.prompt
       };
@@ -1739,7 +1744,6 @@ function briefContext_(c) {
       return sl ? sl.label + ' (' + sl.cron + ' UTC)' : k;
     }).join(', ') || 'не выбраны'),
     'FAQ: ' + (c.faq || 'нет'),
-    'Призыв к действию: ' + (c.cta || 'нет'),
     'Фото работ: ' + (c.hasPhoto || c.photoQueue ? 'есть' : 'нет')
   ];
   var forbidden = (c.limits || []).concat(c.limitsText ? [c.limitsText] : []);
@@ -1909,6 +1913,59 @@ function daysList_(v) {
 }
 
 /**
+ * Название рубрики принадлежит клиенту, а не модели.
+ *
+ * Если в брифе отмечены чипы, name берётся строго из них, а придуманное
+ * моделью название переезжает в caption и показывается подписью. Иначе
+ * клиент отмечает «Частые вопросы», а получает «Разбор нюансов».
+ */
+function alignToTopics_(rubrics, topics) {
+  if (!topics.length) return rubrics;
+
+  var free = topics.slice();
+  var take = function (name) {
+    var n = str_(name).toLowerCase();
+    for (var i = 0; i < free.length; i++) {
+      if (free[i].toLowerCase() === n) return free.splice(i, 1)[0];
+    }
+    // Модель часто отдаёт тему в перефразированном виде — ищем по вхождению.
+    for (var j = 0; j < free.length; j++) {
+      var f = free[j].toLowerCase();
+      if (n && (n.indexOf(f) >= 0 || f.indexOf(n) >= 0)) return free.splice(j, 1)[0];
+    }
+    return free.length ? free.shift() : '';
+  };
+
+  return rubrics.map(function (r) {
+    var topic = take(r.name);
+    if (!topic) return r;
+    var caption = str_(r.caption) || (str_(r.name) !== topic ? str_(r.name) : '');
+    r.caption = caption;
+    r.name = topic;
+    return r;
+  });
+}
+
+/**
+ * Сохраняет порядок рубрик при пересборке плана.
+ *
+ * Порядок задаётся вручную перетаскиванием, и пересборка не должна его
+ * ломать: рубрика, поднятая наверх, там и остаётся. Новые встают в конец.
+ */
+function keepRubricOrder_(rubrics, prev) {
+  var order = {};
+  (prev || []).forEach(function (r, i) { order[str_(r.name).toLowerCase()] = i; });
+
+  return rubrics
+    .map(function (r, i) {
+      var known = order[str_(r.name).toLowerCase()];
+      return { r: r, key: known === undefined ? 1000 + i : known };
+    })
+    .sort(function (a, b) { return a.key - b.key; })
+    .map(function (x) { return x.r; });
+}
+
+/**
  * Приводит план к квоте уже после ответа модели. Полагаться только на
  * инструкцию нельзя: модель регулярно возвращает больше, чем просили.
  */
@@ -1930,7 +1987,10 @@ function enforcePlanLimits_(rubrics, q) {
       days[big].pop();
     }
     out = out.map(function (r, i) {
-      return { name: r.name, days: days[i].join(', '), prompt: r.prompt, manual: r.manual };
+      return {
+        name: r.name, caption: r.caption, days: days[i].join(', '),
+        prompt: r.prompt, manual: r.manual
+      };
     }).filter(function (r) { return r.days; });
   }
 
@@ -1979,7 +2039,13 @@ function aiBuildPlan_(req) {
       content: briefContext_(c) +
         quotaHint +
         '\n\nСобери контент-план на неделю. Для каждой рубрики:\n' +
-        '- name — название рубрики по-русски;\n' +
+        (q.topics.length
+          ? '- name — ТОЧНО одна из тем, выбранных клиентом, скопированная ' +
+            'дословно из списка выше, без изменений и синонимов;\n' +
+            '- caption — живое название рубрики, которое ты придумаешь сам ' +
+            '(2–4 слова). Оно показывается как подпись рядом с темой;\n'
+          : '- name — название рубрики по-русски;\n' +
+            '- caption — короткое пояснение к рубрике, 2–4 слова;\n') +
         '- days — дни недели через запятую (пн, вт, ср, чт, пт, сб, вс), ' +
         'не больше ' + perDay + ' публикаци(и/й) в один день;\n' +
         '- prompt — подробная инструкция для нейросети, 4–7 предложений. ' +
@@ -2003,11 +2069,16 @@ function aiBuildPlan_(req) {
         'если нужно что-то процитировать, используй «ёлочки». Промпт не должен ' +
         'обрываться на середине предложения.' +
         manualHint +
-        '\n\nВерни JSON: {"rubrics": [{"name": "…", "days": "пн, чт", "prompt": "…"}]}'
+        '\n\nВерни JSON: {"rubrics": [{"name": "…", "caption": "…", ' +
+        '"days": "пн, чт", "prompt": "…"}]}'
     }
   ], { json: true, temperature: 0.6, maxTokens: 4000 });
 
-  var allRubrics = enforcePlanLimits_(normRubrics_(parseJsonLoose_(content).rubrics || []), q);
+  var parsed = normRubrics_(parseJsonLoose_(content).rubrics || []);
+  var allRubrics = keepRubricOrder_(
+    enforcePlanLimits_(alignToTopics_(parsed, q.topics), q),
+    c.rubrics
+  );
   if (!allRubrics.length) throw new Error('Модель не вернула ни одной рубрики');
 
   // Восстанавливаем флаг manual для зафиксированных рубрик по названию
@@ -2420,6 +2491,21 @@ function openersRule_(usedOpeners) {
   return t;
 }
 
+/**
+ * Дописывает призыв к действию дословно. Дубль append_cta из clients_post.py:
+ * модель, получая CTA в промпте, пересказывала его своими словами и теряла
+ * телефон и ник. Заглушка клиента меняться не должна.
+ */
+function appendCta_(text, c) {
+  var cta = str_(c.cta);
+  if (!cta) return text;
+  var body = String(text || '').replace(/\s+$/, '');
+  var firstLine = cta.split('\n')[0].trim().toLowerCase();
+  var tail = body.slice(-(cta.length + 40)).toLowerCase();
+  if (firstLine && tail.indexOf(firstLine) >= 0) return body;
+  return body + '\n\n' + cta;
+}
+
 /** genExamples: для каждой рубрики — пример поста с учётом style_prompt. */
 function aiGenExamples_(req) {
   var c = aiClient_(req);
@@ -2467,7 +2553,9 @@ function aiGenExamples_(req) {
             (c.stylePrompt
               ? 'строго в стиле клиента, описанном выше в style_prompt. '
               : 'простым разговорным языком. ') +
-            'В конце — призыв к действию клиента, если он задан. ' +
+            'Не пиши в конце поста призыв к действию, контакты, ссылки и ' +
+            'приглашение подписаться — они добавляются автоматически после ' +
+            'генерации, дословно из карточки клиента. ' +
             'Не выдумывай цены, сроки и гарантии. Ответь только текстом поста, ' +
             'без черновиков и пометок о проверке.'
         }
@@ -2479,12 +2567,13 @@ function aiGenExamples_(req) {
     if (hasForbiddenOpener_(example, usedOpeners)) {
       example = ask([firstWords_(example, 5)]) || example;
     }
+    example = appendCta_(example, c);
 
     var opener = firstWords_(example, 5);
     if (opener) usedOpeners.push(opener);
 
     return {
-      name: r.name, days: r.days, prompt: r.prompt,
+      name: r.name, caption: r.caption, days: r.days, prompt: r.prompt,
       manual: r.manual, dormant: r.dormant, custom: r.custom,
       example: example
     };
@@ -3449,7 +3538,11 @@ function pdfRubricPage_(r, num, total) {
   L.push('<div style="font-size: 10.5px; letter-spacing: 2px; text-transform: uppercase; color: #8a8f96">' +
     'Рубрика ' + num + ' из ' + total + '</div>');
   L.push(pdfH1_(r.name));
-  L.push('<div style="font-size: 12px; color: #6b7078; margin: -14px 0 22px">' +
+  if (str_(r.caption)) {
+    L.push('<div style="font-size: 13px; color: #6b7078; margin: -14px 0 6px; font-style: italic">' +
+      pdfEsc_(r.caption) + '</div>');
+  }
+  L.push('<div style="font-size: 12px; color: #6b7078; margin: 0 0 22px">' +
     'Дни выхода: <b>' + pdfEsc_(r.days) + '</b></div>');
 
   if (str_(r.prompt)) {

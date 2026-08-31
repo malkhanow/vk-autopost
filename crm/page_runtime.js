@@ -45,6 +45,16 @@
     });
   }
 
+  var EVENTS = {
+    click: 'click', change: 'input', input: 'input',
+    // перетаскивание рубрик: порядок меняется мышью
+    dragstart: 'dragstart', dragover: 'dragover', dragenter: 'dragenter',
+    dragleave: 'dragleave', drop: 'drop', dragend: 'dragend',
+    // ручка «⠿»: перетаскивание включается только с неё, чтобы
+    // выделение текста в полях строки продолжало работать
+    mousedown: 'mousedown'
+  };
+
   /* ---- разметка -> дерево описаний ---- */
 
   function build(node, scope, values, out) {
@@ -84,9 +94,7 @@
       var name = attr.name.toLowerCase();
       if (name.indexOf('hint-') === 0) continue;      // подсказки редактора холста
       var value = interpolate(attr.value, scope, values);
-      if (name === 'onclick') vnode.events.click = value;
-      else if (name === 'onchange') vnode.events.change = value;
-      else if (name === 'oninput') vnode.events.input = value;
+      if (name.indexOf('on') === 0 && EVENTS[name.slice(2)]) vnode.events[name.slice(2)] = value;
       else vnode.attrs[name] = value;
     }
     buildChildren(node, scope, values, vnode.children);
@@ -153,8 +161,6 @@
       if (el.getAttribute(name) !== str) el.setAttribute(name, str);
     });
   }
-
-  var EVENTS = { click: 'click', change: 'input', input: 'input' };
 
   function bindEvents(el, events) {
     el.__handlers = events;
