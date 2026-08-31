@@ -142,6 +142,12 @@ BASE_HOLIDAYS = [
     {"key": "womens_day", "month": 3,  "day": 8,  "name": "Международный женский день",   "solemn": False},
     {"key": "spring_may", "month": 5,  "day": 1,  "name": "Праздник Весны и Труда",       "solemn": False},
     {"key": "knowledge",  "month": 9,  "day": 1,  "name": "День знаний",                  "solemn": False},
+    # --- добавлены ---
+    {"key": "victory",    "month": 5,  "day": 9,  "name": "День Победы",                   "solemn": True},
+    {"key": "cosmonaut",  "month": 4,  "day": 12, "name": "День космонавтики",              "solemn": False},
+    {"key": "family",     "month": 7,  "day": 8,  "name": "День семьи, любви и верности",   "solemn": False},
+    {"key": "russia",     "month": 6,  "day": 12, "name": "День России",                   "solemn": True},
+    {"key": "unity",      "month": 11, "day": 4,  "name": "День народного единства",        "solemn": True},
 ]
 
 # что публикуем: за 7 дней и за 1 день — вечером, в сам день — утром
