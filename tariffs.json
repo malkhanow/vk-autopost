@@ -4,7 +4,6 @@
     "updated": "2026-08-31",
     "note": "Единый реестр тарифов. Источник правды для CRM (Code.gs), фронтенда и clients_post.py. Менять только здесь."
   },
-
   "aliases": {
     "СТАРТ": "start",
     "Старт": "start",
@@ -24,9 +23,11 @@
     "MAX": "max",
     "ENTERPRISE": "max"
   },
-
-  "platforms_default": ["tg", "vk", "max"],
-
+  "platforms_default": [
+    "tg",
+    "vk",
+    "max"
+  ],
   "enums": {
     "style_mode": {
       "template_brief": "Шаблон ниши + данные брифа",
@@ -46,7 +47,6 @@
       "pdf_call": "PDF-отчёт раз в месяц + созвон"
     }
   },
-
   "tariffs": {
     "start": {
       "id": "start",
@@ -66,7 +66,11 @@
         "holidays_extra": false,
         "holiday_posts": 0,
         "holiday_promo": false,
-        "platforms": ["tg", "vk", "max"],
+        "platforms": [
+          "tg",
+          "vk",
+          "max"
+        ],
         "style_mode": "template_brief",
         "visual_mode": "brand_colors",
         "content_plan": false,
@@ -76,7 +80,6 @@
         "support_sla_hours": 24
       }
     },
-
     "pro": {
       "id": "pro",
       "name": "ПРОФИ",
@@ -94,8 +97,12 @@
         "holidays_enabled": true,
         "holidays_extra": false,
         "holiday_posts": 1,
-        "holiday_promo": false,
-        "platforms": ["tg", "vk", "max"],
+        "holiday_promo": true,
+        "platforms": [
+          "tg",
+          "vk",
+          "max"
+        ],
         "style_mode": "template_brief",
         "visual_mode": "brand_colors",
         "content_plan": false,
@@ -105,7 +112,6 @@
         "support_sla_hours": 24
       }
     },
-
     "business": {
       "id": "business",
       "name": "БИЗНЕС",
@@ -123,8 +129,12 @@
         "holidays_enabled": true,
         "holidays_extra": false,
         "holiday_posts": 2,
-        "holiday_promo": false,
-        "platforms": ["tg", "vk", "max"],
+        "holiday_promo": true,
+        "platforms": [
+          "tg",
+          "vk",
+          "max"
+        ],
         "style_mode": "tov_brief",
         "visual_mode": "brand_logo",
         "content_plan": true,
@@ -134,7 +144,6 @@
         "support_sla_hours": 12
       }
     },
-
     "premium": {
       "id": "premium",
       "name": "ПРЕМИУМ",
@@ -152,8 +161,12 @@
         "holidays_enabled": true,
         "holidays_extra": true,
         "holiday_posts": 3,
-        "holiday_promo": false,
-        "platforms": ["tg", "vk", "max"],
+        "holiday_promo": true,
+        "platforms": [
+          "tg",
+          "vk",
+          "max"
+        ],
         "style_mode": "tov_samples",
         "visual_mode": "niche_photos",
         "content_plan": true,
@@ -163,7 +176,6 @@
         "support_sla_hours": 4
       }
     },
-
     "max": {
       "id": "max",
       "name": "МАКСИМУМ",
@@ -183,7 +195,11 @@
         "holidays_extra": true,
         "holiday_posts": 3,
         "holiday_promo": true,
-        "platforms": ["tg", "vk", "max"],
+        "platforms": [
+          "tg",
+          "vk",
+          "max"
+        ],
         "style_mode": "tov_tuned",
         "visual_mode": "custom_photos",
         "content_plan": true,
