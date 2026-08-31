@@ -540,15 +540,9 @@
                       </div>
                     </sc-for>
                   </div>
-                  <sc-if value="{{ hasStylePrompt }}" hint-placeholder-val="{{ false }}">
-                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #eeeeea">
-                      <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px">
-                        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">style_prompt</span>
-                        <span style="font-size: 11px; color: #8a8f96">Gemini 3.1 Pro · правится руками, уходит в конфиг</span>
-                      </div>
-                      <textarea rows="4" value="{{ c.stylePrompt }}" onChange="{{ set.stylePrompt }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
-                    </div>
-                  </sc-if>
+                  <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #eeeeea; font-size: 11.5px; color: #8a8f96">
+                    Результат анализа попадёт в <span style="font-family: 'IBM Plex Mono', monospace">style_prompt</span> — он вынесен отдельной секцией ниже.
+                  </div>
                 </section>
 
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
@@ -569,6 +563,29 @@
                       <span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">style_prompt</span> уже сохранён в таблице. Нажмите «Пересобрать план» ниже — он будет собран с учётом этого стиля.
                     </div>
                   </sc-if>
+                </section>
+
+                <section style="background: #fff; border: 2px solid #14171a; border-radius: 6px; padding: 14px 16px 16px">
+                  <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
+                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Стиль и формат постов</h2>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">уходит в конфиг клиента</span>
+                  </div>
+                  <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Эти два поля напрямую управляют тем, как ИИ пишет посты. Правятся руками в любой момент — заново анализировать стиль не нужно.</p>
+
+                  <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">style_prompt</span>
+                    <span style="font-size: 11px; color: #8a8f96">манера речи клиента</span>
+                  </div>
+                  <p style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.5; color: #8a8f96">Описание того, как клиент разговаривает: длина предложений, обращение, любимые обороты, эмодзи, запреты. Заполняется анализом выше или вручную. Пусто — ИИ пишет нейтральным разговорным языком.</p>
+                  <textarea rows="7" placeholder="Пиши от первого лица единственного числа. Короткие предложения. Обращение на «вы»…" value="{{ c.stylePrompt }}" onChange="{{ set.stylePrompt }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+
+                  <div style="display: flex; align-items: baseline; gap: 8px; margin: 14px 0 5px">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">post_format</span>
+                    <span style="font-size: 11px; color: #8a8f96">жёсткая структура · необязательно</span>
+                  </div>
+                  <p style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.5; color: #8a8f96"><b>Оставьте пустым</b>, если клиенту нужны разнообразные посты — тогда система сама чередует форматы и длину: короткие и длинные, истории и советы, разное число абзацев. Так лента выглядит живой, без единого шаблона.<br>Заполняйте, только если клиент просит <b>одинаковую структуру во всех постах</b>. Тогда случайное чередование отключается и каждый пост пишется строго по этому описанию.</p>
+                  <textarea rows="3" placeholder="Например: заголовок, три коротких абзаца, призыв к действию. Всего 80–100 слов." value="{{ c.postFormat }}" onChange="{{ set.postFormat }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                  <div style="margin-top: 6px; font-size: 11.5px; color: #8a8f96">{{ postFormatHint }}</div>
                 </section>
 
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
@@ -1126,7 +1143,7 @@
       }
       if (name === 'value' && ('value' in el)) {
         var next = value === null || value === undefined ? '' : String(value);
-        if (el !== document.activeElement) { if (el.value !== next) el.value = next; else if (next) el.value = next; }
+        if (el !== document.activeElement) { el.value = next; }
         return;
       }
       if (name === 'checked') {
@@ -1394,6 +1411,8 @@ const SLOTS = [
 const LIMITS = ['Цены и стоимость услуг', 'Конкретные сроки выполнения', 'Проценты, ставки, доходность', 'Гарантии результата', 'Медицинские советы и диагнозы'];
 const TOPICS = ['Фото работ', 'Советы и полезное', 'Частые вопросы', 'Идеи и вдохновение', 'Отзывы и результаты'];
 const NETWORKS = ['VK', 'Telegram', 'MAX'];
+// Корневая папка клиентов на Яндекс.Диске. Должна совпадать с YANDEX_ROOT в Code.gs.
+const YANDEX_ROOT = 'Autopost WORK/';
 const TASKS = [
   { task: 'Какая небольшая вещь в повседневной жизни кажется вам сильно недооценённой? Почему?',
     example: 'Например: утренняя тишина, вкусный кофе, возможность работать из дома.' },
@@ -1464,7 +1483,7 @@ function client(o) {
     checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
     lastPostDate: '—', lastPostStatus: 'Не запущен',
-    tgChannel: '', morningPhoto: false, holidaysExtra: '',
+    tgChannel: '', morningPhoto: false, holidaysExtra: '', postFormat: '',
     paidAt: null, payMonths: 0,
     letterSetup: '', letterLaunch: '', diskLink: '', firstPostDate: null,
     limitsOverride: null, tariffHistory: []
@@ -1586,6 +1605,7 @@ function toApi(c) {
     // pay и nextPay не отправляем: ими распоряжается дропдаун в таблице
     active: c.active !== false, tgChannel: c.tgChannel || '',
     morningPhoto: !!c.morningPhoto, holidaysExtra: c.holidaysExtra || '',
+    postFormat: c.postFormat || '',
     clientNumber: c.clientNumber || '',
     stylePrompt: c.stylePrompt, niche: c.niche,
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
@@ -2017,7 +2037,7 @@ class Component extends DCLogic {
 
     const setter = key => e => this.patch(c.id, { [key]: e.target.value, });
     const set = {};
-    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'styleSourceText', 'edits', 'tgChannel', 'holidaysExtra'].forEach(k => { set[k] = setter(k); });
+    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'styleSourceText', 'edits', 'tgChannel', 'holidaysExtra', 'postFormat'].forEach(k => { set[k] = setter(k); });
 
     const chip = (on, label, onClick) => ({
       label, onClick,
@@ -2177,7 +2197,8 @@ class Component extends DCLogic {
       tg_channel: c.tgChannel || null,
       morning_photo: !!c.morningPhoto,
       holidays_extra: c.holidaysExtra || '',
-      yandex_folder: 'clients/' + c.id,
+      post_format: c.postFormat || null,
+      yandex_folder: YANDEX_ROOT + c.id,
       active: c.active !== false,
       iterations: c.iterations
     }, null, 2);
@@ -2678,6 +2699,10 @@ class Component extends DCLogic {
       },
       hasStylePrompt: !!c.stylePrompt,
       hasRubrics: c.rubrics.length > 0,
+      // Подсказка под post_format: показывает, какой режим сейчас включён
+      postFormatHint: (c.postFormat || '').trim()
+        ? 'Структура зафиксирована — все посты будут по этому описанию.'
+        : 'Пусто — система сама чередует форматы и длину постов.',
 
       // RouterAI: контент-план по данным брифа
       planLabel: busy === 'plan' ? 'Собираю…' : c.rubrics.length ? 'Пересобрать план' : 'Собрать контент-план',

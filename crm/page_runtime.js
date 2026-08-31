@@ -138,7 +138,7 @@
       }
       if (name === 'value' && ('value' in el)) {
         var next = value === null || value === undefined ? '' : String(value);
-        if (el !== document.activeElement) { if (el.value !== next) el.value = next; else if (next) el.value = next; }
+        if (el !== document.activeElement) { el.value = next; }
         return;
       }
       if (name === 'checked') {
