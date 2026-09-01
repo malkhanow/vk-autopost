@@ -4,7 +4,7 @@
     "used_photos": []
   },
   "olga-nedvizhimost": {
-    "tie_index": 15,
+    "tie_index": 16,
     "used_photos": [],
     "photo_tie_index": 4,
     "text_tie_index": 4,
@@ -18,6 +18,16 @@
       "2026-09-01:knowledge:day"
     ],
     "loop_rubrics_faq": "ЧЗВ.png",
-    "holiday_loop_knowledge_day": "1 СЕНТЯБРЯ! ДЕНЬ ЗНАНИЙ! (1).jpeg"
+    "holiday_loop_knowledge_day": "1 СЕНТЯБРЯ! ДЕНЬ ЗНАНИЙ! (1).jpeg",
+    "cycles": {
+      "fmt:faq": 1,
+      "opener": 1,
+      "topic:Разбор ситуации (FAQ)": 1
+    },
+    "recent": {
+      "Разбор ситуации (FAQ)": [
+        "Зачем нужна выписка из ЕГРН и на что в ней смотреть в первую очередь?"
+      ]
+    }
   }
 }
