@@ -453,15 +453,100 @@ def append_cta(text, client):
     return body + "\n\n" + cta
 
 
-def append_hashtags(text, client):
+HASHTAGS_MAX = 10
+
+
+def normalize_tag(raw):
+    """Тег без решётки, пробелов и знаков препинания: #Страхование."""
+    return re.sub(r"[^0-9A-Za-zА-Яа-яЁё_]", "", (raw or "").replace("#", ""))
+
+
+def build_hashtags_ai(client, post_text, need):
     """
-    Дописывает хэштеги из поля hashtags конфига клиента в конец поста.
-    Если поле отсутствует или пустое — текст не меняется.
+    Подбирает теги под конкретный пост. Постоянный набор из конфига под каждой
+    публикацией выглядит спамом и не попадает в тему, поэтому теги пишутся по
+    готовому тексту — уже после генерации и подстановки CTA.
     """
-    tags = (client.get("hashtags") or "").strip()
+    if need <= 0:
+        return []
+
+    lines = [
+        f"Бизнес: {client.get('business', '')}",
+        f"Город: {client.get('city', '')}",
+        "Текст поста:",
+        (post_text or "")[:1500],
+    ]
+    forbidden = client.get("forbidden") or []
+    if forbidden:
+        lines.append("Не делай теги по темам: " + "; ".join(forbidden))
+
+    system = (
+        "Ты подбираешь хештеги для постов малого бизнеса в соцсетях. "
+        "В ответе — только теги через запятую, без решёток, без пояснений "
+        "и без нумерации."
+    )
+    user = "\n".join(lines) + (
+        f"\n\nПодбери до {need} хештегов на русском языке, относящихся именно "
+        "к этому посту. Каждый тег — одно или два слова слитно, без пробелов "
+        "и знаков препинания. Смешивай теги по теме поста, по нише бизнеса "
+        "и по городу. Ответь одной строкой через запятую."
+    )
+
+    raw = ai_text(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        max_tokens=140,
+        temperature=0.5,
+    )
+
+    out, seen = [], set()
+    for part in re.split(r"[,\n]+", raw or ""):
+        tag = normalize_tag(part)
+        # однобуквенные обрывки и слишком длинные склейки в теги не годятся
+        if len(tag) < 3 or len(tag) > 30:
+            continue
+        if tag.lower() in seen:
+            continue
+        seen.add(tag.lower())
+        out.append(tag)
+        if len(out) >= need:
+            break
+    return out
+
+
+def append_hashtags(text, client, holiday=None):
+    """
+    Дописывает до HASHTAGS_MAX тегов: сперва постоянные из поля hashtags
+    конфига, остальное добирает подбором под текст поста.
+
+    У памятных дат тегов нет совсем — «#страхование» под постом о Дне Победы
+    выглядит как реклама на памятной дате.
+    """
+    if holiday and holiday.get("solemn"):
+        return text
+
+    tags, seen = [], set()
+    for part in re.split(r"[,\s]+", client.get("hashtags") or ""):
+        tag = normalize_tag(part)
+        if not tag or tag.lower() in seen:
+            continue
+        seen.add(tag.lower())
+        tags.append(tag)
+
+    need = HASHTAGS_MAX - len(tags)
+    if need > 0:
+        try:
+            for tag in build_hashtags_ai(client, text, need):
+                if tag.lower() in seen:
+                    continue
+                seen.add(tag.lower())
+                tags.append(tag)
+        except Exception as e:
+            # теги — украшение, из-за них пост срываться не должен
+            print(f"Теги подобрать не удалось ({e}), публикую без них.")
+
     if not tags:
         return text
-    return text.rstrip() + "\n\n" + tags
+    return text.rstrip() + "\n\n" + " ".join("#" + t for t in tags[:HASHTAGS_MAX])
 
 
 def image_to_data_url(photo_path):
@@ -1321,7 +1406,7 @@ def main():
         # У торжественных праздников призыв к действию неуместен.
         if not (holiday and holiday.get("solemn")):
             text = append_cta(text, client)
-        text = append_hashtags(text, client)
+        text = append_hashtags(text, client, holiday)
         print(f"{cid}: публикую {what} в {channel}")
         try:
             post_to_telegram(channel, text, photo_path)
