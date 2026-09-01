@@ -21,6 +21,8 @@
   *::placeholder { color: #a3a7ac; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #d6d6d1; border-radius: 6px; }
+  [contenteditable][data-placeholder]:empty:before { content: attr(data-placeholder); color: #a3a7ac; }
+  [contenteditable]:focus { outline: 2px solid #c8d1f7; outline-offset: -1px; }
 </style>
 </head>
 <body>
@@ -126,7 +128,10 @@
             <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
               <div onClick="{{ r.onOpen }}" style="{{ r.rowStyle }}" style-hover="background: #f7f8fd">
                 <div style="min-width: 0">
-                  <div style="font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.business }}</div>
+                  <div style="display: flex; align-items: center; gap: 6px; min-width: 0">
+                    <span style="{{ r.dotStyle }}" title="{{ r.dotHint }}"></span>
+                    <span style="font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.business }}</span>
+                  </div>
                   <div style="font-size: 11.5px; color: #767b83; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px">{{ r.sub }}</div>
                 </div>
                 <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 500; padding-top: 2px">{{ r.tariff }}</div>
@@ -144,6 +149,53 @@
           </div>
 
           <p style="margin: 12px 2px 0; font-size: 11.5px; color: #8a8f96">Ответы Google Формы попадают в раздел «Брифы» — карточка создаётся оттуда кнопкой. Даты оплаты сдвигаются на месяц после подтверждения.</p>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTasks }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 20px 22px 40px; max-width: 1000px">
+
+          <div style="display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px">
+            <div>
+              <h1 style="margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.015em">Все задачи</h1>
+              <p style="margin: 4px 0 0; font-size: 12.5px; color: #6b7078">Сводка по всем клиентам. Клик по имени клиента открывает карточку, клик по задаче — правку.</p>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px">
+            <div style="display: flex; gap: 4px; background: #eaeae6; padding: 3px; border-radius: 6px">
+              <sc-for list="{{ taskFilters }}" as="f" hint-placeholder-count="3">
+                <button onClick="{{ f.onClick }}" style="{{ f.style }}">{{ f.label }}</button>
+              </sc-for>
+            </div>
+            <button onClick="{{ toggleAllDone }}" style="{{ allDoneStyle }}">{{ allDoneLabel }}</button>
+            <div style="flex: 1"></div>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">{{ taskShown }} из {{ taskTotal }}</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 14px">
+            <sc-for list="{{ taskGroups }}" as="g" hint-placeholder-count="4">
+              <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; overflow: hidden">
+                <div style="{{ g.headStyle }}">
+                  <span>{{ g.title }}</span>
+                  <span style="{{ g.badgeStyle }}">{{ g.count }}</span>
+                </div>
+                <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+                  <div style="{{ r.rowStyle }}" style-hover="background: #f7f8fd">
+                    <button onClick="{{ r.onDone }}" style="{{ r.boxStyle }}"><span style="{{ r.markStyle }}">✓</span></button>
+                    <span style="{{ r.dotStyle }}"></span>
+                    <button onClick="{{ r.onClient }}" style="border: none; background: none; padding: 0; cursor: pointer; font-family: inherit; font-size: 12.5px; font-weight: 600; color: #2b4acf; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis" style-hover="color: #14171a">{{ r.client }}</button>
+                    <button onClick="{{ r.onOpen }}" style="{{ r.titleStyle }}">{{ r.title }}</button>
+                    <span style="{{ r.whenStyle }}">{{ r.when }}</span>
+                  </div>
+                </sc-for>
+              </section>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ taskGroupsEmpty }}" hint-placeholder-val="{{ false }}">
+            <p style="margin: 14px 2px 0; font-size: 12.5px; color: #a3a7ac">Задач нет.</p>
+          </sc-if>
         </div>
       </sc-if>
 
@@ -288,6 +340,79 @@
           </div>
 
           <div style="padding: 18px 22px 60px; max-width: 1180px">
+
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; margin-bottom: 14px">
+
+              <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px">
+                <div style="display: flex; align-items: center; gap: 8px; padding: 11px 14px">
+                  <button onClick="{{ toggleBlkTasks }}" style="border: none; background: none; padding: 0; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">{{ blkTasksCaret }} Задачи</button>
+                  <span style="{{ openTaskCountStyle }}">{{ openTaskCount }}</span>
+                  <div style="flex: 1"></div>
+                  <button onClick="{{ openNewTask }}" style="border: 1px solid #d9d9d4; background: #fff; font-size: 12px; font-weight: 500; padding: 5px 10px; border-radius: 5px; cursor: pointer" style-hover="border-color: #14171a">+ Поставить задачу</button>
+                </div>
+                <sc-if value="{{ blkTasksOpen }}" hint-placeholder-val="{{ true }}">
+                  <div style="border-top: 1px solid #eeeeea; padding: 6px 0 10px">
+                    <sc-for list="{{ cardTasks }}" as="t" hint-placeholder-count="3">
+                      <div style="display: flex; align-items: flex-start; gap: 9px; padding: 7px 14px" style-hover="background: #f7f8fd">
+                        <button onClick="{{ t.onDone }}" style="{{ t.boxStyle }}"><span style="{{ t.markStyle }}">✓</span></button>
+                        <span style="{{ t.dotStyle }}"></span>
+                        <button onClick="{{ t.onOpen }}" style="{{ t.titleStyle }}">{{ t.title }}</button>
+                        <span style="{{ t.whenStyle }}">{{ t.when }}</span>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ cardTasksEmpty }}" hint-placeholder-val="{{ false }}">
+                      <p style="margin: 4px 14px; font-size: 12px; color: #a3a7ac">Открытых задач нет.</p>
+                    </sc-if>
+                    <sc-if value="{{ hasDoneTasks }}" hint-placeholder-val="{{ true }}">
+                      <button onClick="{{ toggleShowDone }}" style="margin: 6px 14px 0; border: none; background: none; padding: 0; cursor: pointer; font-family: inherit; font-size: 11.5px; color: #6b7078" style-hover="color: #14171a">{{ showDoneLabel }}</button>
+                    </sc-if>
+                    <sc-for list="{{ cardTasksDone }}" as="t" hint-placeholder-count="2">
+                      <div style="display: flex; align-items: flex-start; gap: 9px; padding: 7px 14px; opacity: 0.55">
+                        <button onClick="{{ t.onDone }}" style="{{ t.boxStyle }}"><span style="{{ t.markStyle }}">✓</span></button>
+                        <span style="{{ t.dotStyle }}"></span>
+                        <button onClick="{{ t.onOpen }}" style="{{ t.titleStyle }}">{{ t.title }}</button>
+                        <span style="{{ t.whenStyle }}">{{ t.when }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </section>
+
+              <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px">
+                <div style="display: flex; align-items: center; gap: 8px; padding: 11px 14px">
+                  <button onClick="{{ toggleBlkComments }}" style="border: none; background: none; padding: 0; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #7c8189">{{ blkCommentsCaret }} Комментарии</button>
+                  <span style="{{ commentCountStyle }}">{{ commentCount }}</span>
+                </div>
+                <sc-if value="{{ blkCommentsOpen }}" hint-placeholder-val="{{ true }}">
+                  <div style="border-top: 1px solid #eeeeea; padding: 11px 14px 13px">
+                    <div style="display: flex; align-items: flex-start; gap: 7px">
+                      <textarea rows="2" placeholder="{{ commentPlaceholder }}" value="{{ commentDraft }}" onChange="{{ setCommentDraft }}" style="flex: 1; min-width: 0; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.5; resize: vertical"></textarea>
+                      <button onClick="{{ submitComment }}" style="{{ commentBtnStyle }}">{{ commentBtnLabel }}</button>
+                    </div>
+                    <sc-if value="{{ commentEditing }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ cancelCommentEdit }}" style="margin-top: 6px; border: none; background: none; padding: 0; cursor: pointer; font-family: inherit; font-size: 11.5px; color: #6b7078" style-hover="color: #14171a">Отменить правку</button>
+                    </sc-if>
+                    <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 9px">
+                      <sc-for list="{{ cardComments }}" as="m" hint-placeholder-count="3">
+                        <div style="border-bottom: 1px solid #f2f2ee; padding-bottom: 8px">
+                          <div style="display: flex; align-items: baseline; gap: 8px">
+                            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a9ea4">{{ m.meta }}</span>
+                            <div style="flex: 1"></div>
+                            <button onClick="{{ m.onEdit }}" style="border: none; background: none; padding: 0 2px; cursor: pointer; font-size: 12px; color: #8a8f96" style-hover="color: #14171a">✎</button>
+                            <button onClick="{{ m.onDelete }}" style="{{ m.delStyle }}">{{ m.delLabel }}</button>
+                          </div>
+                          <div style="font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; margin-top: 3px">{{ m.text }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <sc-if value="{{ cardCommentsEmpty }}" hint-placeholder-val="{{ false }}">
+                      <p style="margin: 10px 0 0; font-size: 12px; color: #a3a7ac">Пока пусто.</p>
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </section>
+
+            </div>
 
             <sc-if value="{{ tabBrief }}" hint-placeholder-val="{{ true }}">
               <div style="display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; align-items: start">
@@ -1002,6 +1127,76 @@
     </div>
   </sc-if>
 
+  <sc-if value="{{ taskModalOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ onBackdropClick }}" style="position: fixed; inset: 0; background: rgba(20,23,26,0.42); z-index: 70; display: flex; align-items: flex-start; justify-content: center; padding: 44px 16px; overflow-y: auto">
+      <div onClick="{{ stopClick }}" style="background: #fff; border-radius: 8px; width: 100%; max-width: 560px; box-shadow: 0 18px 44px rgba(0,0,0,0.24)">
+
+        <div style="padding: 16px 20px 0; display: flex; align-items: center; gap: 10px">
+          <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 600">{{ taskModalTitle }}</span>
+          <div style="flex: 1"></div>
+          <button onClick="{{ closeTaskModal }}" style="border: none; background: none; font-size: 20px; line-height: 1; color: #8a8f96; cursor: pointer; padding: 0 2px">×</button>
+        </div>
+
+        <div style="padding: 6px 20px 16px">
+          <input type="text" placeholder="Введите имя задачи" value="{{ taskTitle }}" onChange="{{ setTaskTitle }}" style="width: 100%; box-sizing: border-box; border: none; padding: 6px 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; background: none" />
+
+          <div id="dc-task-desc" contenteditable="true" data-placeholder="Добавить описание" style="{{ taskDescStyle }}"></div>
+
+          <div style="display: flex; align-items: center; gap: 4px; margin-top: 8px; padding-bottom: 14px; border-bottom: 1px solid #eeeeea">
+            <button onMousedown="{{ fmtBold }}" style="{{ fmtBtnStyle }}"><b>Ж</b></button>
+            <button onMousedown="{{ fmtItalic }}" style="{{ fmtBtnStyle }}"><i>К</i></button>
+            <button onMousedown="{{ fmtUnderline }}" style="{{ fmtBtnStyle }}"><u>Ч</u></button>
+            <span style="width: 1px; height: 18px; background: #e3e3df; margin: 0 5px"></span>
+            <button onClick="{{ fontDown }}" style="{{ fontDownStyle }}">A−</button>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96; min-width: 34px; text-align: center">{{ taskFontLabel }}</span>
+            <button onClick="{{ fontUp }}" style="{{ fontUpStyle }}">A+</button>
+          </div>
+
+          <div style="margin-top: 14px">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 600; margin-bottom: 7px">Приоритет</div>
+            <div style="display: flex; gap: 8px">
+              <button onClick="{{ setPriRed }}" style="{{ priRedStyle }}"><span style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #d93025"></span> Срочно</button>
+              <button onClick="{{ setPriBlue }}" style="{{ priBlueStyle }}"><span style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #2b4acf"></span> Обычная</button>
+            </div>
+          </div>
+
+          <div style="margin-top: 16px">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a8f96; font-weight: 600; margin-bottom: 7px">Срок</div>
+            <div style="display: flex; gap: 2px; border-bottom: 1px solid #e3e3df; margin-bottom: 10px">
+              <sc-for list="{{ taskModeTabs }}" as="m" hint-placeholder-count="3">
+                <button onClick="{{ m.onClick }}" style="{{ m.style }}">{{ m.label }}</button>
+              </sc-for>
+            </div>
+            <sc-if value="{{ taskModeDate }}" hint-placeholder-val="{{ true }}">
+              <input type="date" value="{{ taskFrom }}" onChange="{{ setTaskFrom }}" style="width: 100%; box-sizing: border-box; padding: 8px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px" />
+            </sc-if>
+            <sc-if value="{{ taskModeRange }}" hint-placeholder-val="{{ false }}">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px">
+                <label style="display: block">
+                  <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">От</span>
+                  <input type="date" value="{{ taskFrom }}" onChange="{{ setTaskFrom }}" style="width: 100%; box-sizing: border-box; padding: 8px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px" />
+                </label>
+                <label style="display: block">
+                  <span style="display: block; font-size: 11.5px; color: #6b7078; margin-bottom: 4px">До</span>
+                  <input type="date" value="{{ taskTo }}" onChange="{{ setTaskTo }}" style="width: 100%; box-sizing: border-box; padding: 8px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 13px" />
+                </label>
+              </div>
+            </sc-if>
+            <sc-if value="{{ taskModeNone }}" hint-placeholder-val="{{ false }}">
+              <p style="margin: 0; font-size: 12px; color: #a3a7ac">Задача будет висеть без срока — в дайджест Telegram не попадёт, но точка у клиента загорится.</p>
+            </sc-if>
+          </div>
+
+          <button onClick="{{ saveTask }}" style="{{ saveTaskStyle }}">{{ saveTaskLabel }}</button>
+
+          <sc-if value="{{ taskCanDelete }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ deleteTask }}" style="{{ deleteTaskStyle }}">{{ deleteTaskLabel }}</button>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
     <div style="position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #14171a; color: #f4f4f1; font-size: 12.5px; padding: 9px 15px; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.18)">{{ toast }}</div>
   </sc-if>
@@ -1480,6 +1675,62 @@ function shortDate(v) {
   const dt = v instanceof Date ? v : parseDate(v);
   return dt ? pad2(dt.getDate()) + '.' + pad2(dt.getMonth() + 1) : '—';
 }
+/* ------------------------------------------------------------------
+ * ЗАДАЧИ И КОММЕНТАРИИ
+ * Санитайзер — зеркало серверного из Code.gs. Чистим и здесь тоже:
+ * пользователь видит результат до отправки, а не после.
+ * ------------------------------------------------------------------ */
+const TASK_FONTS = [14, 16, 18];
+const TASK_TAGS = { b: 1, strong: 1, i: 1, em: 1, u: 1, br: 1, div: 1, span: 1 };
+const TASK_COLORS = { red: '#d93025', blue: '#2b4acf' };
+
+function sanitizeTaskHtml(raw) {
+  let s = String(raw == null ? '' : raw);
+  if (!s) return '';
+  if (s.length > 20000) s = s.slice(0, 20000);
+  s = s.replace(/<!--[\s\S]*?-->/g, '');
+  s = s.replace(/<(script|style|iframe|object|embed|svg|math|form)\b[\s\S]*?<\/\1\s*>/gi, '');
+  s = s.replace(/<\/?([a-zA-Z0-9]+)([^>]*)>/g, (all, tag, attrs) => {
+    const name = String(tag).toLowerCase();
+    if (!TASK_TAGS[name]) return '';
+    if (all.charAt(1) === '/') return '</' + name + '>';
+    if (name === 'br') return '<br>';
+    if (name === 'span') {
+      const m = String(attrs || '').match(/font-size\s*:\s*(\d{1,3})\s*px/i);
+      const px = m ? Number(m[1]) : 0;
+      return TASK_FONTS.indexOf(px) >= 0 ? '<span style="font-size:' + px + 'px">' : '<span>';
+    }
+    return '<' + name + '>';
+  });
+  return s.replace(/<(?![a-zA-Z\/])/g, '&lt;');
+}
+
+function stripHtml(raw) {
+  return String(raw == null ? '' : raw)
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(div|p|li)\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;/g, "'").replace(/&amp;/gi, '&')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** Срок задачи одной строкой: «12.09», «12.09–18.09» или пусто. */
+function taskWhen(t) {
+  if (!t.date_from) return '';
+  const a = parseDate(t.date_from);
+  if (!a) return '';
+  const b = t.date_to ? parseDate(t.date_to) : null;
+  return b ? shortDate(a) + '–' + shortDate(b) : shortDate(a);
+}
+
+/** Последний день срока — по нему считается просрочка. */
+function taskEnd(t) {
+  const a = parseDate(t.date_from);
+  if (!a) return null;
+  return (t.date_to && parseDate(t.date_to)) || a;
+}
+
 const NOW = new Date();
 const TODAY = d(NOW.getFullYear(), NOW.getMonth() + 1, NOW.getDate());
 const priceOf = t => (tariffDef(normTariff(t)) || {}).price || 0;
@@ -1827,7 +2078,14 @@ class Component extends DCLogic {
     newTariff: 'ПРО', newSource: 'Avito',
     payDraft: null, payCancelArm: null,
     dragRubric: null, grabRubric: null,   // перетаскивание рубрик мышью
-    tariffMove: null   // { to, keep: [имена рубрик], keepSlots: [ключи] }
+    tariffMove: null,  // { to, keep: [имена рубрик], keepSlots: [ключи] }
+
+    // задачи и комментарии
+    tasks: [], comments: [],
+    blkTasks: true, blkComments: true, showDone: false,
+    commentDraft: '', commentEdit: null, commentDel: null,
+    taskModal: null,   // { id, client_id, title, priority, mode, from, to, font }
+    taskFilter: 'all', tasksShowDone: false
   };
 
   /* ---- загрузка данных ------------------------------------------- */
@@ -1837,6 +2095,13 @@ class Component extends DCLogic {
     if (this._booted) return;
     this._booted = true;
     setTimeout(() => { this.loadTariffs(); this.boot(); }, 0);
+    // Esc закрывает модалки. Через разметку не сделать: движок шаблонов
+    // умеет click/change/drag, но не keydown — вешаем на документ.
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape' && e.keyCode !== 27) return;
+      if (this.state.taskModal) this.setState({ taskModal: null });
+      else if (this.state.tariffMove) this.setState({ tariffMove: null });
+    });
   }
 
   /**
@@ -1873,7 +2138,11 @@ class Component extends DCLogic {
       apiGet(conn, 'clients'),
       apiGet(conn, 'briefs'),
       apiGet(conn, 'log'),
-      apiGet(conn, 'settings')
+      apiGet(conn, 'settings'),
+      // Задачи и комментарии не должны валить всю загрузку: если листов
+      // ещё нет (setupSheets не запускали) — просто останутся пустыми.
+      apiGet(conn, 'tasks').catch(() => ({ tasks: [] })),
+      apiGet(conn, 'comments').catch(() => ({ comments: [] }))
     ]).then(res => {
       const clients = (res[0].clients || []).map(fromApi);
       this.setState(s => ({
@@ -1881,6 +2150,8 @@ class Component extends DCLogic {
         briefs: res[1].briefs || [],
         log: res[2].log || [],
         props: res[3].props || {},
+        tasks: res[4].tasks || [],
+        comments: res[5].comments || [],
         demo: false, loading: false, syncAt: res[0].at || '—',
         current: clients.some(c => c.id === s.current) ? s.current : (clients[0] ? clients[0].id : '')
       }));
@@ -1956,6 +2227,142 @@ class Component extends DCLogic {
 
   cur() { return this.state.clients.find(c => c.id === this.state.current) || this.state.clients[0] || BLANK; }
 
+  /* ---- задачи и комментарии -------------------------------------- */
+
+  /** Перечитывает оба листа. Вызывается после каждой записи. */
+  reloadTasks() {
+    const conn = this.state.conn;
+    if (this.state.demo || !conn.WEBAPP_URL) return Promise.resolve();
+    return Promise.all([
+      apiGet(conn, 'tasks').catch(() => ({ tasks: [] })),
+      apiGet(conn, 'comments').catch(() => ({ comments: [] }))
+    ]).then(r => this.setState({ tasks: r[0].tasks || [], comments: r[1].comments || [] }));
+  }
+
+  /**
+   * Открывает модалку. Описание в contenteditable нельзя держать в
+   * состоянии: движок перерисовывает текстовые узлы и сбивает курсор.
+   * Поэтому HTML заливается в поле один раз, руками, после отрисовки.
+   */
+  openTask(task, clientId) {
+    const t = task || null;
+    let html = t ? String(t.description || '') : '';
+    let font = 14;
+    const wrap = html.match(/^\s*<span style="font-size:(\d{2})px">([\s\S]*)<\/span>\s*$/);
+    if (wrap && TASK_FONTS.indexOf(Number(wrap[1])) >= 0) { font = Number(wrap[1]); html = wrap[2]; }
+
+    this.setState({
+      taskModal: {
+        id: t ? t.id : '',
+        client_id: t ? t.client_id : (clientId || this.state.current),
+        title: t ? t.title : '',
+        priority: t ? t.priority : 'blue',
+        mode: !t || !t.date_from ? 'none' : (t.date_to ? 'range' : 'date'),
+        from: t ? t.date_from : '',
+        to: t ? t.date_to : '',
+        font: font
+      },
+      commentDel: null
+    });
+    setTimeout(() => {
+      const el = document.getElementById('dc-task-desc');
+      if (el) el.innerHTML = sanitizeTaskHtml(html);
+    }, 0);
+  }
+
+  patchModal(changes) {
+    this.setState(s => ({ taskModal: Object.assign({}, s.taskModal, changes) }));
+  }
+
+  /** Описание из поля: чистим и оборачиваем в выбранный размер. */
+  readDesc() {
+    const el = document.getElementById('dc-task-desc');
+    const m = this.state.taskModal || {};
+    const inner = sanitizeTaskHtml(el ? el.innerHTML : '');
+    if (!stripHtml(inner)) return '';
+    const font = TASK_FONTS.indexOf(m.font) >= 0 ? m.font : 14;
+    return font === 14 ? inner : '<span style="font-size:' + font + 'px">' + inner + '</span>';
+  }
+
+  saveTask() {
+    const m = this.state.taskModal;
+    if (!m) return;
+    const title = String(m.title || '').trim();
+    if (!title) { this.flash('Задаче нужно имя'); return; }
+    const payload = {
+      client_id: m.client_id, title: title,
+      description: this.readDesc(), priority: m.priority,
+      date_from: m.mode === 'none' ? '' : m.from,
+      date_to: m.mode === 'range' ? m.to : ''
+    };
+    if (m.id) payload.id = m.id;
+    const action = m.id ? 'taskUpdate' : 'taskAdd';
+    this.act('task', () =>
+      apiPost(this.state.conn, action, { task: payload })
+        .then(() => this.reloadTasks())
+        .then(() => {
+          this.setState({ taskModal: null });
+          this.flash(m.id ? 'Задача обновлена' : 'Задача поставлена');
+        }),
+      () => {
+        const local = Object.assign({ id: m.id || 't-' + Date.now(), status: 'open', created: '' }, payload);
+        this.setState(s => ({
+          tasks: m.id ? s.tasks.map(x => (x.id === m.id ? local : x)) : s.tasks.concat([local]),
+          taskModal: null
+        }));
+      });
+  }
+
+  /** Чекбокс: сначала меняем на месте, при ошибке откатываем. */
+  toggleTask(task) {
+    const next = task.status === 'done' ? 'open' : 'done';
+    this.setState(s => ({ tasks: s.tasks.map(x => (x.id === task.id ? Object.assign({}, x, { status: next }) : x)) }));
+    if (this.state.demo) return;
+    apiPost(this.state.conn, 'taskDone', { id: task.id, done: next === 'done' })
+      .catch(err => {
+        this.setState(s => ({ tasks: s.tasks.map(x => (x.id === task.id ? Object.assign({}, x, { status: task.status }) : x)) }));
+        this.flash('Не сохранилось: ' + err.message);
+      });
+  }
+
+  removeTask() {
+    const m = this.state.taskModal;
+    if (!m || !m.id) return;
+    this.act('taskDel', () =>
+      apiPost(this.state.conn, 'taskDelete', { id: m.id })
+        .then(() => this.reloadTasks())
+        .then(() => { this.setState({ taskModal: null }); this.flash('Задача удалена'); }),
+      () => this.setState(s => ({ tasks: s.tasks.filter(x => x.id !== m.id), taskModal: null })));
+  }
+
+  submitComment() {
+    const st = this.state;
+    const text = String(st.commentDraft || '').trim();
+    if (!text) { this.flash('Пустой комментарий'); return; }
+    const edit = st.commentEdit;
+    const body = edit ? { comment: { id: edit, text: text } } : { comment: { client_id: st.current, text: text } };
+    this.act('comment', () =>
+      apiPost(st.conn, edit ? 'commentUpdate' : 'commentAdd', body)
+        .then(() => this.reloadTasks())
+        .then(() => this.setState({ commentDraft: '', commentEdit: null })),
+      () => {
+        const local = { id: edit || 'c-' + Date.now(), client_id: st.current, text: text, created: '', edited: edit ? 'сейчас' : '' };
+        this.setState(s => ({
+          comments: edit ? s.comments.map(x => (x.id === edit ? local : x)) : s.comments.concat([local]),
+          commentDraft: '', commentEdit: null
+        }));
+      });
+  }
+
+  removeComment(id) {
+    if (this.state.commentDel !== id) { this.setState({ commentDel: id }); return; }
+    this.act('commentDel', () =>
+      apiPost(this.state.conn, 'commentDelete', { id: id })
+        .then(() => this.reloadTasks())
+        .then(() => this.setState({ commentDel: null })),
+      () => this.setState(s => ({ comments: s.comments.filter(x => x.id !== id), commentDel: null })));
+  }
+
   copy(text, key, msg) {
     try { navigator.clipboard && navigator.clipboard.writeText(text); } catch (e) {}
     clearTimeout(this._c);
@@ -1985,6 +2392,24 @@ class Component extends DCLogic {
     const c = this.cur();
     const busy = st.busy;
 
+    /* Индекс открытых задач по клиентам. Считается один раз: его читают
+       и точки в списке, и блок в карточке, и вкладка «Все задачи». */
+    const openByClient = {};
+    st.tasks.forEach(t => {
+      if (t.status === 'done') return;
+      openByClient[t.client_id] = (openByClient[t.client_id] || 0) + 1;
+    });
+    const redByClient = {};
+    st.tasks.forEach(t => {
+      if (t.status === 'done' || t.priority !== 'red') return;
+      redByClient[t.client_id] = (redByClient[t.client_id] || 0) + 1;
+    });
+    const dot = (color, size) => 'display: inline-block; flex: none; width: ' + (size || 7) + 'px; height: ' + (size || 7) + 'px; border-radius: 50%; background: ' + color + ';';
+    const clientDot = id => (redByClient[id] ? dot('#d93025', 8) : openByClient[id] ? dot('#e8a33d', 8) : dot('#3f9e6b', 8));
+    const clientDotHint = id => (openByClient[id]
+      ? 'Открытых задач: ' + openByClient[id] + (redByClient[id] ? ', срочных: ' + redByClient[id] : '')
+      : 'Задач нет');
+
     const payOf = k => PAY[k] || PAY.brief;
     const pillOf = k => PILL + 'background: ' + payOf(k).bg + '; color: ' + payOf(k).fg + '; border: 1px solid ' + payOf(k).bd + ';';
     const slotLabel = c2 => (c2.slots.length ? c2.slots.map(k => (SLOTS.find(s => s.key === k) || { label: k }).label).join(' + ') : '—');
@@ -2003,6 +2428,8 @@ class Component extends DCLogic {
     });
 
     const rows = filtered.map(x => ({
+      dotStyle: clientDot(x.id),
+      dotHint: clientDotHint(x.id),
       business: x.business,
       sub: x.name + ' · ' + x.niche + ' · ' + x.city,
       tariff: tariffLabel(x.tariff), slots: slotLabel(x),
@@ -2236,7 +2663,234 @@ class Component extends DCLogic {
     }, null, 2);
     const cfgBytes = new Blob([cfg]).size;
 
+    /* ============================ ЗАДАЧИ И КОММЕНТАРИИ ============== */
+
+    const nameById = {};
+    cs.forEach(x => { nameById[x.id] = x.business || x.name || x.id; });
+
+    const openAll = st.tasks.filter(t => t.status !== 'done');
+    const overdueAll = openAll.filter(t => {
+      const end = taskEnd(t);
+      return end && end.getTime() < TODAY.getTime();
+    });
+    const taskNavBadge = overdueAll.length ? String(overdueAll.length)
+      : openAll.length ? String(openAll.length) : '';
+    const taskNavTone = overdueAll.length ? 'red' : 'amber';
+
+    const priDot = p => dot(TASK_COLORS[p] || TASK_COLORS.blue, 7);
+    const boxOf = done => 'flex: none; width: 15px; height: 15px; margin-top: 1px; border-radius: 3px; cursor: pointer; padding: 0; display: grid; place-items: center; border: 1px solid ' +
+      (done ? accent + '; background: ' + accent + ';' : '#cfd0cc; background: #fff;');
+    const markOf = done => 'font-size: 10px; line-height: 1; color: #fff; visibility: ' + (done ? 'visible' : 'hidden') + ';';
+    const titleBtn = done => 'flex: 1; min-width: 0; border: none; background: none; padding: 0; cursor: pointer; font-family: inherit; font-size: 12.5px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #14171a;' +
+      (done ? ' text-decoration: line-through;' : '');
+    const whenStyle = t => {
+      const end = taskEnd(t);
+      const late = end && end.getTime() < TODAY.getTime() && t.status !== 'done';
+      return "font-family: 'IBM Plex Mono', monospace; font-size: 11px; flex: none; padding-top: 1px; color: " + (late ? '#b3261e' : '#8a8f96') + ';';
+    };
+    const taskRow = t => ({
+      title: t.title,
+      when: taskWhen(t) || 'без срока',
+      whenStyle: whenStyle(t),
+      dotStyle: priDot(t.priority),
+      boxStyle: boxOf(t.status === 'done'),
+      markStyle: markOf(t.status === 'done'),
+      titleStyle: titleBtn(t.status === 'done'),
+      onOpen: () => this.openTask(t, t.client_id),
+      onDone: () => this.toggleTask(t)
+    });
+
+    // ---- блок в карточке
+    const mine = st.tasks.filter(t => t.client_id === c.id);
+    const mineOpen = mine.filter(t => t.status !== 'done');
+    const mineDone = mine.filter(t => t.status === 'done');
+    const byDate = (a, b) => {
+      const ea = taskEnd(a), eb = taskEnd(b);
+      if (!ea && !eb) return 0;
+      if (!ea) return 1;
+      if (!eb) return -1;
+      return ea - eb;
+    };
+    mineOpen.sort(byDate);
+
+    const myComments = st.comments.filter(m => m.client_id === c.id).slice().reverse();
+
+    // ---- вкладка «Все задачи»
+    const weekEnd = (function () {
+      const n = new Date(TODAY);
+      const shiftDays = (7 - (n.getDay() || 7));   // до ближайшего воскресенья
+      n.setDate(n.getDate() + shiftDays);
+      return n;
+    })();
+
+    const visible = st.tasks.filter(t => {
+      if (t.status === 'done' && !st.tasksShowDone) return false;
+      if (st.taskFilter !== 'all' && t.priority !== st.taskFilter) return false;
+      return true;
+    });
+
+    const bucket = t => {
+      const end = taskEnd(t);
+      if (!end) return 'none';
+      if (t.status !== 'done' && end.getTime() < TODAY.getTime()) return 'over';
+      const from = parseDate(t.date_from) || end;
+      if (from.getTime() <= TODAY.getTime() && end.getTime() >= TODAY.getTime()) return 'today';
+      if (end.getTime() <= weekEnd.getTime()) return 'week';
+      return 'later';
+    };
+
+    const GROUPS = [
+      { key: 'over', title: 'Просрочено', color: '#b3261e' },
+      { key: 'today', title: 'Сегодня', color: '#14171a' },
+      { key: 'week', title: 'На этой неделе', color: '#14171a' },
+      { key: 'later', title: 'Позже', color: '#6b7078' },
+      { key: 'none', title: 'Без срока', color: '#6b7078' }
+    ];
+    const grouped = {};
+    visible.forEach(t => { (grouped[bucket(t)] = grouped[bucket(t)] || []).push(t); });
+
+    const taskGroups = GROUPS.filter(g => (grouped[g.key] || []).length).map(g => {
+      const list = (grouped[g.key] || []).slice().sort(byDate);
+      return {
+        title: g.title,
+        count: String(list.length),
+        headStyle: 'display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-bottom: 1px solid #e3e3df; background: #f8f8f5; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: ' + g.color + ';',
+        badgeStyle: "font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #eeeeea; color: #7c8189;",
+        rows: list.map(t => Object.assign(taskRow(t), {
+          client: nameById[t.client_id] || t.client_id,
+          rowStyle: 'display: flex; align-items: flex-start; gap: 9px; padding: 8px 14px; border-bottom: 1px solid #f2f2ee;' + (t.status === 'done' ? ' opacity: 0.55;' : ''),
+          onClient: () => this.setState({ view: 'card', current: t.client_id, tab: 'brief' })
+        }))
+      };
+    });
+
+    // ---- модалка
+    const tm = st.taskModal;
+    const modeTabBtn = (key, label) => ({
+      label: label,
+      onClick: () => this.patchModal({ mode: key }),
+      style: 'border: none; background: none; cursor: pointer; font-family: inherit; font-size: 12.5px; padding: 7px 11px; margin-bottom: -1px; border-bottom: 2px solid ' +
+        (tm && tm.mode === key ? accent + '; font-weight: 600; color: #14171a;' : 'transparent; font-weight: 500; color: #6b7078;')
+    });
+    const priBtn = on => 'display: inline-flex; align-items: center; gap: 7px; border: 1px solid ' + (on ? accent : '#dedeD9') +
+      '; background: ' + (on ? '#eef1fe' : '#fff') + '; color: ' + (on ? '#14171a' : '#5d636b') +
+      '; font-family: inherit; font-size: 12.5px; font-weight: 500; padding: 7px 13px; border-radius: 16px; cursor: pointer;';
+    const fmtBtn = "border: 1px solid #dedeD9; background: #fff; width: 28px; height: 26px; border-radius: 4px; cursor: pointer; font-size: 12.5px; padding: 0;";
+    const fontIdx = tm ? TASK_FONTS.indexOf(tm.font) : 0;
+    const stepBtn = enabled => fmtBtn + ' width: 32px;' + (enabled ? '' : ' color: #c9ccd0; cursor: default;');
+    const exec = cmd => e => {
+      e.preventDefault();               // не даём полю потерять выделение
+      const el = document.getElementById('dc-task-desc');
+      if (el) { el.focus(); document.execCommand(cmd, false, null); }
+    };
+
     return {
+      // ---- точки, навигация
+      isTasks: st.view === 'tasks',
+
+      // ---- блок задач в карточке
+      blkTasksOpen: st.blkTasks,
+      blkTasksCaret: st.blkTasks ? '▾' : '▸',
+      toggleBlkTasks: () => this.setState({ blkTasks: !st.blkTasks }),
+      openTaskCount: mineOpen.length ? String(mineOpen.length) : '',
+      openTaskCountStyle: mineOpen.length
+        ? "font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: " +
+          (mineOpen.some(t => t.priority === 'red') ? '#fbe9e7; color: #a91f18;' : '#eeeeea; color: #7c8189;')
+        : 'display: none;',
+      openNewTask: () => this.openTask(null, c.id),
+      cardTasks: mineOpen.map(taskRow),
+      cardTasksEmpty: mineOpen.length === 0,
+      hasDoneTasks: mineDone.length > 0,
+      showDoneLabel: (st.showDone ? 'Скрыть выполненные (' : 'Показать выполненные (') + mineDone.length + ')',
+      toggleShowDone: () => this.setState({ showDone: !st.showDone }),
+      cardTasksDone: st.showDone ? mineDone.map(taskRow) : [],
+
+      // ---- блок комментариев
+      blkCommentsOpen: st.blkComments,
+      blkCommentsCaret: st.blkComments ? '▾' : '▸',
+      toggleBlkComments: () => this.setState({ blkComments: !st.blkComments }),
+      commentCount: myComments.length ? String(myComments.length) : '',
+      commentCountStyle: myComments.length
+        ? "font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 3px; background: #eeeeea; color: #7c8189;"
+        : 'display: none;',
+      commentDraft: st.commentDraft,
+      commentPlaceholder: st.commentEdit ? 'Правка комментария' : 'Комментарий по клиенту',
+      setCommentDraft: e => this.setState({ commentDraft: e.target.value }),
+      submitComment: () => this.submitComment(),
+      commentEditing: !!st.commentEdit,
+      cancelCommentEdit: () => this.setState({ commentEdit: null, commentDraft: '' }),
+      commentBtnLabel: busy === 'comment' ? '…' : st.commentEdit ? 'Сохранить' : 'Добавить',
+      commentBtnStyle: this.btn(String(st.commentDraft || '').trim() ? 'primary' : 'muted', ' flex: none;'),
+      cardComments: myComments.map(m => ({
+        text: m.text,
+        meta: m.created + (m.edited ? ' · правлен ' + m.edited : ''),
+        onEdit: () => this.setState({ commentEdit: m.id, commentDraft: m.text, commentDel: null }),
+        onDelete: () => this.removeComment(m.id),
+        delLabel: st.commentDel === m.id ? 'точно?' : '✕',
+        delStyle: 'border: none; background: none; padding: 0 2px; cursor: pointer; font-size: ' +
+          (st.commentDel === m.id ? '11px; color: #a91f18; font-weight: 600;' : '12px; color: #8a8f96;')
+      })),
+      cardCommentsEmpty: myComments.length === 0,
+
+      // ---- вкладка «Все задачи»
+      taskGroups: taskGroups,
+      taskGroupsEmpty: taskGroups.length === 0,
+      taskShown: String(visible.length),
+      taskTotal: String(st.tasks.length),
+      taskFilters: [
+        { key: 'all', label: 'Все' },
+        { key: 'red', label: 'Срочные' },
+        { key: 'blue', label: 'Обычные' }
+      ].map(f => ({
+        label: f.label,
+        onClick: () => this.setState({ taskFilter: f.key }),
+        style: 'border: none; cursor: pointer; font-size: 12px; font-weight: 500; padding: 5px 10px; border-radius: 4px; ' +
+          (st.taskFilter === f.key ? 'background: #fff; color: #14171a; box-shadow: 0 1px 2px rgba(0,0,0,0.07);' : 'background: none; color: #6b7078;')
+      })),
+      allDoneLabel: st.tasksShowDone ? 'Скрыть выполненные' : 'Показать выполненные',
+      allDoneStyle: 'border: 1px solid ' + (st.tasksShowDone ? accent : '#d9d9d4') + '; background: #fff; color: ' +
+        (st.tasksShowDone ? accent : '#5d636b') + '; font-family: inherit; font-size: 12px; font-weight: 500; padding: 6px 11px; border-radius: 5px; cursor: pointer;',
+      toggleAllDone: () => this.setState({ tasksShowDone: !st.tasksShowDone }),
+
+      // ---- модалка задачи
+      taskModalOpen: !!tm,
+      taskModalTitle: tm && tm.id ? 'Правка задачи' : 'Новая задача',
+      closeTaskModal: () => this.setState({ taskModal: null }),
+      onBackdropClick: () => this.setState({ taskModal: null }),
+      stopClick: e => e.stopPropagation(),
+      taskTitle: tm ? tm.title : '',
+      setTaskTitle: e => this.patchModal({ title: e.target.value }),
+      taskDescStyle: 'min-height: 108px; margin-top: 10px; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; line-height: 1.55; overflow-y: auto; max-height: 280px; font-size: ' +
+        (tm && TASK_FONTS.indexOf(tm.font) >= 0 ? tm.font : 14) + 'px;',
+      fmtBtnStyle: fmtBtn,
+      fmtBold: exec('bold'),
+      fmtItalic: exec('italic'),
+      fmtUnderline: exec('underline'),
+      taskFontLabel: (tm && TASK_FONTS.indexOf(tm.font) >= 0 ? tm.font : 14) + 'px',
+      fontDownStyle: stepBtn(fontIdx > 0),
+      fontUpStyle: stepBtn(fontIdx >= 0 && fontIdx < TASK_FONTS.length - 1),
+      fontDown: () => { if (fontIdx > 0) this.patchModal({ font: TASK_FONTS[fontIdx - 1] }); },
+      fontUp: () => { if (fontIdx >= 0 && fontIdx < TASK_FONTS.length - 1) this.patchModal({ font: TASK_FONTS[fontIdx + 1] }); },
+      priRedStyle: priBtn(!!tm && tm.priority === 'red'),
+      priBlueStyle: priBtn(!!tm && tm.priority === 'blue'),
+      setPriRed: () => this.patchModal({ priority: 'red' }),
+      setPriBlue: () => this.patchModal({ priority: 'blue' }),
+      taskModeTabs: [modeTabBtn('date', 'Дата'), modeTabBtn('range', 'Период'), modeTabBtn('none', 'Без срока')],
+      taskModeDate: !!tm && tm.mode === 'date',
+      taskModeRange: !!tm && tm.mode === 'range',
+      taskModeNone: !!tm && tm.mode === 'none',
+      taskFrom: tm ? tm.from : '',
+      taskTo: tm ? tm.to : '',
+      setTaskFrom: e => this.patchModal({ from: e.target.value }),
+      setTaskTo: e => this.patchModal({ to: e.target.value }),
+      saveTaskLabel: busy === 'task' ? 'Сохраняю…' : 'Сохранить',
+      saveTaskStyle: this.btn(tm && String(tm.title || '').trim() ? 'primary' : 'muted', ' width: 100%; margin-top: 18px; padding: 10px;'),
+      saveTask: () => this.saveTask(),
+      taskCanDelete: !!(tm && tm.id),
+      deleteTaskLabel: busy === 'taskDel' ? 'Удаляю…' : 'Удалить задачу',
+      deleteTaskStyle: 'width: 100%; margin-top: 8px; border: none; background: none; font-family: inherit; font-size: 12px; color: #a91f18; padding: 7px; cursor: pointer;',
+      deleteTask: () => this.removeTask(),
+
       syncedAt: st.demo ? 'демо-данные' : st.loading ? 'загрузка…' : st.syncAt,
       isList: st.view === 'list', isCard: st.view === 'card',
       isPayments: st.view === 'payments', isBriefs: st.view === 'briefs',
@@ -2245,6 +2899,7 @@ class Component extends DCLogic {
         { key: 'list', label: 'Клиенты', badge: String(cs.length), tone: 'plain' },
         { key: 'payments', label: 'Оплаты', badge: cs.filter(x => x.pay === 'overdue').length ? String(cs.filter(x => x.pay === 'overdue').length) : '', tone: 'red' },
         { key: 'briefs', label: 'Брифы', badge: st.briefs.length ? String(st.briefs.length) : '', tone: 'amber' },
+        { key: 'tasks', label: 'Все задачи', badge: taskNavBadge, tone: taskNavTone },
         { key: 'log', label: 'Лог публикаций', badge: '', tone: 'plain' },
         { key: 'settings', label: 'Настройки', badge: st.demo || !conn.WEBAPP_URL ? '!' : '', tone: 'red' }
       ].map(n => {
