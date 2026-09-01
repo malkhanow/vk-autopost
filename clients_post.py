@@ -359,13 +359,30 @@ def next_photo_for_client(yandex_folder, rubric_name="", state=None, client_id="
 
 # ---------- RouterAI ----------
 
-def ai_text(messages, max_tokens=900, temperature=0.8):
+# Последний ответ модели пришёл обрезанным по лимиту токенов. Нужен вызовам,
+# где ответ — не проза, а список: у обрезанного списка последний элемент
+# всегда битый, и его надо выбросить.
+LAST_ANSWER_TRUNCATED = False
+
+# «Размышления» модели списываются из того же max_tokens, что и сам ответ.
+# При reasoning_effort выше low короткий лимит съедается рассуждением, и до
+# текста дело не доходит: именно так хештеги обрезало на полуслове. Ниже
+# этого потолка лимит не опускаем.
+REASONING_TOKEN_FLOOR = 900
+
+
+def ai_text(messages, max_tokens=900, temperature=0.8, reasoning=None):
+    global LAST_ANSWER_TRUNCATED
+    LAST_ANSWER_TRUNCATED = False
+    effort = str(reasoning or ROUTERAI_REASONING or "low").strip().lower()
+    if effort not in ("low", "none", "minimal"):
+        max_tokens = max(max_tokens, REASONING_TOKEN_FLOOR)
     payload = {
         "model": ROUTERAI_MODEL,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "reasoning_effort": ROUTERAI_REASONING,
+        "reasoning_effort": effort,
     }
     last_error = None
     for attempt in range(3):
@@ -408,6 +425,7 @@ def ai_text(messages, max_tokens=900, temperature=0.8):
                 last_error = "обрыв по длине"
                 continue
             print("RouterAI: текст оборван, обрезаю по последнему предложению.")
+            LAST_ANSWER_TRUNCATED = True
             return trim_to_sentence(strip_model_noise(content))
         return strip_model_noise(content)
     raise RuntimeError(f"RouterAI не отвечает после трёх попыток ({last_error})")
@@ -457,7 +475,10 @@ def append_cta(text, client):
     return body + "\n\n" + cta
 
 
-HASHTAGS_MAX = 10
+# Потолок числа тегов под постом. Раньше стоял 10, но из-за обрезанного
+# ответа модели фактически выходило 1–3 — и лента к этому привыкла. Десять
+# тегов под каждым постом читаются как спам, поэтому фиксируем 5.
+HASHTAGS_MAX = 5
 
 
 def normalize_tag(raw):
@@ -496,14 +517,27 @@ def build_hashtags_ai(client, post_text, need):
         "и по городу. Ответь одной строкой через запятую."
     )
 
+    # Подбор тегов — механическая задача, «размышление» здесь только съедает
+    # лимит токенов. Явно ставим low и просторный max_tokens: обрезанный
+    # ответ означает битый последний тег (реальный случай — «#недвижимостьсп»).
     raw = ai_text(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        max_tokens=140,
+        max_tokens=400,
         temperature=0.5,
+        reasoning="low",
     )
+    truncated = LAST_ANSWER_TRUNCATED
+
+    parts = re.split(r"[,\n]+", raw or "")
+    # Ответ оборвался по лимиту — последний фрагмент почти наверняка
+    # недописанное слово. Выбрасываем его, а не публикуем обрубок.
+    if truncated and len(parts) > 1 and not re.search(r"[,\n]\s*$", raw or ""):
+        dropped = parts.pop().strip()
+        if dropped:
+            print(f"Ответ с тегами оборван — отбрасываю неполный тег «{dropped}».")
 
     out, seen = [], set()
-    for part in re.split(r"[,\n]+", raw or ""):
+    for part in parts:
         tag = normalize_tag(part)
         # однобуквенные обрывки и слишком длинные склейки в теги не годятся
         if len(tag) < 3 or len(tag) > 30:
