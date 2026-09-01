@@ -393,8 +393,32 @@ def ai_text(messages, max_tokens=900, temperature=0.8):
         content = (choices[0].get("message") or {}).get("content")
         if not content:
             raise RuntimeError("RouterAI вернул пустой текст")
+        # Модель упёрлась в лимит и текст оборван на полуслове. Молча публиковать
+        # такое нельзя: повторяем с увеличенным лимитом, а если и это не помогло —
+        # обрезаем по последнему законченному предложению.
+        if choices[0].get("finish_reason") == "length":
+            grown = int(payload["max_tokens"] * 1.6)
+            if grown > payload["max_tokens"] and attempt < 2:
+                print(f"RouterAI: текст оборван, повтор с лимитом {grown}...")
+                payload["max_tokens"] = grown
+                last_error = "обрыв по длине"
+                continue
+            print("RouterAI: текст оборван, обрезаю по последнему предложению.")
+            return trim_to_sentence(strip_model_noise(content))
         return strip_model_noise(content)
     raise RuntimeError(f"RouterAI не отвечает после трёх попыток ({last_error})")
+
+
+def trim_to_sentence(text):
+    """Отрезает оборванный хвост до последнего законченного предложения."""
+    text = (text or "").rstrip()
+    if not text:
+        return text
+    cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"), text.rfind("…"))
+    # если знак конца предложения нашёлся не в самом начале — режем по нему
+    if cut > len(text) * 0.4:
+        return text[: cut + 1].rstrip()
+    return text
 
 
 def strip_model_noise(text):
@@ -869,13 +893,13 @@ def post_to_telegram(channel, text, photo_path=None):
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     CAPTION_LIMIT = 1024
 
-    def send_message(body, parse_mode="Markdown"):
+    def send_message(body, parse_mode=None):
         payload = {"chat_id": channel, "text": body}
         if parse_mode:
             payload["parse_mode"] = parse_mode
         return requests.post(f"{base_url}/sendMessage", json=payload, timeout=30)
 
-    def send_photo(path, caption, parse_mode="Markdown"):
+    def send_photo(path, caption, parse_mode=None):
         data = {"chat_id": channel}
         if caption:
             data["caption"] = caption
