@@ -2914,6 +2914,11 @@ class Component extends DCLogic {
         stylePrompt: c.stylePrompt, edits: c.edits, iterations: c.iterations,
         payLabel: payOf(c.pay).label, payStyle: pillOf(c.pay),
         tgChannel: c.tgChannel || '', holidaysExtra: c.holidaysExtra || '',
+        // postFormat обязателен: в разметке есть {{ c.postFormat }}, а рантайм
+        // при undefined пишет в поле пустую строку — значение молча стиралось
+        // на каждой перерисовке, хотя в таблице оно лежало. На этом же уже
+        // теряли tgChannel и styleSourceText.
+        postFormat: c.postFormat || '',
         styleSourceText: c.styleSourceText || ''
       },
       queueStyle: PILL + (c.photoQueue > 0

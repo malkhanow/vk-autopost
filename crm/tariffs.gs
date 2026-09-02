@@ -9,7 +9,7 @@
  *  TARIFFS_FALLBACK. Она обязана существовать: без реестра не работает
  *  ни CRM, ни приём брифов.
  *
- *  После правки tariffs.json в репозитории — запустить tariffsRefresh_()
+ *  После правки tariffs.json в репозитории — запустить tariffsRefresh()
  *  или подождать 6 часов.
  * ==================================================================== */
 
@@ -156,8 +156,12 @@ function tariffsFetch_() {
   }
 }
 
-/** Сбросить кэш после правки tariffs.json. Запускать вручную. */
-function tariffsRefresh_() {
+/**
+ * Сбросить кэш после правки tariffs.json. Запускать вручную из редактора.
+ * Без подчёркивания на конце сознательно: Apps Script прячет из списка
+ * запуска всё, что кончается на «_», и функцию было не выбрать мышкой.
+ */
+function tariffsRefresh() {
   TARIFFS_MEMO_ = null;
   try { CacheService.getScriptCache().remove(TARIFFS_CACHE_KEY); } catch (e) {}
   var reg = tariffRegistry_();
@@ -261,15 +265,38 @@ function tariffIn_(v) {
   return tariffName_(normalizeTariff_(v));
 }
 
-/** Маркеры разделов формы: {'СТАРТ':['СТАРТ'], ...}. */
+/**
+ * Маркеры разделов формы: {'ПРОФИ': ['ПРОФИ','ПРО'], ...}.
+ *
+ * Кроме отображаемого имени берутся ЗАГЛАВНЫЕ алиасы из реестра: в живой
+ * Google Форме раздел до сих пор называется «ПРО — 2 поста в день», и если
+ * оставить только имя «ПРОФИ», такой бриф молча уедет в СТАРТ.
+ * Внутри тарифа маркеры отсортированы от длинного к короткому, чтобы
+ * «ПРЕМИУМ» не проигрывал более короткому совпадению.
+ */
 function tariffMarkers_() {
   var override = null;
   try { override = jsonCell_(prop_('TARIFF_MARKERS'), null); } catch (e) { override = null; }
   if (override) return override;
 
+  var reg = tariffRegistry_();
+  var T = reg.tariffs;
+  var A = reg.aliases || {};
   var out = {};
-  var T = tariffRegistry_().tariffs;
-  tariffIds_().forEach(function (id) { out[T[id].name] = [T[id].name]; });
+
+  tariffIds_().forEach(function (id) {
+    var name = T[id].name;
+    var list = [name];
+    for (var alias in A) {
+      if (!A.hasOwnProperty(alias) || A[alias] !== id) continue;
+      // маркер ищется в заголовке вопроса как отдельное слово ЗАГЛАВНЫМИ,
+      // поэтому строчные написания алиасов сюда не годятся
+      if (alias !== alias.toUpperCase()) continue;
+      if (list.indexOf(alias) < 0) list.push(alias);
+    }
+    list.sort(function (a, b) { return b.length - a.length; });
+    out[name] = list;
+  });
   return out;
 }
 
