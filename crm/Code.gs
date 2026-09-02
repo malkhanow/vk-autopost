@@ -1661,46 +1661,95 @@ var STYLE_TASKS = [
  * Один запрос к RouterAI. Ключ берётся из Script Properties и в браузер
  * не уходит: интерфейс дёргает Web App, а Web App — RouterAI.
  */
+function trimToSentence_(text) {
+  var s = String(text || '').trim();
+  if (!s) return s;
+  // Обрезаем по последнему завершённому предложению. Если его нет —
+  // по последнему абзацу, иначе вернём тот же обрубок.
+  var m = s.match(/^[\s\S]*[.!?…]["»)]?(?=\s|$)/);
+  if (m && m[0].trim().split(/\s+/).length >= 20) return m[0].trim();
+  var cut = s.lastIndexOf('\n');
+  if (cut > 0) return s.slice(0, cut).trim();
+  return s;
+}
+
+/**
+ * Обёртка над RouterAI.
+ *
+ * Раньше finish_reason игнорировался: если модель упиралась в max_tokens,
+ * наверх уходил обрубок на середине фразы — ровно это видно в примерах
+ * постов, которые обрывались на «Это состояние,». Теперь при finish_reason
+ * "length" делается повтор с увеличенным бюджетом, а если и он упёрся —
+ * текст подрезается по последнему целому предложению. Для json-режима
+ * подрезка бессмысленна (сломанный JSON не спасти), там только повтор.
+ */
 function ai_(messages, opts) {
   opts = opts || {};
   var key = prop_('ROUTERAI_KEY', true);
   var model = prop_('ROUTERAI_MODEL') || ROUTERAI_MODEL_DEFAULT;
-  var payload = {
-    model: model,
-    messages: messages,
-    temperature: opts.temperature === undefined ? 0.7 : opts.temperature
-  };
-  if (opts.maxTokens) payload.max_tokens = opts.maxTokens;
-  if (opts.json) payload.response_format = { type: 'json_object' };
+
+  var budget = opts.maxTokens || 0;
+  var last = '';
+  var truncated = '';
+
+  for (var pass = 0; pass < 2; pass++) {
+    var payload = {
+      model: model,
+      messages: messages,
+      temperature: opts.temperature === undefined ? 0.7 : opts.temperature
+    };
+    if (budget) payload.max_tokens = budget;
+    if (opts.json) payload.response_format = { type: 'json_object' };
     payload.reasoning_effort = opts.reasoningEffort || 'low';
 
-  var last = '';
-  for (var attempt = 0; attempt < 3; attempt++) {
-    if (attempt) Utilities.sleep(attempt * 3000);
-    var res = UrlFetchApp.fetch(ROUTERAI_URL, {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { Authorization: 'Bearer ' + key },
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-    var code = res.getResponseCode();
-    var text = res.getContentText();
-    if (code === 429 || code >= 500) { last = 'RouterAI: HTTP ' + code; continue; }
-    if (code !== 200) {
-      var detail = '';
-      try {
-        var errJson = JSON.parse(text);
-        detail = (errJson.error && (errJson.error.message || errJson.error)) || errJson.message || '';
-      } catch (e) { detail = String(text).slice(0, 200); }
-      throw new Error('RouterAI: HTTP ' + code + (detail ? ' — ' + detail : ''));
+    var content = null;
+    var finish = '';
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt) Utilities.sleep(attempt * 3000);
+      var res = UrlFetchApp.fetch(ROUTERAI_URL, {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { Authorization: 'Bearer ' + key },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      var code = res.getResponseCode();
+      var text = res.getContentText();
+      if (code === 429 || code >= 500) { last = 'RouterAI: HTTP ' + code; continue; }
+      if (code !== 200) {
+        var detail = '';
+        try {
+          var errJson = JSON.parse(text);
+          detail = (errJson.error && (errJson.error.message || errJson.error)) || errJson.message || '';
+        } catch (e) { detail = String(text).slice(0, 200); }
+        throw new Error('RouterAI: HTTP ' + code + (detail ? ' — ' + detail : ''));
+      }
+      var body = JSON.parse(text);
+      var choice = body && body.choices && body.choices[0];
+      content = choice && choice.message && choice.message.content;
+      finish = String((choice && choice.finish_reason) || '');
+      if (!content) throw new Error('RouterAI вернул пустой ответ');
+      break;
     }
-    var body = JSON.parse(text);
-    var content = body && body.choices && body.choices[0] && body.choices[0].message &&
-      body.choices[0].message.content;
-    if (!content) throw new Error('RouterAI вернул пустой ответ');
-    return String(content).trim();
+
+    if (content === null) throw new Error(last || 'RouterAI не отвечает');
+    content = String(content).trim();
+
+    if (finish !== 'length') return content;
+
+    // Упёрлись в потолок. Первый проход — повтор с бюджетом в 1.6 раза
+    // больше; второй — отдаём подрезанное, чтобы не терять работу целиком.
+    truncated = content;
+    if (pass === 0) {
+      budget = Math.round((budget || 900) * 1.6);
+      continue;
+    }
+    if (opts.json) throw new Error('RouterAI обрезал ответ по лимиту токенов');
+    return trimToSentence_(truncated);
   }
+
+  if (truncated) return opts.json ? truncated : trimToSentence_(truncated);
   throw new Error(last || 'RouterAI не отвечает');
 }
 
@@ -2053,6 +2102,77 @@ function keepRubricOrder_(rubrics, prev) {
  * Приводит план к квоте уже после ответа модели. Полагаться только на
  * инструкцию нельзя: модель регулярно возвращает больше, чем просили.
  */
+/**
+ * Похожа ли рубрика на «фото работ» — витрину готовых результатов.
+ *
+ * Это единственная рубрика, которая тянется живым материалом клиента из
+ * папки to_post, а не придумывается моделью. Когда слотов два, ей отдаётся
+ * ежедневный слот: остальные рубрики на живой материал не опираются и
+ * прекрасно живут через день.
+ */
+function isShowcaseRubric_(name) {
+  var s = norm_(name);
+  if (!s) return false;
+  var hit = ['фото работ', 'наши работы', 'работы', 'портфолио', 'до и после',
+             'результаты работ', 'кейс'];
+  for (var i = 0; i < hit.length; i++) if (s.indexOf(hit[i]) >= 0) return true;
+  return false;
+}
+
+/**
+ * На тарифах с двумя слотами витрина работ идёт каждый день.
+ *
+ * Раньше расписание целиком отдавалось модели, и она ставила «Фото работ»
+ * два-три дня в неделю наравне с текстовыми рубриками. Для клиента, который
+ * платит за два поста в день, это означало, что его собственные фото выходят
+ * реже, чем сгенерированные рассуждения. Правило детерминированное: модель
+ * его не решает, а получает уже готовым.
+ */
+function pinShowcaseDaily_(rubrics, q) {
+  if (!q || (q.perDay || 1) < 2) return rubrics;
+
+  var idx = -1;
+  for (var i = 0; i < rubrics.length; i++) {
+    if (isShowcaseRubric_(rubrics[i].name)) { idx = i; break; }
+  }
+  if (idx < 0) return rubrics;
+
+  var full = WEEK_DAYS.join(', ');
+  var rest = (q.postsPerWeek || 0) - WEEK_DAYS.length;
+
+  var out = rubrics.map(function (r, i) {
+    return {
+      name: r.name, caption: r.caption,
+      days: i === idx ? full : r.days,
+      prompt: r.prompt, manual: r.manual
+    };
+  });
+
+  // Остаток недели раскладываем по остальным рубрикам поровну.
+  if (rest > 0) {
+    var others = [];
+    for (var j = 0; j < out.length; j++) if (j !== idx) others.push(j);
+    if (others.length) {
+      var plan = [];
+      for (var k = 0; k < others.length; k++) plan.push([]);
+      // Раздаём дни по кругу, начиная со вторника: понедельник и так занят
+      // витриной, и второй пост дня лучше разнести по неделе равномерно.
+      for (var d = 0; d < rest; d++) {
+        plan[d % others.length].push(WEEK_DAYS[(d + 1) % WEEK_DAYS.length]);
+      }
+      for (var m = 0; m < others.length; m++) {
+        var days = plan[m].sort(function (a, b) {
+          return WEEK_DAYS.indexOf(a) - WEEK_DAYS.indexOf(b);
+        });
+        out[others[m]].days = days.join(', ');
+      }
+      out = out.filter(function (r) { return r.days; });
+    }
+  }
+
+  return normRubrics_(out);
+}
+
 function enforcePlanLimits_(rubrics, q) {
   var out = rubrics.slice(0, q.count);
 
@@ -2093,6 +2213,10 @@ function aiBuildPlan_(req) {
         'по всем рубрикам вместе должно быть ровно ' + q.postsPerWeek + ';\n'
       : '') +
     '- ' + perDay + ' публикаци(я/и) в день.\n' +
+    (perDay >= 2
+      ? '- рубрика с фото работ клиента выходит ВСЕ СЕМЬ дней недели, ' +
+        'остальные рубрики распределяй по оставшимся публикациям;\n'
+      : '') +
     (q.topics.length
       ? 'Клиент отметил в брифе конкретные темы, и рубрики должны соответствовать ' +
         'именно им, а не твоим идеям: ' + q.topics.join('; ') + '. ' +
@@ -2160,7 +2284,7 @@ function aiBuildPlan_(req) {
 
   var parsed = normRubrics_(parseJsonLoose_(content).rubrics || []);
   var allRubrics = keepRubricOrder_(
-    enforcePlanLimits_(alignToTopics_(parsed, q.topics), q),
+    pinShowcaseDaily_(enforcePlanLimits_(alignToTopics_(parsed, q.topics), q), q),
     c.rubrics
   );
   if (!allRubrics.length) throw new Error('Модель не вернула ни одной рубрики');
@@ -2643,7 +2767,7 @@ function aiGenExamples_(req) {
             'Не выдумывай цены, сроки и гарантии. Ответь только текстом поста, ' +
             'без черновиков и пометок о проверке.'
         }
-      ], { temperature: 0.85, maxTokens: 900 }));
+      ], { temperature: 0.85, maxTokens: 1400 }));
     }
 
     var example = ask();

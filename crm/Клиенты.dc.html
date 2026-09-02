@@ -717,9 +717,10 @@
                     <button onClick="{{ buildPdf }}" style="{{ pdfBtn }}" title="{{ pdfTitle }}">{{ pdfLabel }}</button>
                   </div>
                   <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Бриф → Gemini → рубрики с расписанием и промптами. Примеры постов клиенту не публикуются — только на согласование.</p>
+                  <div style="{{ weekLoadStyle }}">{{ weekLoadText }}</div>
                   <sc-if value="{{ hasRubrics }}" hint-placeholder-val="{{ true }}">
                     <div style="border: 1px solid #ebebe7; border-radius: 5px; overflow: hidden">
-                      <div style="display: grid; grid-template-columns: 18px 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+                      <div style="display: grid; grid-template-columns: 18px 150px 172px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
                         <div></div>
                         <div>Рубрика</div>
                         <div>Дни</div>
@@ -736,7 +737,18 @@
                               <div style="margin-top: 4px; font-size: 10.5px; line-height: 1.4; color: #a0a4aa">{{ r.caption }}</div>
                             </sc-if>
                           </div>
-                          <input type="text" value="{{ r.days }}" onChange="{{ r.setDays }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid {{ r.nameBorder }}; border-radius: 4px; font-size: 12px; font-family: 'IBM Plex Mono', monospace" />
+                          <div style="min-width: 0">
+                            <div style="display: flex; gap: 3px">
+                              <sc-for list="{{ r.dayList }}" as="d" hint-placeholder-count="7">
+                                <button onClick="{{ d.onToggle }}" title="{{ d.title }}" style="{{ d.style }}">{{ d.label }}</button>
+                              </sc-for>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px">
+                              <sc-for list="{{ r.presets }}" as="p" hint-placeholder-count="3">
+                                <button onClick="{{ p.onPick }}" title="{{ p.title }}" style="{{ p.style }}">{{ p.label }}</button>
+                              </sc-for>
+                            </div>
+                          </div>
                           <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
                           <div style="min-width: 0">
                             <div style="font-size: 12px; line-height: 1.5; color: #3e434a; white-space: pre-wrap">{{ r.example }}</div>
@@ -1365,6 +1377,29 @@ function fmt(dt) { return dt ? dt.getDate() + ' ' + MONTHS[dt.getMonth()].slice(
 function fmtLong(dt) { return dt ? dt.getDate() + ' ' + MONTHS[dt.getMonth()] + ' ' + dt.getFullYear() : '—'; }
 function addMonth(dt) { const n = new Date(dt); n.setMonth(n.getMonth() + 1); return n; }
 function shift(dt, days) { const n = new Date(dt); n.setDate(n.getDate() + days); return n; }
+
+/* ---- расписание рубрик ---------------------------------------------
+ * Порядок недели фиксирован: дни всегда пересобираются по этому массиву,
+ * поэтому «сб, пн» после клика превращается в «пн, сб», а не остаётся
+ * в том порядке, в каком их нажимали.
+ * ------------------------------------------------------------------ */
+const WEEK_DAY_KEYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+const WEEK_DAY_NAMES = {
+  'пн': 'Понедельник', 'вт': 'Вторник', 'ср': 'Среда', 'чт': 'Четверг',
+  'пт': 'Пятница', 'сб': 'Суббота', 'вс': 'Воскресенье'
+};
+const DAY_PRESETS = [
+  { label: 'каждый день', title: 'Все семь дней', days: WEEK_DAY_KEYS.slice() },
+  { label: 'будни', title: 'С понедельника по пятницу', days: ['пн', 'вт', 'ср', 'чт', 'пт'] },
+  { label: 'через день', title: 'Понедельник, среда, пятница, воскресенье', days: ['пн', 'ср', 'пт', 'вс'] },
+  { label: 'выходные', title: 'Суббота и воскресенье', days: ['сб', 'вс'] }
+];
+
+/** Строка «пн, ср» -> ['пн','ср']. Мусор и опечатки отбрасываются. */
+function daysOf(value) {
+  const set = String(value || '').toLowerCase().split(',').map(d => d.trim());
+  return WEEK_DAY_KEYS.filter(k => set.indexOf(k) >= 0);
+}
 // тот же расчёт, что addMonths_ в Apps Script: конец месяца не «уползает»
 function addMonths(dt, m) {
   const n = new Date(dt.getTime());
@@ -3161,6 +3196,24 @@ class Component extends DCLogic {
           }),
           () => this.flash('Демо: PDF не собирается без подключения к Web App'));
       },
+      // Сумма дней по всем рубрикам против лимита тарифа. Раньше несовпадение
+      // всплывало только при валидации перед push — теперь видно сразу.
+      weekLoadText: (() => {
+        const used = c.rubrics.reduce((n, r) => n + daysOf(r.days).length, 0);
+        const cap = lim.posts_per_week || 0;
+        if (!cap) return 'Публикаций в неделю по расписанию: ' + used;
+        if (used === cap) return 'Публикаций в неделю: ' + used + ' из ' + cap + ' — расписание сходится с тарифом';
+        if (used > cap) return 'Публикаций в неделю: ' + used + ' из ' + cap + ' — превышение на ' + (used - cap) + ', лишние дни надо снять';
+        return 'Публикаций в неделю: ' + used + ' из ' + cap + ' — свободно ещё ' + (cap - used);
+      })(),
+      weekLoadStyle: (() => {
+        const used = c.rubrics.reduce((n, r) => n + daysOf(r.days).length, 0);
+        const cap = lim.posts_per_week || 0;
+        const over = cap && used > cap;
+        return 'margin: 0 0 12px; font-size: 11.5px; padding: 6px 9px; border-radius: 4px; border: 1px solid '
+          + (over ? '#e8c9c6' : '#e6e6e1') + '; background: ' + (over ? '#fdf5f4' : '#fafaf7')
+          + '; color: ' + (over ? '#b3261e' : '#6b7078') + ';';
+      })(),
       rubrics: c.rubrics.map((r, i) => {
         const upd = (key, val) => this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { [key]: val }) : x)) });
         const dragFrom = st.dragRubric;
@@ -3174,7 +3227,7 @@ class Component extends DCLogic {
           // перехватывает выделение текста в полях строки.
           draggable: st.grabRubric === i ? 'true' : 'false',
           onGrab: () => this.setState({ grabRubric: i }),
-          rowStyle: 'display: grid; grid-template-columns: 18px 150px 120px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px;'
+          rowStyle: 'display: grid; grid-template-columns: 18px 150px 172px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px;'
             + ' gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start;'
             + (isDragged ? ' opacity: 0.4;' : '')
             + (dragFrom !== null && dragFrom !== undefined && dragFrom !== i ? ' background: #fafaf7;' : ''),
@@ -3204,6 +3257,42 @@ class Component extends DCLogic {
           },
           setName: e => upd('name', e.target.value),
           setDays: e => upd('days', e.target.value),
+
+          // Дни — переключатели вместо текстового поля. Раньше сюда вписывали
+          // «пн, ср» руками: строка не влезала в колонку и уезжала за край,
+          // а опечатка вроде «пон» молча ломала расписание в конфиге.
+          dayList: WEEK_DAY_KEYS.map(k => {
+            const on = daysOf(r.days).indexOf(k) >= 0;
+            return {
+              label: k,
+              title: WEEK_DAY_NAMES[k] + (on ? ' — выключить' : ' — включить'),
+              style: 'flex: 1; min-width: 0; padding: 4px 0; border: 1px solid '
+                + (on ? '#2b4acf' : '#e0e0db') + '; background: ' + (on ? '#2b4acf' : '#fff')
+                + '; color: ' + (on ? '#fff' : '#9aa0a6')
+                + '; font-size: 10.5px; font-weight: ' + (on ? '600' : '400')
+                + '; line-height: 1; border-radius: 3px; cursor: pointer; font-family: inherit;',
+              onToggle: () => {
+                const cur = daysOf(r.days);
+                const next = on
+                  ? cur.filter(x => x !== k)
+                  : WEEK_DAY_KEYS.filter(x => cur.indexOf(x) >= 0 || x === k);
+                upd('days', next.join(', '));
+              }
+            };
+          }),
+          presets: DAY_PRESETS.map(pr => {
+            const on = daysOf(r.days).join(',') === pr.days.join(',');
+            return {
+              label: pr.label,
+              title: pr.title,
+              style: 'border: 1px solid ' + (on ? '#2b4acf' : '#e6e6e1')
+                + '; background: ' + (on ? '#eef1fe' : '#fff')
+                + '; color: ' + (on ? '#2b4acf' : '#8a8f96')
+                + '; font-size: 10px; line-height: 1; padding: 4px 6px; border-radius: 3px;'
+                + ' cursor: pointer; font-family: inherit;',
+              onPick: () => upd('days', pr.days.join(', '))
+            };
+          }),
           setPrompt: e => upd('prompt', e.target.value),
           copyLabel: st.copied === 'r' + i ? 'Скопировано ✓' : 'Скопировать',
           copyBtn: 'margin-top: 6px; border: 1px solid ' + (r.example ? '#dedeD9' : '#eeeeea') + '; background: #fff; color: ' + (r.example ? '#14171a' : '#a3a7ac') + '; font-size: 11.5px; padding: 4px 9px; border-radius: 4px; cursor: pointer;',
