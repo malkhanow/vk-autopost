@@ -1,24 +1,13 @@
-const fs = require('fs');
-const code = fs.readFileSync(require('path').join(__dirname, '..', 'Code.gs'), 'utf8');
+const { source, googleStubs } = require('./gs');
+const code = source();
 
-const Utilities = {
-  formatDate: (d, tz, f) => {
-    const p = n => String(n).padStart(2, '0');
-    return f.replace('yyyy', d.getFullYear()).replace('MM', p(d.getMonth() + 1))
-            .replace('dd', p(d.getDate())).replace('HH', p(d.getHours())).replace('mm', p(d.getMinutes()));
-  },
-  base64Encode: (s) => Buffer.from(s, 'utf8').toString('base64'),
-  Charset: { UTF_8: 'utf8' },
-  sleep: () => {}
-};
-const Session = { getScriptTimeZone: () => 'Europe/Moscow' };
 const PROPS = {};
-const PropertiesService = { getScriptProperties: () => ({ getProperty: k => PROPS[k] || null }) };
+const { Utilities, Session, PropertiesService, CacheService } = googleStubs(PROPS);
 const stub = new Proxy({}, { get: () => () => { throw new Error('not stubbed'); } });
 
-const api = new Function('Utilities','Session','PropertiesService','SpreadsheetApp','UrlFetchApp','LockService','ScriptApp','ContentService','console',
-  code + '\nreturn {norm_,pickList_,slotsIn_,slotsOut_,payIn_,payState_,tariffIn_,translit_,uniqueId_,addMonth_,parseDate_,dateOut_,parseJsonLoose_,detectTariff_,briefFromAnswers_,findAnswer_,buildConfig_,normRubrics_,padAnswers_,bool_,num_,list_,lines_,today_,ghError_,mdEscape_,LIMITS_KNOWN,TOPICS_KNOWN};')
-  (Utilities, Session, PropertiesService, stub, stub, stub, stub, stub, console);
+const api = new Function('Utilities','Session','PropertiesService','CacheService','SpreadsheetApp','UrlFetchApp','LockService','ScriptApp','ContentService','console',
+  code + '\nreturn {norm_,pickList_,slotsIn_,slotsOut_,payIn_,payState_,tariffIn_,translit_,uniqueId_,addMonth_,parseDate_,dateOut_,parseJsonLoose_,detectTariff_,briefFromAnswers_,findAnswer_,buildConfig_,normRubrics_,padAnswers_,bool_,num_,list_,lines_,today_,ghError_,mdEscape_,LIMITS_KNOWN,TOPICS_KNOWN,textIsComplete_,trimToSentence_,stripModelNoise_,rubricKind_,rubricFormat_,normalizeTariff_,tariffName_,tariffPrice_};')
+  (Utilities, Session, PropertiesService, CacheService, stub, stub, stub, stub, stub, console);
 
 let fails = 0;
 const eq = (name, a, b) => {
@@ -42,7 +31,11 @@ eq('лист главнее даты: просрочено', api.payState_('over
 eq('оплачено, но дата прошла', api.payState_('paid', new Date(2000,0,1)), 'overdue');
 eq('пустой статус без даты', api.payState_('brief', null), 'brief');
 eq('markdown экранируется', api.mdEscape_('Новый бриф: @olga_spb_realty *тест*'), 'Новый бриф: @olga\\_spb\\_realty \\*тест\\*');
-eq('tariff in', [api.tariffIn_('ПРО'), api.tariffIn_('тариф БИЗНЕС'), api.tariffIn_('')], ['ПРО','БИЗНЕС','СТАРТ']);
+// «ПРО» — алиас: реестр нормализует его в отображаемое имя тарифа «ПРОФИ»
+eq('tariff in', [api.tariffIn_('ПРО'), api.tariffIn_('тариф БИЗНЕС'), api.tariffIn_('')], ['ПРОФИ','БИЗНЕС','СТАРТ']);
+eq('ПРОФИ и ПРО — один тариф', api.normalizeTariff_('ПРО'), api.normalizeTariff_('ПРОФИ'));
+eq('новые тарифы понимаются', [api.tariffIn_('ПРЕМИУМ'), api.tariffIn_('МАКСИМУМ')], ['ПРЕМИУМ','МАКСИМУМ']);
+eq('цена берётся из реестра', api.tariffPrice_(api.normalizeTariff_('СТАРТ')), 2400);
 eq('translit', api.translit_('Пекарня «Тесто и дело»'), 'pekarnya-testo-i-delo');
 eq('uniqueId', api.uniqueId_('beauty-bar', ['beauty-bar','beauty-bar-2']), 'beauty-bar-3');
 eq('addMonth 31', api.dateOut_(api.addMonth_(new Date(2026,0,31))), '2026-02-28');
@@ -58,7 +51,8 @@ eq('payState paid future', api.payState_('paid', new Date(2999,0,1)), 'paid');
 // тариф по разделу формы
 const raw1 = {'Отметка времени':'…','Расскажите про ваш бизнес':'Пекарня','ПРО — 2 поста в день: какие слоты?':'Утро, Вечер'};
 const ans1 = {}; for (const k in raw1) ans1[api.norm_(k)] = raw1[k];
-eq('tariff by section ПРО', api.detectTariff_(raw1, ans1), 'ПРО');
+// старая Google Форма до сих пор называет раздел «ПРО» — алиас обязан работать
+eq('tariff by section ПРО -> ПРОФИ', api.detectTariff_(raw1, ans1), 'ПРОФИ');
 
 const raw2 = {'Расскажите про ваш бизнес':'Столярка','О бизнесе':'мебель'};
 const ans2 = {}; for (const k in raw2) ans2[api.norm_(k)] = raw2[k];

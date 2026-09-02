@@ -1,9 +1,8 @@
-const fs = require('fs');
-const code = fs.readFileSync(require('path').join(__dirname, '..', 'Code.gs'), 'utf8')
-  // в репозитории лежат заглушки — подставляем тестовые значения,
-  // иначе sendTelegram молча выключится и путь уведомлений не проверится
-  .replace('"ВСТАВЬ_ТОКЕН_БОТА"', '"123:TEST"')
-  .replace('"ВСТАВЬ_CHAT_ID"', '"555"');
+const { source, googleStubs } = require('./gs');
+// Токены берутся из Script Properties, в файле их нет — тестовые значения
+// задаются ниже через PROPS, до new Function: const TELEGRAM_BOT_TOKEN
+// вычисляется один раз при загрузке скрипта.
+const code = source();
 
 /* ---- мок Google Таблицы ---- */
 class Sheet {
@@ -73,16 +72,18 @@ const PROPS = {};
 // const TELEGRAM_BOT_TOKEN = ... вычисляется один раз при загрузке скрипта
 PROPS.TELEGRAM_BOT_TOKEN = '123:AA';
 PROPS.TELEGRAM_CHAT_ID = '555';
-const PropertiesService = { getScriptProperties: () => ({ getProperty: k => (k in PROPS ? PROPS[k] : null) }) };
+// setProperty обязателен: nextClientNumber_ ведёт счётчик CLIENT_NUMBER_SEQ,
+// и без него весь набор падал на «props.setProperty is not a function»
+const { PropertiesService, CacheService } = googleStubs(PROPS);
 const sent = [];
 const UrlFetchApp = { fetch: (url, o) => { sent.push({ url, o }); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, result: { username: 'bot' } }) }; } };
 const ScriptApp = { getProjectTriggers: () => [] };
 const Logger = { log: () => {} };
 const ContentService = { MimeType: { JSON: 'json' }, createTextOutput: t => ({ setMimeType: () => ({ body: t }) }) };
 
-const api = new Function('SpreadsheetApp', 'LockService', 'Utilities', 'Session', 'PropertiesService', 'UrlFetchApp', 'ScriptApp', 'ContentService', 'Logger', 'console',
+const api = new Function('SpreadsheetApp', 'LockService', 'Utilities', 'Session', 'PropertiesService', 'CacheService', 'UrlFetchApp', 'ScriptApp', 'ContentService', 'Logger', 'console',
   code + '\nreturn {setupSheets,GET_ACTIONS,POST_ACTIONS,doGet,doPost,onFormSubmit,HEAD_CLIENTS,HEAD_CLIENTS_EXTRA,clientsTable_,F,route_,onEdit,checkPayments,missingClientColumns_,PAY_OPTIONS,ST_CANCEL,ST_OVERDUE};')
-  (SpreadsheetApp, LockService, Utilities, Session, PropertiesService, UrlFetchApp, ScriptApp, ContentService, Logger, console);
+  (SpreadsheetApp, LockService, Utilities, Session, PropertiesService, CacheService, UrlFetchApp, ScriptApp, ContentService, Logger, console);
 
 let fails = 0;
 const ok = (n, c, info) => { if (c) console.log('ok  ', n); else { console.log('FAIL', n, info === undefined ? '' : JSON.stringify(info)); fails++; } };
@@ -239,13 +240,15 @@ const fromForm = api.onFormSubmit({
 // клиент заводится оттуда кнопкой — id появляется только на этом шаге
 ok('бриф из формы разобран', fromForm.business === 'Студия «Керамика»' && fromForm.name === 'Алиса Ремизова', fromForm.business);
 ok('id на этапе брифа ещё нет', fromForm.id === undefined, fromForm.id);
-ok('тариф по разделу формы', fromForm.tariff === 'ПРО', fromForm.tariff);
+// раздел формы называется «ПРО» — это алиас, реестр отдаёт имя тарифа «ПРОФИ»
+ok('тариф по разделу формы', fromForm.tariff === 'ПРОФИ', fromForm.tariff);
 ok('слоты из формы', JSON.stringify(fromForm.slots) === JSON.stringify(['morning', 'evening']), fromForm.slots);
 ok('ограничения из формы', fromForm.limits.length === 2, fromForm.limits);
 ok('источник — Google Форма', fromForm.source === 'Google Форма');
 const tg = sent.find(s => /sendMessage/.test(s.url));
 const msg = JSON.parse(tg.o.payload).text;
-ok('Telegram: нужная первая строка', msg.split('\n')[0] === 'Новый бриф: Алиса Ремизова, ПРО, керамическая студия', msg.split('\n')[0]);
+// в начале строки — номер клиента из CLIENT_NUMBER_SEQ, экранированный для Markdown
+ok('Telegram: нужная первая строка', msg.split('\n')[0] === '\\[0003\\] Новый бриф: Алиса Ремизова, ПРОФИ, керамическая студия', msg.split('\n')[0]);
 // строка брифа помечается только при создании клиента кнопкой в CRM,
 // сам onFormSubmit её не трогает
 ok('строка брифа не помечена', !briefSheet.data[1][12] && !briefSheet.data[1][13]);

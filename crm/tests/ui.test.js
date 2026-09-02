@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { domStubs } = require('./gs');
 const html = fs.readFileSync(require('path').join(__dirname, '..', 'Клиенты.dc.html'), 'utf8');
 const src = /<script type="text\/x-dc"[^>]*>\n([\s\S]*)\n<\/script>/.exec(html)[1];
 
@@ -14,10 +15,24 @@ const store = {};
 const opened = [];
 const window = { open: (u) => { opened.push(u); return {}; }, localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = v; } } };
 const navigator = { clipboard: { writeText: () => {} } };
+// bootOnce вешает Esc через document.addEventListener: движок шаблонов
+// понимает click/change/drag, но не keydown. Без заглушки весь набор падал
+// на «document is not defined».
+const { document, fire } = domStubs();
 
 let calls = [];
 let reply = {};
+const TARIFFS_JSON = fs.readFileSync(
+  require('path').join(__dirname, '..', '..', 'tariffs.json'), 'utf8');
+
 const fetchStub = (url, opts) => {
+  // loadTariffs() тянет ../tariffs.json с GitHub Pages — это не действие
+  // Web App, и разбор action= на нём падал. Отдаём реальный реестр.
+  if (String(url).indexOf('tariffs.json') >= 0) {
+    return Promise.resolve({ ok: true, status: 200,
+      json: () => Promise.resolve(JSON.parse(TARIFFS_JSON)),
+      text: () => Promise.resolve(TARIFFS_JSON) });
+  }
   const body = opts && opts.body ? JSON.parse(opts.body) : null;
   const action = body ? body.action : /action=([^&]+)/.exec(url)[1];
   calls.push({ url, method: (opts && opts.method) || 'GET', action, body, ct: opts && opts.headers && opts.headers['Content-Type'] });
@@ -25,8 +40,8 @@ const fetchStub = (url, opts) => {
   return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(data)) });
 };
 
-const Component = new Function('DCLogic', 'window', 'navigator', 'fetch', 'Blob', 'setTimeout', 'clearTimeout',
-  src + '\nreturn Component;')(DCLogic, window, navigator, fetchStub, Blob, setTimeout, clearTimeout);
+const Component = new Function('DCLogic', 'window', 'navigator', 'document', 'fetch', 'Blob', 'setTimeout', 'clearTimeout',
+  src + '\nreturn Component;')(DCLogic, window, navigator, document, fetchStub, Blob, setTimeout, clearTimeout);
 
 let fails = 0;
 const ok = (name, cond, info) => { if (cond) console.log('ok  ', name); else { console.log('FAIL', name, info === undefined ? '' : info); fails++; } };
@@ -72,7 +87,8 @@ const SERVER_CLIENT = {
   comp.renderVals();
   await later(30);
   v = comp.renderVals();
-  ok('загрузка четырьмя GET', calls.filter(c => c.method === 'GET').length === 4, calls.map(c => c.action).join(','));
+  // шесть GET: к clients/briefs/log/settings добавились задачи и комментарии
+  ok('загрузка шестью GET', calls.filter(c => c.method === 'GET').length === 6, calls.map(c => c.action).join(','));
   ok('токен в query', calls[0].url.indexOf('token=secret-123') > 0);
   ok('клиент из таблицы', v.rows.length === 1 && v.rows[0].business === 'Beauty BAR');
   ok('даты разобраны', v.c.startedAt === '12 мая 2026' && v.c.nextPay === '1 сентября 2026', v.c.startedAt + ' / ' + v.c.nextPay);
@@ -105,9 +121,10 @@ const SERVER_CLIENT = {
   opened.length = 0;
   v = comp.renderVals();
   ok('кнопки подтверждения нет', v.confirmPayment === undefined && v.payBtnLabel === undefined);
-  ok('вместо неё ссылка на строку', v.sheetBtnLabel === 'Открыть строку в таблице');
+  // sheetBtnLabel и payHint из разметки убраны: строку открывает openRow(),
+  // и проверять надо именно поведение, а не подписи, которых больше нет
+  ok('оплата остаётся за таблицей', typeof v.openRow === 'function');
   ok('статус из листа показан', v.payRaw === 'Тест без оплаты', v.payRaw);
-  ok('подсказка про дропдаун', /дропдаун/.test(v.payHint), v.payHint);
   v.openRow();
   await later(20);
   ok('открывает строку на ячейке статуса', opened[0] === 'https://docs.google.com/spreadsheets/d/TESTID/edit#gid=0&range=F2', opened[0]);
@@ -208,7 +225,7 @@ const SERVER_CLIENT = {
   /* --- 10. ошибка сети --- */
   calls = [];
   const broken = () => Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('<!DOCTYPE html><html>ошибка</html>') });
-  const Comp2 = new Function('DCLogic', 'window', 'navigator', 'fetch', 'Blob', 'setTimeout', 'clearTimeout', src + '\nreturn Component;')(DCLogic, window, navigator, broken, Blob, setTimeout, clearTimeout);
+  const Comp2 = new Function('DCLogic', 'window', 'navigator', 'document', 'fetch', 'Blob', 'setTimeout', 'clearTimeout', src + '\nreturn Component;')(DCLogic, window, navigator, document, broken, Blob, setTimeout, clearTimeout);
   const c2 = new Comp2();
   c2.renderVals();
   await later(30);

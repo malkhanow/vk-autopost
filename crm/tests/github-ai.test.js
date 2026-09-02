@@ -1,9 +1,11 @@
-const fs = require('fs');
-const code = fs.readFileSync(require('path').join(__dirname, '..', 'Code.gs'), 'utf8');
-const Utilities = { formatDate: (d,t,f)=>'24.08 · 12:00', base64Encode: (s)=>Buffer.from(s,'utf8').toString('base64'), Charset:{UTF_8:'utf8'}, sleep:()=>{} };
-const Session = { getScriptTimeZone: () => 'Europe/Moscow' };
+const { source, googleStubs } = require('./gs');
+const code = source();
 const PROPS = { GITHUB_TOKEN: 'ghp_x', GITHUB_REPO: 'malkhanow/vk-autopost', GITHUB_BRANCH: 'main', ROUTERAI_KEY: 'sk-or-x' };
-const PropertiesService = { getScriptProperties: () => ({ getProperty: k => (k in PROPS ? PROPS[k] : null) }) };
+const G = googleStubs(PROPS);
+const Utilities = Object.assign({}, G.Utilities, { formatDate: () => '24.08 · 12:00' });
+const Session = G.Session;
+const PropertiesService = G.PropertiesService;
+const CacheService = G.CacheService;
 let route = {};
 const log = [];
 const UrlFetchApp = { fetch: (url, o) => {
@@ -13,15 +15,21 @@ const UrlFetchApp = { fetch: (url, o) => {
   return { getResponseCode: () => r.code, getContentText: () => JSON.stringify(r.body) };
 } };
 const stub = new Proxy({}, { get: () => () => { throw new Error('нет мока'); } });
-const api = new Function('Utilities','Session','PropertiesService','UrlFetchApp','SpreadsheetApp','LockService','ScriptApp','ContentService','console',
-  code + '\nreturn {ghPushConfig_, ai_, parseJsonLoose_, buildConfig_, pingAll_};')
-  (Utilities, Session, PropertiesService, UrlFetchApp, stub, stub, stub, stub, console);
+const api = new Function('Utilities','Session','PropertiesService','CacheService','UrlFetchApp','SpreadsheetApp','LockService','ScriptApp','ContentService','console',
+  code + '\nreturn {ghPushConfig_, ai_, parseJsonLoose_, buildConfig_, pingAll_, tariffIn_};')
+  (Utilities, Session, PropertiesService, CacheService, UrlFetchApp, stub, stub, stub, stub, console);
 
 let fails = 0;
 const ok = (n,c,i)=>{ if(c) console.log('ok  ',n); else { console.log('FAIL',n,i===undefined?'':JSON.stringify(i)); fails++; } };
 const CL = { id:'beauty-bar', business:'Beauty BAR', city:'СПб', tariff:'ПРО', networks:['VK','Telegram'],
   slots:['morning','evening'], stylePrompt:'Коротко', tone:'T', holidays:'H', limits:['Цены и стоимость услуг'],
   limitsText:'', cta:'Записаться', faq:'a\nb', rubrics:[{name:'Фото работ',days:'пн, чт',prompt:'P'}], iterations:1 };
+
+/* Прогреваем реестр тарифов: первое обращение к normalizeTariff_ тянет
+   tariffs.json из репозитория и добавляет лишний GET в лог. В бою этот
+   запрос кэшируется на 6 часов, здесь просто делаем его заранее. */
+route = { '/contents/tariffs.json': { code: 200, body: {} } };
+api.tariffIn_('ПРО');
 
 /* обновление существующего файла */
 log.length = 0;
