@@ -1048,6 +1048,69 @@ def rubric_output_ok(kind, text):
     return True
 
 
+# Маркеры «Вопрос:» / «Ответ:». Делим по границе слова, а не по пробелу:
+# клиенты часто вставляют FAQ склеенным куском вида «...восстановления.Вопрос:»,
+# и требование пробела перед маркером ломало разбор целиком.
+FAQ_Q_SPLIT = re.compile(r"(?=\b(?:вопрос(?:\s+клиента)?|question|q)\s*[:.\u2014-])", re.IGNORECASE)
+FAQ_Q_LEAD = re.compile(r"^\s*(?:вопрос(?:\s+клиента)?|question|q)\s*[:.\u2014-]\s*", re.IGNORECASE)
+FAQ_A_SPLIT = re.compile(r"\b(?:ответ|answer|a)\s*[:.\u2014-]\s*", re.IGNORECASE)
+
+
+def parse_faq(raw):
+    """Разбирает FAQ клиента на пары (вопрос, ответ).
+
+    Клиент вставляет FAQ как придётся: с переносами строк, одним куском,
+    с маркерами «Вопрос:/Ответ:» или без них. Из CRM поле приезжает уже
+    порезанным по \n, поэтому сначала склеиваем обратно.
+
+    Три стратегии по убыванию надёжности:
+      1. есть маркеры «Вопрос:» — режем по ним, внутри ищем «Ответ:»;
+      2. маркеров нет — строка со знаком вопроса считается вопросом,
+         всё до следующего вопроса — ответом;
+      3. ничего не распозналось — возвращаем пустой список, и рубрика
+         работает по-старому, генерацией по нише.
+    """
+    if isinstance(raw, (list, tuple)):
+        text = "\n".join(str(x) for x in raw if str(x).strip())
+    else:
+        text = str(raw or "")
+    text = text.replace("\r", "").strip()
+    if not text:
+        return []
+
+    pairs = []
+
+    # Стратегия 1 — по маркеру «Вопрос:».
+    if FAQ_Q_SPLIT.search(text):
+        for chunk in FAQ_Q_SPLIT.split(text):
+            chunk = FAQ_Q_LEAD.sub("", chunk).strip()
+            if not chunk:
+                continue
+            parts = FAQ_A_SPLIT.split(chunk, maxsplit=1)
+            question = parts[0].strip(" \n\t.\u2014-")
+            answer = parts[1].strip() if len(parts) > 1 else ""
+            if question:
+                pairs.append((question, answer))
+
+    # Стратегия 2 — по знаку вопроса в конце строки.
+    if not pairs:
+        question, buf = "", []
+        for line in [l.strip() for l in text.split("\n")]:
+            if not line:
+                continue
+            if line.endswith("?"):
+                if question:
+                    pairs.append((question, " ".join(buf).strip()))
+                question, buf = line, []
+            elif question:
+                buf.append(line)
+        if question:
+            pairs.append((question, " ".join(buf).strip()))
+
+    # Отсекаем мусор: вопрос короче трёх слов — почти наверняка обрывок.
+    return [(q, a) for q, a in pairs if len(q.split()) >= 3]
+
+
 def build_post(client, rubric, photo_path=None, state=None, client_id=""):
     forbidden = client.get("forbidden") or []
     lines = [
@@ -1190,10 +1253,54 @@ def build_post(client, rubric, photo_path=None, state=None, client_id=""):
     opener = pick_from_cycle(OPENER_MOVES, state, client_id, "opener") or OPENER_MOVES[0]
     topic = pick_topic(rubric, state, client_id)
 
-    task_lines = [
-        "ГЛАВНОЕ ТРЕБОВАНИЕ: " + RUBRIC_ANCHOR.get(kind, RUBRIC_ANCHOR["default"]),
-    ]
-    if topic:
+    # FAQ клиента — источник правды. Если он заполнен, вопрос НЕ выдумывается:
+    # берём одну пару по кругу, чтобы за N постов прошли все вопросы и только
+    # потом начался второй круг. Раньше client["faq"] в промпт вообще не
+    # уходил, и модель сочиняла вопросы от себя.
+    faq_pair = None
+    if kind == "faq":
+        faq_pairs = parse_faq(client.get("faq"))
+        if faq_pairs:
+            faq_pair = pick_from_cycle(faq_pairs, state, client_id, "faq")
+
+    if faq_pair:
+        question, answer = faq_pair
+        anchor_text = (
+            "Это рубрика вопросов и ответов, и вопрос для этого поста задан "
+            "клиентом. Менять его тему, объединять с другими вопросами или "
+            "придумывать свой — запрещено.\n"
+            f"ВОПРОС ПОСТА (сформулируй его в первых двух предложениях, можно "
+            f"своими словами, но смысл сохрани дословно): {question}"
+        )
+        if answer:
+            anchor_text += (
+                "\nОТВЕТ КЛИЕНТА — это фактура, единственный допустимый источник "
+                "содержания. Перескажи его в стиле автора, можешь менять порядок "
+                "и формулировки, но не добавляй фактов, которых в нём нет, и "
+                "не выбрасывай смысловые части:\n" + answer
+            )
+        else:
+            anchor_text += (
+                "\nГотового ответа клиент не дал — отвечай по существу вопроса, "
+                "не выходя за рамки ниши и ограничений."
+            )
+        task_lines = ["ГЛАВНОЕ ТРЕБОВАНИЕ: " + anchor_text]
+    elif kind == "faq":
+        task_lines = [
+            "ГЛАВНОЕ ТРЕБОВАНИЕ: " + RUBRIC_ANCHOR["faq"] +
+            " Список вопросов клиент не заполнил, поэтому вопрос выбери сам — "
+            "но такой, который реальные клиенты этого бизнеса действительно "
+            "задают перед покупкой или обращением. Не бери общие вопросы "
+            "уровня «а что это такое»: нужен живой практический вопрос, "
+            "на который человек ищет ответ прямо сейчас."
+        ]
+    else:
+        task_lines = [
+            "ГЛАВНОЕ ТРЕБОВАНИЕ: " + RUBRIC_ANCHOR.get(kind, RUBRIC_ANCHOR["default"]),
+        ]
+
+    # Тема из списка клиента не должна подменять заданный вопрос FAQ.
+    if topic and not faq_pair:
         task_lines.append(
             f"Тема этого поста: {topic}. Раскрой именно её и не подменяй другой."
         )
