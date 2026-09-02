@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Автопостинг для клиентов SMM-подписки (все, кроме Custom Studio — у неё
-свой отдельный пайплайн в generate_feed.py / generate_content.py).
+Автопостинг для клиентов SMM-подписки SAS (Smart Automation System).
+Один скрипт обслуживает всех клиентов: конфиг на клиента лежит в
+clients/{client_id}.json и собирается CRM из брифа.
 
 Раз в слот (утро/день/вечер) скрипт:
   1. Читает все clients/*.json — по одному конфигу на клиента,
@@ -371,7 +372,44 @@ LAST_ANSWER_TRUNCATED = False
 REASONING_TOKEN_FLOOR = 900
 
 
-def ai_text(messages, max_tokens=900, temperature=0.8, reasoning=None):
+# Знаки, на которые имеет право заканчиваться готовый пост.
+TERMINAL_CHARS = ".!?…"
+
+
+def _meaningful_tail(text):
+    """
+    Последний значащий символ текста. Эмодзи, кавычки и скобки в самом хвосте
+    отбрасываются: пост «Отличного дня! 🎉» закончен, хотя кончается смайлом.
+    """
+    s = (text or "").rstrip()
+    while s and s[-1] not in TERMINAL_CHARS and not s[-1].isalnum():
+        s = s[:-1].rstrip()
+    return s[-1] if s else ""
+
+
+def text_is_complete(text):
+    """
+    Похож ли ответ на законченную прозу.
+
+    Единственный надёжный признак обрыва, который виден без провайдера:
+    текст кончается на полуслове, а не на точке. Реальный случай — у клиента
+    вышел пост, оборванный на «Я часто замечаю, как меняется настроение
+    человека», потому что модель вернула finish_reason=stop и обрезка,
+    привязанная к finish_reason=length, просто не сработала.
+    """
+    tail = _meaningful_tail(text)
+    # именно tail != "": пустая строка входит в любую строку, и без этой
+    # проверки пустой ответ модели считался бы законченным постом
+    return bool(tail) and tail in TERMINAL_CHARS
+
+
+def ai_text(messages, max_tokens=900, temperature=0.8, reasoning=None, prose=True):
+    """
+    prose=True  — ответ должен быть законченным текстом; незаконченный
+                  считается обрывом и перезапрашивается.
+    prose=False — ответ не проза (список тегов и т.п.), проверять хвост
+                  на точку бессмысленно.
+    """
     global LAST_ANSWER_TRUNCATED
     LAST_ANSWER_TRUNCATED = False
     effort = str(reasoning or ROUTERAI_REASONING or "low").strip().lower()
@@ -408,33 +446,60 @@ def ai_text(messages, max_tokens=900, temperature=0.8, reasoning=None):
             continue
         if resp.status_code != 200:
             raise RuntimeError(f"RouterAI: HTTP {resp.status_code} — {resp.text[:300]}")
-        choices = (resp.json() or {}).get("choices") or []
+        try:
+            data = resp.json() or {}
+        except ValueError:
+            raise RuntimeError(f"RouterAI вернул не JSON: {resp.text[:300]}")
+        choices = data.get("choices") or []
         if not choices:
             raise RuntimeError(f"RouterAI вернул ответ без текста: {resp.text[:300]}")
         content = (choices[0].get("message") or {}).get("content")
         if not content:
             raise RuntimeError("RouterAI вернул пустой текст")
-        # Модель упёрлась в лимит и текст оборван на полуслове. Молча публиковать
-        # такое нельзя: повторяем с увеличенным лимитом, а если и это не помогло —
-        # обрезаем по последнему законченному предложению.
-        if choices[0].get("finish_reason") == "length":
-            grown = int(payload["max_tokens"] * 1.6)
-            if grown > payload["max_tokens"] and attempt < 2:
-                print(f"RouterAI: текст оборван, повтор с лимитом {grown}...")
+
+        finish = str(choices[0].get("finish_reason") or "stop")
+        usage = data.get("usage") or {}
+        # Расход токенов в логе — чтобы следующий обрыв разбирался по Actions,
+        # а не по скриншоту из канала клиента.
+        print(
+            "RouterAI: finish_reason={} | токены prompt={} completion={} "
+            "| лимит {}".format(
+                finish,
+                usage.get("prompt_tokens", "?"),
+                usage.get("completion_tokens", "?"),
+                payload["max_tokens"],
+            )
+        )
+
+        clean = strip_model_noise(content)
+
+        # Обрыв виден двумя способами, и полагаться только на первый нельзя:
+        #   1) провайдер честно говорит finish_reason=length;
+        #   2) finish_reason=stop, но текст кончается на полуслове.
+        # Второй случай — реальный, именно так в канал ушёл обрубленный пост.
+        incomplete = (finish == "length") or (prose and not text_is_complete(clean))
+        if incomplete:
+            if attempt < 2:
+                grown = int(payload["max_tokens"] * 1.6)
+                print(
+                    f"RouterAI: ответ неполный (finish_reason={finish}), "
+                    f"повтор с лимитом {grown}..."
+                )
                 payload["max_tokens"] = grown
-                last_error = "обрыв по длине"
+                last_error = "неполный ответ"
                 continue
-            print("RouterAI: текст оборван, обрезаю по последнему предложению.")
+            print("RouterAI: ответ по-прежнему неполный — обрезаю по последнему "
+                  "законченному предложению.")
             LAST_ANSWER_TRUNCATED = True
-            return trim_to_sentence(strip_model_noise(content))
-        return strip_model_noise(content)
+            return trim_to_sentence(clean)
+        return clean
     raise RuntimeError(f"RouterAI не отвечает после трёх попыток ({last_error})")
 
 
 def trim_to_sentence(text):
     """Отрезает оборванный хвост до последнего законченного предложения."""
     text = (text or "").rstrip()
-    if not text:
+    if not text or text_is_complete(text):
         return text
     cut = max(text.rfind("."), text.rfind("!"), text.rfind("?"), text.rfind("…"))
     # если знак конца предложения нашёлся не в самом начале — режем по нему
@@ -443,14 +508,32 @@ def trim_to_sentence(text):
     return text
 
 
+# Служебные пометки, которыми модель сопровождает ответ. Стоят всегда
+# в конце — после готового текста, а не внутри него.
+MODEL_NOISE_MARKERS = re.compile(
+    r"^.*\b("
+    r"Draft \d+|Checking Constraints?|Word count check|Final (?:answer|version)|"
+    r"Проверка длины|Итоговая проверка|Количество слов|Подсчёт слов"
+    r")\b.*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
 def strip_model_noise(text):
-    import re
-    s = str(text or "")
-    s = re.sub(r"^```[\s\S]*?\n|```$", "", s)
-    s = re.sub(
-        r"^.*\b(Draft \d+|Checking Constraints?|Word count check)\b.*$",
-        "", s, flags=re.IGNORECASE | re.MULTILINE,
-    )
+    """
+    Убирает обёртку и служебные пометки модели.
+
+    Пометки режутся ОТ ПЕРВОЙ И ДО КОНЦА текста. Раньше вырезалась только сама
+    строка — и если модель обрывала мысль, а следом ставила «Word count check»,
+    от вырезанной строки оставалась дырка, а недописанное предложение над ней
+    превращалось в отдельный абзац и уезжало в канал.
+    """
+    s = str(text or "").strip()
+    s = re.sub(r"^```[a-zA-Z]*[ \t]*\n?", "", s)
+    s = re.sub(r"\n?```[ \t]*$", "", s)
+    m = MODEL_NOISE_MARKERS.search(s)
+    if m:
+        s = s[: m.start()]
     s = re.sub(r"\n{3,}", "\n\n", s).strip()
     return s
 
@@ -525,6 +608,7 @@ def build_hashtags_ai(client, post_text, need):
         max_tokens=400,
         temperature=0.5,
         reasoning="low",
+        prose=False,
     )
     truncated = LAST_ANSWER_TRUNCATED
 
@@ -1042,6 +1126,9 @@ def rubric_output_ok(kind, text):
         return False
     if len(body.split()) < 40:
         return False
+    # Оборванный на полуслове текст — не пост, каким бы длинным он ни был.
+    if not text_is_complete(body):
+        return False
     if kind == "faq":
         head = " ".join(body.split()[:45])
         return "?" in head
@@ -1369,6 +1456,10 @@ def build_post(client, rubric, photo_path=None, state=None, client_id=""):
     elif len((text or "").split()) < 40:
         problem = ("Предыдущая попытка получилась слишком короткой и общей. "
                    "Напиши полноценный пост нужной длины, раскрыв тему до конца.")
+    elif not text_is_complete(text):
+        problem = ("Предыдущая попытка оборвалась на полуслове: последнее "
+                   "предложение не закончено. Напиши пост целиком и доведи "
+                   "последнюю мысль до точки.")
     elif not rubric_output_ok(kind, text):
         problem = ("Предыдущая попытка не выполнила требование рубрики: в начале "
                    "поста нет сформулированного вопроса читателя. Перепиши так, "
@@ -1385,6 +1476,10 @@ def build_post(client, rubric, photo_path=None, state=None, client_id=""):
                 text = retry
         except Exception as e:
             print(f"Повторная генерация не удалась, оставляю первый вариант: {e}")
+
+    # Если и перегенерация вернула обрубок — отрезаем незаконченный хвост.
+    # Лучше пост на предложение короче, чем оборванный на полуслове.
+    text = trim_to_sentence(text)
 
     remember_opening(rubric, state, client_id, text)
     return text
@@ -1484,10 +1579,13 @@ def build_holiday_post(client, holiday, kind):
         + "Не выдумывай факты о бизнесе, даты, цифры и условия. "
         "Ответь только текстом поста."
     )
-    return ai_text(
+    text = ai_text(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         max_tokens=max_tokens,
     )
+    # Праздничные посты короткие, и обрыв на них заметнее всего: поздравление,
+    # оборванное на полуслове, выглядит хуже, чем его отсутствие.
+    return trim_to_sentence(text)
 
 
 # Какая подпапка праздника отвечает за какой пост: анонсы за неделю и за
@@ -2001,6 +2099,27 @@ def main():
         # Последний рубеж: модель могла дописать свой телефон или ссылку
         # вопреки запрету в промпте — в канал такое уходить не должно.
         text = scrub_fabricated_contacts(text, client)
+
+        # Второй рубеж: проверяем ТЕЛО поста до приклеивания CTA и тегов.
+        # После них текст всегда заканчивается «правильно», и обрыв внутри
+        # тела становится невидимым — именно так обрубок и попал в канал.
+        text = trim_to_sentence(text)
+        if not text_is_complete(text) or len(text.split()) < 40:
+            head = " ".join(text.split()[:12])
+            print(f"{cid}: текст неполный после всех попыток — публикацию отменяю. "
+                  f"Начало: «{head}…»")
+            report_post_status(
+                cid, "Ошибка: неполный текст",
+                today.strftime("%d.%m.%Y") + " " +
+                __import__("datetime").datetime.now().strftime("%H:%M"),
+            )
+            # фото не тратим: очередь не двигаем, оно достанется следующему посту
+            if photo_path and os.path.exists(photo_path):
+                try:
+                    os.unlink(photo_path)
+                except Exception:
+                    pass
+            continue
 
         # У торжественных праздников призыв к действию неуместен.
         if not (holiday and holiday.get("solemn")):
