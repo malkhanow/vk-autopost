@@ -270,24 +270,33 @@ def rubric_folder(rubric_name):
     return None  # to_post: «Фото работ», «Объекты и документы» и т.п.
 
 
-def rubric_uses_vision(rubric_name):
+def rubric_uses_vision(rubric_name_or_dict):
     """
     Нужен ли vision-анализ для этой рубрики.
 
-    reviews: в папке могут быть скриншоты отзывов или фото объектов —
-    модель читает текст или описывает ситуацию и пишет релевантный пост.
+    Принимает строку (название) или словарь рубрики из конфига клиента.
 
-    to_post (is_photo_work, folder=None): фото работ конкретного бизнеса —
-    модель анализирует и пишет пост по увиденному.
+    Vision включается когда:
+    - kind == "photo_case" или kind == "results" (before_after) — явный сигнал
+      что в папке реальные фото/карточки для анализа;
+    - folder == "rubrics/reviews" — скриншоты отзывов;
+    - folder is None и в названии есть «фото» — старый фолбэк для совместимости.
 
-    Все остальные (tips, faq, ideas): фото-заглушки без анализа.
+    tips, faq, ideas — заглушки без анализа, vision не нужен.
     """
-    folder = rubric_folder(rubric_name)
+    if isinstance(rubric_name_or_dict, dict):
+        kind = str(rubric_name_or_dict.get("kind") or "").strip().lower()
+        if kind in ("photo_case", "before_after"):
+            return True
+        name = str(rubric_name_or_dict.get("name") or "")
+    else:
+        name = str(rubric_name_or_dict or "")
+
+    folder = rubric_folder(name)
     if folder == "rubrics/reviews":
         return True
-    if folder is None:          # to_post — только если «фото» в названии
-        name = (rubric_name or "").lower()
-        return "фото" in name
+    if folder is None:
+        return "фото" in name.lower()
     return False
 
 
@@ -1258,7 +1267,7 @@ def build_post(client, rubric, photo_path=None, state=None, client_id=""):
     # vision включается только для рубрик, где анализ реально нужен:
     # «Отзывы» (скриншоты/фото) и «Фото работ» (результаты работы).
     # tips, faq, ideas — заглушки без анализа.
-    uses_vision = rubric_uses_vision(rubric.get("name", ""))
+    uses_vision = rubric_uses_vision(rubric)  # передаём словарь чтобы учитывался kind
 
     if uses_vision and photo_path:
         folder = rubric_folder(rubric.get("name", ""))
@@ -1963,14 +1972,23 @@ def photo_slot_for_client(client):
 
 def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     """
-    Если у клиента больше одного слота — первый (самый ранний) автоматически
-    берёт фото-рубрику из to_post, остальные крутят текстовые рубрики по
-    кругу без привязки к дням недели. Галочка morning_photo больше не нужна.
+    Расписание по дням недели (поле days[] у рубрики).
 
-    Если слот один — обычное расписание по дням недели (как у клиентов
-    на тарифе СТАРТ: один слот, всё по расписанию).
+    При двух и более слотах рубрики делятся по типу:
+      - kind == "photo_case" / "before_after" — это «фото работ» клиента.
+        Такие рубрики идут в РАННИЙ слот. Обычно стоят «ежедневно».
+      - все остальные — идут в ПОЗДНИЙ слот и чередуются между собой
+        по назначенным дням.
 
-    Тестовый прогон всегда идёт по кругу по всем рубрикам.
+    В каждом слоте берутся только рубрики, назначенные на сегодня.
+    Если на сегодня ничего не назначено — слот пропускается (None).
+    Рубрика с пустым days[] считается ежедневной.
+
+    Если у клиента вообще нет фото-рубрик, ранний слот берёт из общего
+    пула сегодняшних рубрик — чтобы не пропадал впустую.
+
+    Один слот — обычный pick_rubric() по дням.
+    Тест — по кругу по всем рубрикам.
     """
     if test_mode:
         return pick_rubric(client, today_abbr, state, test_mode)
@@ -1978,7 +1996,6 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     slot_names = [s.get("name") for s in client.get("slots", []) if s.get("name")]
     ordered_slots = [s for s in SLOT_ORDER if s in slot_names]
 
-    # один слот — обычное расписание по дням
     if len(ordered_slots) <= 1:
         return pick_rubric(client, today_abbr, state, test_mode)
 
@@ -1986,16 +2003,34 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     if not rubrics:
         return None
 
-    photo_rubrics = [r for r in rubrics if rubric_folder(r.get("name", "")) is None]
-    text_rubrics = [r for r in rubrics if rubric_folder(r.get("name", "")) is not None]
+    def scheduled_today(r):
+        days = r.get("days") or []
+        return (not days) or (today_abbr in [d.strip() for d in days])
+
+    def is_photo_rubric(r):
+        return str(r.get("kind") or "").strip().lower() in ("photo_case", "before_after")
+
+    photo_pool = [r for r in rubrics if is_photo_rubric(r)]
+    text_pool  = [r for r in rubrics if not is_photo_rubric(r)]
 
     cs = client_state(state, client["client_id"])
-    is_photo_slot = (slot == ordered_slots[0])
-    pool = (photo_rubrics or rubrics) if is_photo_slot else (text_rubrics or rubrics)
-    if not pool:
-        return None
+    is_early = (slot == ordered_slots[0])
 
-    key = "photo_tie_index" if is_photo_slot else "text_tie_index"
+    if is_early:
+        pool = [r for r in photo_pool if scheduled_today(r)]
+        if not pool:
+            # У клиента нет фото-рубрик (или сегодня они не назначены) —
+            # не оставляем слот пустым, берём из общего расписания дня.
+            pool = [r for r in rubrics if scheduled_today(r)]
+        if not pool:
+            return None
+        key = "photo_tie_index"
+    else:
+        pool = [r for r in text_pool if scheduled_today(r)]
+        if not pool:
+            return None
+        key = "text_tie_index"
+
     idx = cs.get(key, 0) % len(pool)
     cs[key] = cs.get(key, 0) + 1
     return pool[idx]
