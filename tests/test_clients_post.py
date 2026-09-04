@@ -27,7 +27,9 @@ def client(**over):
         "holidays": "Да, но без упоминания скидок",
         "slots": [{"name": "midday"}, {"name": "evening"}],
         "rubrics": [
-            {"name": "Фото объектов", "days": ["пн"], "prompt": "p"},
+            # фото-рубрика: вид задан явно, расписание ежедневное —
+            # ровно так CRM собирает конфиг реальным клиентам
+            {"name": "Фото объектов", "kind": "photo_case", "days": [], "prompt": "p"},
             {"name": "Советы и полезное", "days": ["вт"], "prompt": "p"},
             {"name": "Частые вопросы", "days": ["ср"], "prompt": "p"},
             {"name": "Отзывы и результаты", "days": ["чт"], "prompt": "p"},
@@ -89,6 +91,12 @@ eq("«Частые вопросы» -> faq", cp.rubric_folder("Частые во
 eq("«Идеи и вдохновение» -> ideas", cp.rubric_folder("Идеи и вдохновение"), "rubrics/ideas")
 eq("«Отзывы и результаты» -> reviews", cp.rubric_folder("Отзывы и результаты"), "rubrics/reviews")
 eq("рубрика с фото работ идёт в общую очередь", cp.rubric_folder("Фото объектов"), None)
+# регресс: ранний слот определял фото-рубрику только по явному полю kind,
+# и рубрика без него в него не попадала
+eq("«Наши работы» без поля kind — всё равно фото-рубрика",
+   cp.rubric_kind({"name": "Наши работы"}), "photo_case")
+eq("явный kind сильнее названия",
+   cp.rubric_kind({"name": "Объекты и документы", "kind": "photo_case"}), "photo_case")
 # названия рубрик правятся руками в CRM — сопоставление должно это переживать
 eq("другая формулировка всё равно находит папку",
    cp.rubric_folder("Полезные советы клиентам"), "rubrics/tips")
@@ -105,23 +113,41 @@ eq("один слот — он же и ранний, и поздний",
 eq("слотов нет — публиковать некуда", cp.slot_bounds(client(slots=[])), (None, None))
 
 
-# ---------- morning_photo ----------
+# ---------- разделение слотов по виду рубрики ----------
 
-# два слота → первый (midday) автоматически берёт фото-рубрику,
-# второй (evening) крутит текстовые по кругу без привязки к дням
+# Два слота: ранний забирает фото-рубрику (она ежедневная), поздний —
+# текстовые, назначенные на сегодня. День недели соблюдают ОБА слота:
+# раньше тест проверял старую схему, где поздний слот крутил текстовые
+# рубрики по кругу и расписание игнорировал.
 st = {}
 photo = cp.pick_rubric_for_run(client(), "midday", "сб", st, False)
-eq("первый слот (midday) берёт фото-рубрику",
-   photo["name"], "Фото объектов")
+eq("ранний слот (midday) берёт фото-рубрику", photo["name"], "Фото объектов")
 
-text = cp.pick_rubric_for_run(client(), "evening", "сб", st, False)
-c.ok("второй слот (evening) берёт текстовую рубрику",
-     cp.rubric_folder(text["name"]) is not None, text["name"])
+# во вторник назначены «Советы и полезное» — текстовая рубрика
+text = cp.pick_rubric_for_run(client(), "evening", "вт", st, False)
+c.ok("поздний слот (evening) берёт текстовую рубрику",
+     text is not None and cp.rubric_folder(text["name"]) is not None,
+     text and text["name"])
 
+# в субботу текстовых рубрик не назначено — поздний слот молчит
+eq("поздний слот без назначенных рубрик пропускается",
+   cp.pick_rubric_for_run(client(), "evening", "сб", {}, False), None)
+
+# текстовые рубрики одного дня чередуются между собой
+two_on_tue = client(rubrics=[
+    {"name": "Фото объектов", "kind": "photo_case", "days": [], "prompt": "p"},
+    {"name": "Советы и полезное", "days": ["вт"], "prompt": "p"},
+    {"name": "Частые вопросы", "days": ["вт"], "prompt": "p"},
+])
 st2 = {}
-seen = [cp.pick_rubric_for_run(client(), "evening", "сб", st2, False)["name"]
+seen = [cp.pick_rubric_for_run(two_on_tue, "evening", "вт", st2, False)["name"]
         for _ in range(3)]
 c.ok("текстовые рубрики чередуются, а не залипают", len(set(seen)) > 1, seen)
+
+# ранний слот не должен отдавать текстовую рубрику, если фото-рубрика есть
+eq("ранний слот не забирает текстовую рубрику вместо фото",
+   cp.pick_rubric_for_run(two_on_tue, "midday", "вт", {}, False)["name"],
+   "Фото объектов")
 
 # один слот → обычное расписание по дням
 one_slot = client(slots=[{"name": "midday"}])
@@ -161,7 +187,7 @@ eq("один слот: новый день — своя рубрика", third["
 # при двух слотах: midday → фото-рубрика, evening → текстовая
 # "два слота — фото и текст" (не "два слота — две рубрики одного дня")
 two_day = client(rubrics=[
-    {"name": "Фото объектов", "days": ["пн"], "prompt": "p"},
+    {"name": "Фото объектов", "kind": "photo_case", "days": ["пн"], "prompt": "p"},
     {"name": "Советы и полезное", "days": ["пн"], "prompt": "p"},
     {"name": "Частые вопросы", "days": ["пн"], "prompt": "p"},
 ])
@@ -254,5 +280,58 @@ c.ok("у каждого вида праздничного поста есть с
      all(k in cp.HOLIDAY_PHOTO_SUBFOLDER for k in cp.HOLIDAY_KINDS))
 c.ok("у каждого базового праздника есть ключ для папки",
      all(h.get("key") for h in cp.BASE_HOLIDAYS))
+
+# ---------- vision-промпт не привязан к нише ----------
+
+# Регресс: промпт для рубрик с фото был написан под пластическую хирургию
+# («клиническое фото», «блефаропластика», «пациент») и уходил ЛЮБОЙ рубрике
+# с kind=photo_case — в том числе «Объектам и документам» Ольги, то есть
+# карточки недвижимости каждый день разбирались как фото после операции.
+
+_captured = {}
+
+
+def _fake_ai(messages, **kw):
+    u = messages[-1]["content"]
+    _captured["text"] = u[0]["text"] if isinstance(u, list) else u
+    return ("Достаточно длинный текст поста, который проходит проверку на сорок "
+            "слов и заканчивается точкой, чтобы движок не забраковал его как "
+            "обрубок и не ушёл на перегенерацию. Добавим ещё немного слов сюда, "
+            "чтобы запас был уверенный и проверка длины точно прошла целиком.")
+
+
+_real_ai, _real_img = cp.ai_text, cp.image_to_data_url
+cp.ai_text = _fake_ai
+cp.image_to_data_url = lambda p: "data:image/jpeg;base64,AAAA"
+
+realtor = {
+    "client_id": "realtor", "business": "Недвижимость и страхование",
+    "city": "Санкт-Петербург", "rubrics": [], "slots": [],
+}
+photo_rubric = {"name": "Объекты и документы", "kind": "photo_case",
+                "prompt": "разбери карточку объекта"}
+cp.build_post(realtor, photo_rubric, photo_path="/tmp/nonexistent-ok.jpg",
+              state={}, client_id="realtor")
+_prompt = _captured.get("text", "").lower()
+
+for _word in ("хирург", "клиническ", "блефаропласт", "маммопласт",
+              "липосакц", "ринопласт", "пациент", "операц"):
+    c.ok(f"в промпте риелтора нет слова «{_word}»", _word not in _prompt,
+         _prompt[:120])
+
+c.ok("ниша клиента попала в промпт", "недвижимость и страхование" in _prompt)
+c.ok("город клиента попал в промпт", "санкт-петербург" in _prompt)
+
+# темы фото лежат в конфиге под ключом photo_topics — раньше он не читался
+_captured.clear()
+surgeon = {"client_id": "s", "business": "Пластический хирург", "city": "СПб",
+           "photo_topics": ["блефаропластика — коррекция птоза век"],
+           "rubrics": [], "slots": []}
+cp.build_post(surgeon, {"name": "Фото работ", "kind": "photo_case", "prompt": "p"},
+              photo_path="/tmp/nonexistent-ok.jpg", state={}, client_id="s")
+c.ok("photo_topics из конфига дошли до промпта",
+     "птоза век" in _captured.get("text", "").lower())
+
+cp.ai_text, cp.image_to_data_url = _real_ai, _real_img
 
 sys.exit(c.finish())
