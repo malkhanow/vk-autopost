@@ -10,11 +10,10 @@ clients/{client_id}.json и собирается CRM из брифа.
   2. Пропускает клиентов с "active": false (тумблер на сайте).
   3. Для каждого клиента со слотом, который сейчас идёт, ищет среди его
      рубрик те, что расписаны на сегодняшний день недели.
-     Опционально: если в конфиге клиента "morning_photo": true — расписание
-     по дням недели для него отключается. Вместо этого его самый ранний
-     выбранный слот (morning -> midday -> evening) всегда публикует фото
-     из to_post/rubrics, а остальные слоты крутят текстовые рубрики по
-     кругу. Без этого флага поведение клиента не меняется.
+     При двух и более слотах рубрики делятся по виду: фото-рубрики
+     (photo_case / before_after) идут в самый ранний слот, текстовые —
+     в самый поздний. Флаг "morning_photo" в конфигах остался от старой
+     схемы и движком не используется.
   4. Если у выбранной рубрики есть своя подпапка с фото
      ({yandex_folder}/rubrics/<тема>) — берёт оттуда следующее по очереди;
      иначе ищет в {yandex_folder}/to_post (общая утренняя очередь).
@@ -81,6 +80,24 @@ YANDEX_TOKEN = os.environ.get("YANDEX_TOKEN", "")
 HOLIDAYS_FOLDER = os.environ.get("HOLIDAYS_FOLDER", "Autopost WORK/holidays")
 WEBAPP_URL   = os.environ.get("WEBAPP_URL", "")
 WEBAPP_TOKEN = os.environ.get("WEBAPP_TOKEN", "")
+
+
+def now_msk():
+    """Текущее время в часовом поясе клиентов. Раннер GitHub живёт в UTC,
+    и раньше в CRM уезжала московская дата со временем UTC — расхождение
+    в три часа на каждой строке отчёта."""
+    from datetime import datetime, timezone, timedelta
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Europe/Moscow"))
+    except Exception:
+        return datetime.now(timezone(timedelta(hours=3)))
+
+
+def stamp_msk(day=None):
+    """Дата и время для отчёта в CRM: «04.09.2026 14:03» по Москве."""
+    now = now_msk()
+    return (day or now.date()).strftime("%d.%m.%Y") + " " + now.strftime("%H:%M")
 
 
 def report_post_status(client_id, status, date_str):
@@ -163,7 +180,7 @@ ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
+        with open(STATE_FILE, encoding="utf-8") as f:
             try:
                 return json.load(f)
             except Exception:
@@ -172,7 +189,7 @@ def load_state():
 
 
 def save_state(state):
-    with open(STATE_FILE, "w") as f:
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
@@ -1290,7 +1307,17 @@ def build_post(client, rubric, photo_path=None, state=None, client_id=""):
                 "Ответь только текстом поста."
             ]
         else:
-            # «Фото работ» и аналоги: анализируем что видим, пишем пост
+            # «Фото работ», «Объекты и документы» и аналоги: разбираем то,
+            # что видно на снимке, и пишем пост.
+            #
+            # Промпт здесь НЕЙТРАЛЕН к нише — это общий движок, и лексики
+            # конкретного клиента в нём быть не должно. Раньше сюда был зашит
+            # разбор фото одной узкой ниши, и его получала ЛЮБАЯ рубрика с
+            # kind=photo_case, у какого угодно клиента: инструкция из конфига
+            # подклеивалась ниже и спорила с зашитой.
+            # Специфика ниши приходит только из конфига клиента:
+            # business/city, photo_post.instruction, photo_topics
+            # и промпт самой рубрики.
             photo_cfg = client.get("photo_post") or {}
             photo_instruction = (
                 photo_cfg.get("instruction")
@@ -1300,45 +1327,55 @@ def build_post(client, rubric, photo_path=None, state=None, client_id=""):
             photo_topics = (
                 photo_cfg.get("topics")
                 or client.get("photo_post_topics")
+                # поле photo_topics лежит в конфигах клиентов на верхнем
+                # уровне (так его пишет CRM) и раньше не читалось вообще
+                or client.get("photo_topics")
                 or []
             )
             context_parts = [
-                "Ты получаешь клиническое фото из практики пластического хирурга. "
-                "Это коллаж «до / после» или фото результата на определённом сроке "
-                "после операции.",
-                "ШАГ 1 — определи по изображению:",
-                "— тип операции (например: блефаропластика, маммопластика, "
-                "абдоминопластика, подтяжка лица, липосакция, ринопластика и т.д.)",
-                "— зону вмешательства (лицо, грудь, живот, бока и т.д.)",
-                "— что уже видно на фото сейчас: изменения контура, чёткость "
-                "линий, состояние рубцов, отёк, симметрия — только то, что "
-                "реально различимо на снимке.",
-                "Если на фото видна надпись с датой или сроком — используй её. "
-                "Если нет — не выдумывай срок.",
+                "Ты получаешь фотографию из рабочей практики этого бизнеса. "
+                "Она будет опубликована вместе с постом, поэтому текст должен "
+                "опираться на то, что действительно видно на снимке.",
+                "ШАГ 1 — разбери изображение:",
+                "— что именно на нём: объект, работа, результат, документ, "
+                "помещение, процесс, карточка или схема;",
+                "— какие детали реально различимы: форма, состояние, "
+                "расположение, окружение, характерные признаки;",
+                "— какие выводы из этого может сделать специалист этой ниши.",
+                "Если на изображении есть читаемый текст (надпись, дата, "
+                "табличка, характеристики) — опирайся на него. Если его нет — "
+                "не выдумывай ни цифр, ни сроков, ни названий.",
                 "ШАГ 2 — напиши пост по этой структуре:",
-                "1. Первая строка: название операции + срок после операции "
-                "(если виден). Коротко, без вступления.",
-                "2. Что видно на фото прямо сейчас: конкретные изменения, "
-                "которые можно увидеть. Говори только о том, что действительно "
-                "различимо — контур, рубец, симметрия, отёк и т.д.",
-                "3. Анатомический или технический комментарий: почему именно "
-                "такой подход, что это даёт в долгосрочной перспективе.",
-                "4. Вывод: что это значит для пациента — естественность, "
-                "долговечность, качество восстановления.",
-                "ЗАПРЕЩЕНО: выдумывать срок, имя, возраст пациента, конкретные "
-                "цифры результата (кг, см, %), обещать гарантии. "
-                "Не пиши «на фото изображено». Не начинай с «Сегодня я хочу».",
+                "1. Первая строка: конкретика того, что показано, без "
+                "вступления и без пересказа заголовка.",
+                "2. Что видно на снимке прямо сейчас — только то, что "
+                "действительно различимо.",
+                "3. Профессиональный комментарий: почему это устроено именно "
+                "так, на что здесь смотрит специалист, что это даёт.",
+                "4. Вывод для читателя: кому это подходит, на что обратить "
+                "внимание, какой вопрос стоит задать.",
+                "ЗАПРЕЩЕНО: выдумывать имена, возраст, сроки, суммы, проценты "
+                "и цифры результата; давать гарантии; описывать то, чего на "
+                "снимке нет. Не пиши «на фото изображено», «на карточке», "
+                "«здесь показано». Не начинай с «Сегодня я хочу».",
                 f"Объём: 100–160 слов. Пиши {style}",
                 "Ответь только готовым текстом поста."
             ]
+            # Ниша задаётся данными клиента, а не зашита в код.
+            niche = ", ".join(x for x in (
+                str(client.get("business") or "").strip(),
+                str(client.get("city") or "").strip(),
+            ) if x)
+            if niche:
+                context_parts.insert(1, "Ниша и город: " + niche + ".")
             if photo_instruction:
-                context_parts.insert(1,
+                context_parts.insert(2,
                     "Специальная инструкция для этой работы: " + str(photo_instruction)
                 )
             if photo_topics:
                 topic_text = ", ".join(str(x) for x in photo_topics if str(x).strip())
                 if topic_text:
-                    context_parts.insert(2,
+                    context_parts.insert(3,
                         "Направления работы в этой практике: " + topic_text + "."
                     )
 
@@ -1720,6 +1757,7 @@ def holiday_photo(client, holiday, kind, state=None, client_id=""):
 def post_to_telegram(channel, text, photo_path=None):
     base_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     CAPTION_LIMIT = 1024
+    MESSAGE_LIMIT = 4000   # у Telegram 4096, берём с запасом на служебные символы
 
     def send_message(body, parse_mode=None):
         payload = {"chat_id": channel, "text": body}
@@ -1745,27 +1783,53 @@ def post_to_telegram(channel, text, photo_path=None):
             print(f"Фото больше {MAX_PHOTO_MB} МБ — отправляю без него.")
             has_photo = False
 
+    def send_text_chunked(body):
+        """Текст длиннее лимита Telegram режется по абзацам, а не теряется."""
+        chunks, buf = [], ""
+        for para in str(body or "").split("\n"):
+            candidate = (buf + "\n" + para) if buf else para
+            if len(candidate) <= MESSAGE_LIMIT:
+                buf = candidate
+                continue
+            if buf:
+                chunks.append(buf)
+            # один абзац длиннее лимита — режем жёстко
+            while len(para) > MESSAGE_LIMIT:
+                chunks.append(para[:MESSAGE_LIMIT])
+                para = para[MESSAGE_LIMIT:]
+            buf = para
+        if buf:
+            chunks.append(buf)
+        last = None
+        for part in chunks or [""]:
+            last = send_message(part)
+            if not last.ok:
+                return last
+        return last
+
     try:
         if has_photo:
             if len(text) > CAPTION_LIMIT:
+                # подпись не влезает: сначала фото без подписи, следом текст
                 resp = send_photo(photo_path, None)
                 if not resp.ok:
-                    print("Ошибка фото:", resp.text)
-                resp = send_message(text)
-                if not resp.ok:
-                    resp = send_message(text, parse_mode=None)
+                    print("Фото не ушло, публикую только текст:", resp.text[:200])
+                resp = send_text_chunked(text)
             else:
                 resp = send_photo(photo_path, text)
                 if not resp.ok:
-                    resp = send_photo(photo_path, text, parse_mode=None)
-                    if not resp.ok:
-                        resp = send_message(text)
-                        if not resp.ok:
-                            resp = send_message(text, parse_mode=None)
+                    print("sendPhoto с подписью не прошёл:", resp.text[:200])
+                    # ступень 2: фото отдельно, текст отдельно
+                    photo_resp = send_photo(photo_path, None)
+                    if photo_resp.ok:
+                        resp = send_text_chunked(text)
+                    else:
+                        # ступень 3: фото не берётся вообще — уходит только текст
+                        print("sendPhoto без подписи тоже не прошёл:",
+                              photo_resp.text[:200])
+                        resp = send_text_chunked(text)
         else:
-            resp = send_message(text)
-            if not resp.ok:
-                resp = send_message(text, parse_mode=None)
+            resp = send_text_chunked(text)
 
         if not resp.ok:
             print("ИТОГОВАЯ ОШИБКА:", resp.status_code, resp.text)
@@ -1957,19 +2021,6 @@ def mark_holiday_done(state, client_id, today, holiday, kind):
     cs["holiday_done"] = done[-30:]
 
 
-def photo_slot_for_client(client):
-    """
-    Самый ранний из выбранных слотов клиента (morning -> midday -> evening).
-    Используется только при morning_photo=true — это и есть "утренний" слот
-    с фото, даже если у клиента он физически называется midday/evening.
-    """
-    names = [s.get("name") for s in client.get("slots", [])]
-    for slot in SLOT_ORDER:
-        if slot in names:
-            return slot
-    return None
-
-
 def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     """
     Расписание по дням недели (поле days[] у рубрики).
@@ -2008,7 +2059,10 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
         return (not days) or (today_abbr in [d.strip() for d in days])
 
     def is_photo_rubric(r):
-        return str(r.get("kind") or "").strip().lower() in ("photo_case", "before_after")
+        # rubric_kind() учитывает и явное поле kind, и угадывание по названию.
+        # Раньше здесь читалось только r["kind"], и рубрика без него
+        # («Наши работы», «Фотоотчёт») в ранний слот не попадала.
+        return rubric_kind(r) in ("photo_case", "before_after")
 
     photo_pool = [r for r in rubrics if is_photo_rubric(r)]
     text_pool  = [r for r in rubrics if not is_photo_rubric(r)]
@@ -2055,11 +2109,7 @@ def load_clients():
 
 def main():
     from datetime import datetime, timezone
-    try:
-        from zoneinfo import ZoneInfo
-        now = datetime.now(ZoneInfo("Europe/Moscow"))
-    except Exception:
-        now = datetime.utcnow()
+    now = now_msk()
     today = now.date()
     today_abbr = DOW_ABBR[today.weekday()]
 
@@ -2187,8 +2237,7 @@ def main():
                   f"Начало: «{head}…»")
             report_post_status(
                 cid, "Ошибка: неполный текст",
-                today.strftime("%d.%m.%Y") + " " +
-                __import__("datetime").datetime.now().strftime("%H:%M"),
+                stamp_msk(today),
             )
             # фото не тратим: очередь не двигаем, оно достанется следующему посту
             if photo_path and os.path.exists(photo_path):
@@ -2216,12 +2265,10 @@ def main():
                 src_path, filename, posted_dir = photo_meta
                 move_to_posted(src_path, filename, posted_dir)
             # пишем статус обратно в таблицу — CRM покажет «Опубликован»
-            date_str = today.strftime("%d.%m.%Y") + " " + __import__("datetime").datetime.now().strftime("%H:%M")
-            report_post_status(cid, "Опубликован", date_str)
+            report_post_status(cid, "Опубликован", stamp_msk(today))
         except Exception as e:
             print(f"{cid}: ошибка публикации — {e}")
-            date_str = today.strftime("%d.%m.%Y") + " " + __import__("datetime").datetime.now().strftime("%H:%M")
-            report_post_status(cid, f"Ошибка: {str(e)[:80]}", date_str)
+            report_post_status(cid, f"Ошибка: {str(e)[:80]}", stamp_msk(today))
 
     save_state(state)
     if not posted_any:
