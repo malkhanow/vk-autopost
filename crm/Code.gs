@@ -1731,6 +1731,99 @@ function ghRepo_() {
  * GET sha текущего файла -> PUT clients/{id}.json с base64-содержимым.
  * После коммита — workflow_dispatch для тестового прогона.
  */
+/* ------------------------------------------------------------------
+ *  СЛИЯНИЕ КОНФИГА: поля, которых нет в карточке CRM
+ *
+ *  buildConfig_() собирает конфиг из полей листа. Всё, чего в листе нет,
+ *  при сохранении просто исчезало: рубрика уезжала в GitHub без kind и
+ *  topics, а клиент — без cta_short и photo_topics. Одно нажатие
+ *  «Сохранить» стирало темы рубрик и вид фото-рубрики, после чего движок
+ *  начинал угадывать вид по названию и отправлял фото-рубрику в текстовый
+ *  слот.
+ *
+ *  Поэтому перед записью старый конфиг из репозитория читается и
+ *  неуправляемые поля переносятся в новый. Всё, чем CRM управляет
+ *  (name, days, prompt, caption, тариф, слоты...), перезаписывается как
+ *  и раньше — приоритет у листа.
+ * ---------------------------------------------------------------- */
+
+// Поля верхнего уровня, которые CRM не редактирует и не должна терять.
+var PRESERVED_TOP_FIELDS = ['cta_short', 'photo_topics', 'photo_post'];
+
+// Поля рубрики, которые CRM не редактирует и не должна терять.
+var PRESERVED_RUBRIC_FIELDS = ['kind', 'topics'];
+
+/**
+ * Переносит в новый конфиг поля, которых нет в карточке CRM.
+ * Рубрики сопоставляются по имени: переименовали рубрику в CRM — темы к
+ * ней не привяжутся, это осознанный компромисс (иначе пришлось бы вводить
+ * устойчивые id рубрик, а их в листе нет).
+ * Возвращает новый объект, аргументы не мутирует.
+ */
+/** Значение считается «незаполненным», если его нет, оно пустое или это
+ *  пустой массив. Пустой массив здесь важен отдельно: buildConfig_ отдаёт
+ *  topics: [] для рубрики без тем, а пустой массив в JS истинный — без
+ *  этой проверки старые темы не переносились бы. */
+function isBlankValue_(v) {
+  if (v === null || v === undefined || v === '') return true;
+  if (Object.prototype.toString.call(v) === '[object Array]') return v.length === 0;
+  return false;
+}
+
+function mergePreservedConfig_(fresh, prev) {
+  if (!fresh) return fresh;
+  if (!prev || typeof prev !== 'object') return fresh;
+
+  var out = {}, k;
+  for (k in fresh) if (Object.prototype.hasOwnProperty.call(fresh, k)) out[k] = fresh[k];
+
+  for (var i = 0; i < PRESERVED_TOP_FIELDS.length; i++) {
+    var f = PRESERVED_TOP_FIELDS[i];
+    if (isBlankValue_(out[f]) && !isBlankValue_(prev[f])) out[f] = prev[f];
+  }
+
+  var prevRubrics = (prev.rubrics && prev.rubrics.length) ? prev.rubrics : [];
+  if (!out.rubrics || !out.rubrics.length || !prevRubrics.length) return out;
+
+  var byName = {};
+  for (var p = 0; p < prevRubrics.length; p++) {
+    var pn = String((prevRubrics[p] && prevRubrics[p].name) || '').trim().toLowerCase();
+    if (pn && !byName[pn]) byName[pn] = prevRubrics[p];
+  }
+
+  out.rubrics = out.rubrics.map(function (r) {
+    var copy = {}, key;
+    for (key in r) if (Object.prototype.hasOwnProperty.call(r, key)) copy[key] = r[key];
+    var old = byName[String(copy.name || '').trim().toLowerCase()];
+    if (!old) return copy;
+    for (var j = 0; j < PRESERVED_RUBRIC_FIELDS.length; j++) {
+      var pf = PRESERVED_RUBRIC_FIELDS[j];
+      if (isBlankValue_(copy[pf]) && !isBlankValue_(old[pf])) copy[pf] = old[pf];
+    }
+    return copy;
+  });
+
+  return out;
+}
+
+/** Достаёт объект конфига из ответа GitHub Contents API. Ошибки глушим:
+ *  не смогли прочитать старый файл — пишем новый как есть, это не повод
+ *  ронять сохранение клиента. */
+function parseGhConfig_(head) {
+  try {
+    if (!head || head.code !== 200 || !head.json || !head.json.content) return null;
+    var raw = String(head.json.content).replace(/\s+/g, '');
+    if (!raw) return null;
+    var bytes = Utilities.base64Decode(raw);
+    var text = Utilities.newBlob(bytes).getDataAsString('UTF-8');
+    var obj = JSON.parse(text);
+    return (obj && typeof obj === 'object') ? obj : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+
 function ghPushConfig_(c, dispatch) {
   var repo = ghRepo_();
   var branch = prop_('GITHUB_BRANCH') || 'main';
@@ -1738,12 +1831,14 @@ function ghPushConfig_(c, dispatch) {
   var path = dir + '/' + c.id + '.json';
   var base = 'https://api.github.com/repos/' + repo + '/contents/' +
     path.split('/').map(encodeURIComponent).join('/');
-  var config = JSON.stringify(buildConfig_(c), null, 2) + '\n';
-
   var head = gh_(base + '?ref=' + encodeURIComponent(branch), 'get');
   var prevSha = '';
   if (head.code === 200 && head.json && head.json.sha) prevSha = head.json.sha;
   else if (head.code !== 404) throw new Error(ghError_('GET ' + path, head));
+
+  // GET уже вернул содержимое файла — второй запрос не нужен.
+  var merged = mergePreservedConfig_(buildConfig_(c), parseGhConfig_(head));
+  var config = JSON.stringify(merged, null, 2) + '\n';
 
   var payload = {
     message: 'crm: конфиг клиента ' + c.id,
