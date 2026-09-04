@@ -111,17 +111,29 @@ function checkPayments() {
   const today  = startOfDay(new Date());
   const alerts = [];
 
+  // Лист читается ОДНИМ запросом. Раньше на каждого клиента уходило шесть
+  // отдельных getValue() — по обращению к Sheets на ячейку. На сотне
+  // клиентов это шестьсот round-trip'ов, и функция не укладывалась в
+  // шестиминутный лимит Apps Script задолго до этого числа.
+  const lastCol = Math.max(COL_NAME, COL_DATE_NEXT, COL_STATUS,
+                           COL_TARIFF, COL_PRICE, COL_CONTACT);
+  const grid = sheet.getRange(DATA_START_ROW, 1,
+                              lastRow - DATA_START_ROW + 1, lastCol).getValues();
+
   for (let row = DATA_START_ROW; row <= lastRow; row++) {
-    const name = sheet.getRange(row, COL_NAME).getValue();
+    const cells = grid[row - DATA_START_ROW];
+    const at = col => cells[col - 1];
+
+    const name = at(COL_NAME);
     if (!name) continue;
 
-    const dateValue = sheet.getRange(row, COL_DATE_NEXT).getValue();
+    const dateValue = at(COL_DATE_NEXT);
     if (!dateValue) continue;
 
-    const status  = sheet.getRange(row, COL_STATUS).getValue();
-    const tariff  = sheet.getRange(row, COL_TARIFF).getValue();
-    const price   = sheet.getRange(row, COL_PRICE).getValue();
-    const contact = sheet.getRange(row, COL_CONTACT).getValue();
+    const status  = at(COL_STATUS);
+    const tariff  = at(COL_TARIFF);
+    const price   = at(COL_PRICE);
+    const contact = at(COL_CONTACT);
 
     const payDate  = startOfDay(new Date(dateValue));
     const diffDays = Math.round((payDate - today) / 86400000);
@@ -1344,7 +1356,222 @@ function answersOfRow_(t, row) {
  *  ДЕЙСТВИЯ: ЗАПИСЬ (doPost)
  * ==================================================================== */
 
+
+/* ========================================================================
+ *  РАЗБОР СКРИНШОТОВ ПОСТОВ КЛИЕНТА
+ *
+ *  Вместо того чтобы вручную переписывать стиль клиента в поля карточки,
+ *  менеджер загружает 3–8 скриншотов его реальных постов. Модель читает
+ *  текст прямо с картинки и возвращает черновик настроек.
+ *
+ *  Черновик, а не автосохранение — намеренно. Распознавание ошибается, и
+ *  неверно считанный телефон в CTA ушёл бы в канал клиента: движок его не
+ *  вырежет, потому что номер лежит в конфиге и считается разрешённым.
+ *  Поэтому результат возвращается на проверку, а в лист попадает только
+ *  после того, как менеджер нажал «Применить».
+ * ==================================================================== */
+
+// Больше восьми в один запрос не влезает: у Apps Script 6 минут на
+// выполнение, а каждая картинка — это ещё и вес запроса к RouterAI.
+var SCREENSHOT_MAX = 8;
+
+// Сжатие делает браузер; здесь только страховка от совсем тяжёлых файлов.
+var SCREENSHOT_MAX_BYTES = 1600000;   // ~1.6 МБ на картинку после base64
+
+var SCREENSHOT_SYSTEM =
+  'Ты разбираешь скриншоты постов из социальных сетей одного бизнеса и ' +
+  'описываешь, КАК этот бизнес пишет. Твоя задача — не пересказать посты, ' +
+  'а вытащить манеру речи, темы и правила.\n' +
+  'Отвечай ТОЛЬКО JSON-объектом, без пояснений и без markdown.\n' +
+  'Если чего-то на скриншотах не видно — верни для этого поля пустую ' +
+  'строку или пустой массив. Ничего не придумывай: выдуманный телефон или ' +
+  'выдуманная услуга дороже, чем пустое поле.';
+
+/**
+ * Промпт разбора. Список рубрик передаётся, если он уже заведён в карточке:
+ * тогда модель раскладывает темы по существующим рубрикам, а не выдумывает
+ * свою структуру — по восьми постам редполитику всё равно не восстановить.
+ */
+function screenshotPrompt_(rubricNames, hint) {
+  var lines = [
+    'Разбери приложенные скриншоты постов и верни JSON такой формы:',
+    '{',
+    '  "business": "чем занимается бизнес, 2-5 слов",',
+    '  "city": "город, если упоминается, иначе пустая строка",',
+    '  "person": "я" или "мы" — от какого лица написаны посты,',
+    '  "tone": один из: "Простой и дружелюбный — как друг", "Экспертный — как специалист", "Деловой — как компания",',
+    '  "style_prompt": "инструкция для нейросети, как писать посты этого бизнеса: лицо повествования, обращение к читателю, длина предложений, структура поста, характерные приёмы. 60-120 слов, повелительное наклонение",',
+    '  "cta": "призыв к действию, если он повторяется в постах — ДОСЛОВНО как на скриншоте, вместе с телефоном и ссылками. Если призыва нет — пустая строка",',
+    '  "faq": ["вопросы, на которые бизнес отвечает в постах, по одному в строке"],',
+    '  "forbidden": ["чего в постах этого бизнеса нет и быть не должно: например обещаний результата, цен, жаргона"],',
+    '  "topics_by_rubric": { "название рубрики": ["тема", "тема"] },',
+    '  "notes": "что осталось непонятным или требует проверки, 1-2 предложения"',
+    '}'
+  ];
+  if (rubricNames && rubricNames.length) {
+    lines.push('Рубрики клиента уже заданы. Разложи найденные темы ПО НИМ, ' +
+      'используя ровно эти названия как ключи topics_by_rubric, и не ' +
+      'добавляй своих рубрик: ' + rubricNames.join(' | '));
+    lines.push('Если тема не подходит ни к одной рубрике — не включай её.');
+  } else {
+    lines.push('Рубрики не заданы. В topics_by_rubric предложи 3-5 рубрик ' +
+      'по содержанию постов: ключ — короткое название рубрики, значение — ' +
+      'темы для неё.');
+  }
+  lines.push('Тем на рубрику — от 5 до 12. Тема это короткая формулировка ' +
+    'без вводных слов, строчными буквами, например «зачем нужна выписка и ' +
+    'что в ней смотреть».');
+  if (hint) lines.push('Менеджер добавил уточнение, учти его: ' + hint);
+  return lines.join('\n');
+}
+
+/** Одна картинка -> блок сообщения для модели. */
+function screenshotPart_(img, index) {
+  var data = String((img && img.data) || '').trim();
+  if (!data) throw new Error('Скриншот ' + (index + 1) + ': пустые данные');
+  // Браузер может прислать как «data:image/png;base64,AAA», так и голый base64.
+  var url = data.indexOf('data:') === 0
+    ? data
+    : 'data:' + (String((img && img.mime) || 'image/jpeg')) + ';base64,' + data;
+  var payloadLen = url.length;
+  if (payloadLen > SCREENSHOT_MAX_BYTES) {
+    throw new Error('Скриншот ' + (index + 1) + ' слишком тяжёлый (' +
+      Math.round(payloadLen / 1024) + ' КБ). Уменьшите картинку и повторите.');
+  }
+  return { type: 'image_url', image_url: { url: url } };
+}
+
+/** Достаёт JSON из ответа модели, даже если та обернула его в ```json. */
+function parseAiJson_(raw) {
+  var text = String(raw || '').trim();
+  if (text.indexOf('```') === 0) {
+    text = text.replace(/^```[a-zA-Z]*\s*/, '').replace(/```\s*$/, '').trim();
+  }
+  var first = text.indexOf('{'), last = text.lastIndexOf('}');
+  if (first > 0 || last < text.length - 1) {
+    if (first >= 0 && last > first) text = text.slice(first, last + 1);
+  }
+  return JSON.parse(text);
+}
+
+/** Приводит ответ модели к предсказуемой форме. Модель может вернуть
+ *  строку вместо массива, лишние поля или мусор — наружу это уходить
+ *  не должно. */
+function normalizeScreenshotDraft_(raw, rubricNames) {
+  function arr(v) {
+    if (!v) return [];
+    if (Object.prototype.toString.call(v) === '[object Array]') {
+      return v.map(function (x) { return String(x || '').trim(); }).filter(String);
+    }
+    return String(v).split('\n').map(function (x) { return x.trim(); }).filter(String);
+  }
+  function s(v) { return String(v === null || v === undefined ? '' : v).trim(); }
+
+  var TONES = ['Простой и дружелюбный — как друг',
+               'Экспертный — как специалист',
+               'Деловой — как компания'];
+  var tone = s(raw && raw.tone);
+  if (TONES.indexOf(tone) < 0) tone = '';
+
+  var known = {};
+  (rubricNames || []).forEach(function (n) {
+    known[String(n).trim().toLowerCase()] = String(n).trim();
+  });
+
+  var byRubric = [];
+  var src = (raw && raw.topics_by_rubric) || {};
+  for (var key in src) {
+    if (!Object.prototype.hasOwnProperty.call(src, key)) continue;
+    var name = s(key);
+    if (!name) continue;
+    // Если рубрики заданы — берём только их, чтобы модель не завела своих.
+    if (rubricNames && rubricNames.length) {
+      var match = known[name.toLowerCase()];
+      if (!match) continue;
+      name = match;
+    }
+    var topics = arr(src[key]).slice(0, 12);
+    if (topics.length) byRubric.push({ name: name, topics: topics });
+  }
+
+  var person = s(raw && raw.person).toLowerCase();
+  if (person !== 'я' && person !== 'мы') person = '';
+
+  return {
+    business: s(raw && raw.business),
+    city: s(raw && raw.city),
+    person: person,
+    tone: tone,
+    stylePrompt: s(raw && raw.style_prompt),
+    cta: s(raw && raw.cta),
+    faq: arr(raw && raw.faq).slice(0, 10),
+    forbidden: arr(raw && raw.forbidden).slice(0, 10),
+    rubrics: byRubric,
+    notes: s(raw && raw.notes)
+  };
+}
+
+/**
+ * Разбирает скриншоты и возвращает ЧЕРНОВИК настроек. В лист ничего не
+ * пишет — за это отвечает обычный action=save после проверки менеджером.
+ */
+function analyzeScreenshots_(req) {
+  var images = req.images;
+  if (Object.prototype.toString.call(images) !== '[object Array]' || !images.length) {
+    throw new Error('Не передано ни одного скриншота');
+  }
+  if (images.length > SCREENSHOT_MAX) {
+    throw new Error('За раз можно разобрать не больше ' + SCREENSHOT_MAX +
+      ' скриншотов, пришло ' + images.length);
+  }
+
+  // Названия рубрик берём из карточки, если клиент уже заведён.
+  var rubricNames = [];
+  var id = str_(req.id);
+  if (id) {
+    try {
+      var t = clientsTable_();
+      var rowNumber = findRow_(t, id);
+      if (rowNumber) {
+        var c = refetchClient_(id);
+        rubricNames = ((c && c.rubrics) || [])
+          .filter(function (r) { return r && r.name && !r.dormant; })
+          .map(function (r) { return String(r.name).trim(); });
+      }
+    } catch (e) {
+      // клиента ещё нет или лист недоступен — разберём без привязки к рубрикам
+      rubricNames = [];
+    }
+  }
+
+  var content = [{ type: 'text', text: screenshotPrompt_(rubricNames, str_(req.hint)) }];
+  for (var i = 0; i < images.length; i++) content.push(screenshotPart_(images[i], i));
+
+  var answer = ai_([
+    { role: 'system', content: SCREENSHOT_SYSTEM },
+    { role: 'user', content: content }
+  ], { json: true, maxTokens: 2600, temperature: 0.3, reasoningEffort: 'low' });
+
+  var raw;
+  try {
+    raw = parseAiJson_(answer);
+  } catch (e) {
+    throw new Error('Модель вернула не JSON. Попробуйте ещё раз или уменьшите ' +
+      'число скриншотов.');
+  }
+
+  var draft = normalizeScreenshotDraft_(raw, rubricNames);
+  draft.screenshots = images.length;
+  draft.rubricsKnown = rubricNames;
+  return { draft: draft };
+}
+
+
 var POST_ACTIONS = {
+
+  /** action=analyze_screenshots — разобрать скриншоты постов клиента.
+   *  Возвращает черновик; в лист ничего не пишет. */
+  analyze_screenshots: analyzeScreenshots_,
 
   /** action=save — сохранить карточку клиента в таблицу. */
   save: function (req) {
