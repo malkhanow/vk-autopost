@@ -112,10 +112,11 @@ def report_post_status(client_id, status, date_str):
             "status": status,
             "date": date_str,
         })
+        # Токен уходит ТОЛЬКО в теле запроса. В строке запроса он утекал в
+        # лог: при обрыве связи requests кладёт полный URL в текст
+        # исключения, а логи Actions у публичного репозитория открыты всем.
         sep = "&" if "?" in WEBAPP_URL else "?"
         url = WEBAPP_URL + sep + "action=update_post_status"
-        if WEBAPP_TOKEN:
-            url += "&token=" + WEBAPP_TOKEN
         resp = requests.post(
             url,
             headers={"Content-Type": "text/plain;charset=utf-8"},
@@ -125,7 +126,9 @@ def report_post_status(client_id, status, date_str):
         if not resp.ok:
             print(f"Статус не записан в таблицу: {resp.status_code} {resp.text[:100]}")
     except Exception as e:
-        print(f"Не удалось записать статус в таблицу: {e}")
+        # Сообщение исключения может содержать URL целиком — печатаем только
+        # тип ошибки, чтобы в лог не попало ничего лишнего.
+        print(f"Не удалось записать статус в таблицу: {type(e).__name__}")
 
 SLOT = os.environ.get("SLOT", "")               # morning / midday / evening
 TEST_CLIENT_ID = os.environ.get("TEST_CLIENT_ID", "").strip()
@@ -262,6 +265,21 @@ def download_yandex_file(yandex_path):
 
 
 def move_to_posted(src_path, filename, posted_dir):
+    """Переносит опубликованное фото в posted/.
+
+    Сетевые ошибки глушим намеренно: эта функция вызывается ПОСЛЕ того, как
+    пост уже ушёл в Telegram. Раньше таймаут Яндекс.Диска пробрасывался в
+    общий except публикации, и в CRM писалась «Ошибка» на успешный пост,
+    а фото оставалось в очереди и уходило повторно.
+    """
+    try:
+        _move_to_posted(src_path, filename, posted_dir)
+    except Exception as e:
+        print(f"Фото {filename} осталось в очереди ({type(e).__name__}) — "
+              f"перенесите вручную, пост при этом опубликован")
+
+
+def _move_to_posted(src_path, filename, posted_dir):
     resp = requests.post(
         "https://cloud-api.yandex.net/v1/disk/resources/move",
         headers=yandex_headers(),
@@ -575,6 +593,40 @@ def strip_model_noise(text):
     return s
 
 
+# Лимит подписи к фото в Telegram. Пост, который в него не влез, уходил
+# двумя сообщениями: фото без подписи и текст отдельно. В Telegram это
+# почти незаметно, но Crosslybot зеркалит КАЖДОЕ сообщение отдельно — и во
+# ВКонтакте получались два поста: картинка без слов и стена текста.
+TG_CAPTION_LIMIT = 1024
+
+
+def fit_caption(body, tail, limit=TG_CAPTION_LIMIT):
+    """
+    Укорачивает ТЕЛО поста так, чтобы вместе с хвостом (призыв к действию,
+    хештеги) всё влезло в подпись к фото.
+
+    Режется по границе предложения — обрубок на полуслове в канал уходить
+    не должен. Хвост не трогаем никогда: в нём телефон, ссылки и, у
+    медицинских клиентов, обязательная фраза про противопоказания.
+
+    Возвращает (текст, сколько символов срезано).
+    """
+    body = (body or "").rstrip()
+    tail = tail or ""
+    room = limit - len(tail)
+    if room <= 0:
+        # Хвост сам по себе не влезает — тело срезать бессмысленно.
+        return body, 0
+    if len(body) <= room:
+        return body, 0
+
+    cut = trim_to_sentence(body[:room])
+    if not cut.strip():
+        # Ни одного целого предложения не поместилось — режем по слову.
+        cut = body[:room].rsplit(" ", 1)[0].rstrip(" ,;:—-")
+    return cut.rstrip(), len(body) - len(cut)
+
+
 def append_cta(text, client, compact=False):
     """
     Дописывает призыв к действию из карточки клиента дословно.
@@ -687,15 +739,26 @@ def build_hashtags_ai(client, post_text, need):
 
 
 def append_hashtags(text, client, holiday=None):
-    """
-    Дописывает до HASHTAGS_MAX тегов: сперва постоянные из поля hashtags
-    конфига, остальное добирает подбором под текст поста.
+    """Тело поста + строка тегов. Обёртка над hashtags_for_post."""
+    line = hashtags_for_post(text, client, holiday)
+    return (text.rstrip() + "\n\n" + line) if line else text
 
-    У памятных дат тегов нет совсем — «#страхование» под постом о Дне Победы
-    выглядит как реклама на памятной дате.
+
+def hashtags_for_post(text, client, holiday=None):
+    """
+    Готовая строка тегов для этого поста, без самого текста.
+
+    Вынесено отдельно от склейки, потому что при публикации с фотографией
+    длину хвоста нужно знать ЗАРАНЕЕ: тело поста подгоняется под лимит
+    подписи, и теги должны учитываться в бюджете, а не дописываться сверху.
+    Теги подбираются по тексту поста, поэтому text здесь обязателен.
+
+    Сперва постоянные из поля hashtags конфига, остальное добирается
+    подбором под текст. У памятных дат тегов нет совсем — «#страхование»
+    под постом о Дне Победы выглядит как реклама на памятной дате.
     """
     if holiday and holiday.get("solemn"):
-        return text
+        return ""
 
     tags, seen = [], set()
     for part in re.split(r"[,\s]+", client.get("hashtags") or ""):
@@ -718,8 +781,8 @@ def append_hashtags(text, client, holiday=None):
             print(f"Теги подобрать не удалось ({e}), публикую без них.")
 
     if not tags:
-        return text
-    return text.rstrip() + "\n\n" + " ".join("#" + t for t in tags[:HASHTAGS_MAX])
+        return ""
+    return " ".join("#" + t for t in tags[:HASHTAGS_MAX])
 
 
 def image_to_data_url(photo_path):
@@ -1979,7 +2042,14 @@ def parse_extra_holidays(raw):
         if not m:
             continue
         day, month, name = int(m.group(1)), int(m.group(2)), m.group(3).strip()
-        if not (1 <= month <= 12 and 1 <= day <= 31) or not name:
+        if not name or not (1 <= month <= 12):
+            continue
+        # Проверка по реальному календарю, а не «день <= 31»: строка вроде
+        # «31.02 Мой день» раньше проходила и праздник молча не наступал
+        # никогда. 29 февраля разрешаем — високосный год бывает.
+        DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        if not (1 <= day <= DAYS_IN_MONTH[month - 1]):
+            print(f"Праздник «{name}»: даты {day:02d}.{month:02d} не существует, пропускаю")
             continue
         out.append({
             "key": f"extra-{month:02d}-{day:02d}",
@@ -1988,18 +2058,49 @@ def parse_extra_holidays(raw):
     return out
 
 
+def client_limit(client, key, default=None):
+    """Значение лимита тарифа из конфига. Лимиты кладёт CRM в поле limits."""
+    limits = client.get("limits")
+    if not isinstance(limits, dict):
+        return default
+    value = limits.get(key)
+    return default if value is None else value
+
+
 def holidays_for_client(client):
     """
     Праздники, актуальные для клиента. Пусто — значит праздничных постов
-    у него нет вообще: тариф СТАРТ их не включает, плюс в брифе может
-    стоять «Не нужны».
+    у него нет вообще.
+
+    Раньше тариф без праздников определялся сравнением названия со строкой
+    «СТАРТ». Переименование тарифа или новый тариф без праздников ломали
+    защиту молча, поэтому теперь решает limits.holidays_enabled, а сравнение
+    по названию осталось запасным вариантом для старых конфигов без limits.
     """
-    if str(client.get("tariff", "")).strip().upper() == "СТАРТ":
+    enabled = client_limit(client, "holidays_enabled")
+    if enabled is None:
+        enabled = str(client.get("tariff", "")).strip().upper() != "СТАРТ"
+    if not enabled:
         return []
+
     mode = str(client.get("holidays", "")).strip().lower()
     if mode.startswith("не нужн"):
         return []
-    return BASE_HOLIDAYS + parse_extra_holidays(client.get("holidays_extra"))
+
+    holidays = list(BASE_HOLIDAYS)
+    # Свои праздники — платная опция: на тарифах без неё они игнорируются,
+    # даже если клиент вписал их в CRM.
+    if client_limit(client, "holidays_extra", True):
+        extra = parse_extra_holidays(client.get("holidays_extra"))
+        taken = {(h["month"], h["day"]) for h in holidays}
+        for h in extra:
+            if (h["month"], h["day"]) in taken:
+                print(f"Праздник «{h['name']}» {h['day']:02d}.{h['month']:02d} "
+                      f"совпал с базовым и пропущен")
+                continue
+            taken.add((h["month"], h["day"]))
+            holidays.append(h)
+    return holidays
 
 
 def find_holiday(holidays, target):
@@ -2048,7 +2149,22 @@ def holiday_for_run(client, today, slot, state, test_mode):
     cs = client_state(state, client["client_id"])
     done = cs.get("holiday_done", [])
 
+    # Сколько постов на один праздник оплачено тарифом: 1 — только
+    # поздравление в день, 2 — плюс анонс накануне, 3 — плюс анонс за неделю.
+    # Раньше выходили все три независимо от тарифа, и ПРОФИ получал столько
+    # же, сколько МАКСИМУМ.
+    allowed = client_limit(client, "holiday_posts")
+    try:
+        allowed = int(allowed)
+    except (TypeError, ValueError):
+        allowed = 3            # старый конфиг без лимитов — поведение прежнее
+    if allowed <= 0:
+        return None, None
+    ALLOWED_KINDS = ["day", "before1", "before7"][:allowed]
+
     def take(target, kind):
+        if kind not in ALLOWED_KINDS:
+            return None, None
         h = find_holiday(holidays, target)
         if h and holiday_done_key(today, h, kind) not in done:
             return h, kind
@@ -2306,10 +2422,29 @@ def main():
             continue
 
         # У торжественных праздников призыв к действию неуместен.
+        # Хвост поста (призыв + теги) собираем отдельно от тела. С фото
+        # действует лимит подписи, и укорачивать нужно ТЕЛО, а хвост
+        # оставить целым: в нём телефон, ссылки и обязательные дисклеймеры.
+        # Теги подбираются по полному тексту, до укорачивания, — иначе они
+        # опишут обрезанный пост.
+        parts = []
         if not (holiday and holiday.get("solemn")):
-            # с фотографией действует лимит подписи 1024 символа
-            text = append_cta(text, client, compact=bool(photo_path))
-        text = append_hashtags(text, client, holiday)
+            cta = (client.get("cta_short") if photo_path else "") or client.get("cta") or ""
+            cta = str(cta).strip()
+            if cta and cta.splitlines()[0].strip().lower() not in text.lower():
+                parts.append(cta)
+        tag_line = hashtags_for_post(text, client, holiday)
+        if tag_line:
+            parts.append(tag_line)
+        tail = "\n\n".join(parts)
+
+        if photo_path:
+            body, dropped = fit_caption(text, ("\n\n" + tail) if tail else "")
+            if dropped:
+                print(f"{cid}: текст укорочен на {dropped} симв. — "
+                      f"фото и текст уходят одним постом")
+            text = body
+        text = (text.rstrip() + "\n\n" + tail) if tail else text.rstrip()
         print(f"{cid}: публикую {what} в {channel}")
         try:
             post_to_telegram(channel, text, photo_path)
