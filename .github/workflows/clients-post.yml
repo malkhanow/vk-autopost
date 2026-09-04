@@ -37,6 +37,10 @@ concurrency:
 jobs:
   post:
     runs-on: ubuntu-latest
+    # По умолчанию GitHub даёт джобе шесть часов. Зависший запрос к RouterAI
+    # или Яндекс.Диску жёг бы раннер всё это время и держал очередь
+    # concurrency. Сорока минут хватает с большим запасом.
+    timeout-minutes: 40
     permissions:
       contents: write
     steps:
