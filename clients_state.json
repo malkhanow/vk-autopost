@@ -81,5 +81,21 @@
     "photo_tie_index": 3,
     "text_tie_index": 3,
     "loop_rubrics_tips": "Ползеное - Хавьер.jpg"
+  },
+  "pro-nedvizhimost-s-natal": {
+    "tie_index": 1,
+    "used_photos": [],
+    "slot_done": {},
+    "cycles": {
+      "fmt:faq": 1,
+      "opener": 1,
+      "topic:Частые вопросы": 1,
+      "faq": 1
+    },
+    "recent": {
+      "Частые вопросы": [
+        "Как купить квартиру в Санкт-Петербурге с минимальным первоначальным взносом? Это один из самых волнующих"
+      ]
+    }
   }
 }
