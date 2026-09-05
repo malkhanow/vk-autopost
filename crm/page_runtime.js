@@ -52,7 +52,11 @@
     dragleave: 'dragleave', drop: 'drop', dragend: 'dragend',
     // ручка «⠿»: перетаскивание включается только с неё, чтобы
     // выделение текста в полях строки продолжало работать
-    mousedown: 'mousedown'
+    mousedown: 'mousedown',
+    // <input type="file"> слушает 'change', а не 'input'.
+    // В разметке пишем onChange='...' на file-input, runtime смотрит сюда.
+    filepick: 'change',
+    paste: 'paste'
   };
 
   /* ---- разметка -> дерево описаний ---- */

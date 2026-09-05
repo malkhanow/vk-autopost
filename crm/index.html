@@ -642,51 +642,98 @@
             <sc-if value="{{ tabContent }}" hint-placeholder-val="{{ true }}">
               <div style="display: flex; flex-direction: column; gap: 14px">
 
-                <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
-                  <div style="display: flex; align-items: baseline; gap: 10px">
-                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Блок А — стиль клиента</h2>
-                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">{{ styleFilled }}/5 ответов</span>
-                    <div style="flex: 1"></div>
-                    <button onClick="{{ analyzeStyle }}" style="{{ analyzeBtn }}">{{ analyzeLabel }}</button>
-                  </div>
-                  <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Копируете тему, отправляете клиенту в Telegram, его ответ вставляете обратно. Пять текстов → style_prompt.</p>
-                  <div style="display: flex; flex-direction: column; gap: 8px">
-                    <sc-for list="{{ styleTasks }}" as="s" hint-placeholder-count="5">
-                      <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px; border: 1px solid #ebebe7; border-radius: 5px; background: #fbfbf9">
-                        <div style="display: flex; gap: 9px">
-                          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96; padding-top: 2px">{{ s.num }}</span>
-                          <div style="min-width: 0">
-                            <div style="font-size: 12.5px; line-height: 1.5">{{ s.task }}</div>
-                            <div style="font-size: 11.5px; line-height: 1.45; color: #8a8f96; margin-top: 4px">{{ s.example }}</div>
-                            <button onClick="{{ s.onCopy }}" style="margin-top: 7px; border: 1px solid #dedeD9; background: #fff; font-size: 11.5px; padding: 4px 9px; border-radius: 4px; cursor: pointer" style-hover="border-color: #14171a">{{ s.copyLabel }}</button>
-                          </div>
-                        </div>
-                        <textarea rows="3" placeholder="Ответ клиента" value="{{ s.answer }}" onChange="{{ s.onChange }}" style="width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.5; resize: vertical"></textarea>
-                      </div>
-                    </sc-for>
-                  </div>
-                  <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #eeeeea; font-size: 11.5px; color: #8a8f96">
-                    Результат анализа попадёт в <span style="font-family: 'IBM Plex Mono', monospace">style_prompt</span> — он вынесен отдельной секцией ниже.
-                  </div>
-                </section>
-
+                <!-- ==== Скриншоты → черновик ==== -->
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
                   <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
-                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Вариант 2 — реальные тексты клиента</h2>
-                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #8a8f96">альтернативный способ настройки стиля</span>
+                    <h2 style="margin: 0; font-size: 13px; font-weight: 600">Скриншоты сайта / соцсетей клиента</h2>
+                    <span style="font-size: 11px; color: #8a8f96">до {{ screenshotMax }} фото — ИИ вытащит бриф и рубрики</span>
+                    <div style="flex: 1"></div>
+                    <button onClick="{{ analyzeScreenshots }}" style="{{ screenshotBtn }}">{{ screenshotLabel }}</button>
                   </div>
-                  <p style="margin: 6px 0 10px; font-size: 11.5px; color: #8a8f96">Вставьте несколько реальных постов, заметок или сообщений клиента. ИИ выделит манеру письма и запишет результат в тот же <span style="font-family: 'IBM Plex Mono', monospace">style_prompt</span>, который используется дальше при сборке контент-плана и примеров.</p>
-                  <textarea rows="9" placeholder="Вставьте сюда реальные тексты клиента…
+                  <p style="margin: 6px 0 10px; font-size: 11.5px; color: #8a8f96">Загрузите скриншоты сайта, аккаунта, примеров постов или прайса. ИИ заполнит черновик: бизнес, ниша, стиль, CTA, рубрики с типами. Вы проверяете и нажимаете «Применить».</p>
 
-Можно вставить сразу несколько постов подряд. Чем больше материала — тем точнее анализ." value="{{ c.styleSourceText }}" onChange="{{ set.styleSourceText }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical"></textarea>
-                  <div style="display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap">
-                    <button onClick="{{ analyzeStyleText }}" style="{{ analyzeTextBtn }}">{{ analyzeTextLabel }}</button>
-                    <span style="font-size: 11.5px; color: #8a8f96">{{ styleTextStatus }}</span>
-                  </div>
-                  <sc-if value="{{ hasStylePrompt }}" hint-placeholder-val="{{ false }}">
-                    <div style="margin-top: 10px; padding: 9px 10px; background: #f8f8f5; border: 1px solid #ebebe7; border-radius: 4px; font-size: 11.5px; color: #5d636b">
-                      <span style="font-family: 'IBM Plex Mono', monospace; font-weight: 600">style_prompt</span> уже сохранён в таблице. Нажмите «Пересобрать план» ниже — он будет собран с учётом этого стиля.
+                  <label style="display: block; border: 2px dashed #d2d2cc; border-radius: 6px; padding: 16px; text-align: center; cursor: pointer; background: #fafaf7; margin-bottom: 10px" style-hover="border-color: #2b4acf; background: #f0f3fd">
+                    <input type="file" accept="image/*" multiple filepick="{{ onScreenshotPick }}" style="display: none" />
+                    <span style="font-size: 12.5px; color: #6b7078">{{ screenshotPickLabel }}</span>
+                  </label>
+
+                  <sc-if value="{{ hasScreenshots }}" hint-placeholder-val="{{ true }}">
+                    <div style="display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 10px">
+                      <sc-for list="{{ screenshotPreviews }}" as="sp" hint-placeholder-count="3">
+                        <div style="position: relative">
+                          <img src="{{ sp.src }}" style="width: 72px; height: 72px; object-fit: cover; border-radius: 4px; border: 1px solid #e3e3df" />
+                          <button onClick="{{ sp.onRemove }}" style="position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; border: none; background: rgba(0,0,0,.55); color: #fff; font-size: 10px; line-height: 1; cursor: pointer; padding: 0">×</button>
+                        </div>
+                      </sc-for>
                     </div>
+                  </sc-if>
+
+                  <sc-if value="{{ hasDraft }}" hint-placeholder-val="{{ true }}">
+                    <div style="border: 2px solid #2b4acf; border-radius: 6px; padding: 13px 14px; background: #f5f7ff; margin-top: 4px">
+                      <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px">
+                        <span style="font-size: 12px; font-weight: 600; color: #1a2fa0">Черновик от ИИ — проверьте и правьте</span>
+                        <div style="flex: 1"></div>
+                        <button onClick="{{ applyDraft }}" style="border: 1px solid #2b4acf; background: #2b4acf; color: #fff; font-size: 12px; font-weight: 500; padding: 6px 13px; border-radius: 4px; cursor: pointer" style-hover="background: #1a2fa0">Применить в карточку</button>
+                        <button onClick="{{ discardDraft }}" style="border: 1px solid #d0d0ca; background: #fff; color: #6b7078; font-size: 12px; padding: 6px 10px; border-radius: 4px; cursor: pointer">Отменить</button>
+                      </div>
+
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+                        <div>
+                          <div style="font-size: 11px; font-weight: 600; color: #6b7078; margin-bottom: 4px">Бизнес</div>
+                          <input type="text" value="{{ draft.business }}" onChange="{{ draftSet.business }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 12.5px; background: #fff" />
+                        </div>
+                        <div>
+                          <div style="font-size: 11px; font-weight: 600; color: #6b7078; margin-bottom: 4px">Город</div>
+                          <input type="text" value="{{ draft.city }}" onChange="{{ draftSet.city }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 12.5px; background: #fff" />
+                        </div>
+                        <div style="grid-column: 1 / -1">
+                          <div style="font-size: 11px; font-weight: 600; color: #6b7078; margin-bottom: 4px">Стиль (style_prompt)</div>
+                          <textarea rows="3" value="{{ draft.stylePrompt }}" onChange="{{ draftSet.stylePrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical; background: #fff; font-family: 'IBM Plex Mono', monospace"></textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1">
+                          <div style="font-size: 11px; font-weight: 600; color: #6b7078; margin-bottom: 4px">CTA — призыв к действию</div>
+                          <textarea rows="2" value="{{ draft.cta }}" onChange="{{ draftSet.cta }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical; background: #fff"></textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1">
+                          <div style="font-size: 11px; font-weight: 600; color: #6b7078; margin-bottom: 2px">Короткий CTA — для подписи к фото (&lt;1024 символов)</div>
+                          <div style="font-size: 11px; color: #6b7078; margin-bottom: 4px; font-style: italic">{{ draft.ctaShortReason }}</div>
+                          <textarea rows="2" value="{{ draft.ctaShort }}" onChange="{{ draftSet.ctaShort }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical; background: #fff"></textarea>
+                        </div>
+                        <div style="grid-column: 1 / -1">
+                          <div style="font-size: 11px; font-weight: 600; color: #6b7078; margin-bottom: 2px">Темы для фото работ</div>
+                          <div style="font-size: 11px; color: #6b7078; margin-bottom: 4px; font-style: italic">{{ draft.photoReason }}</div>
+                          <textarea rows="3" value="{{ draft.photoTopicsText }}" onChange="{{ draftSet.photoTopicsText }}" placeholder="Одна тема на строку. Оставьте пустым, если фото-рубрики нет." style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical; background: #fff; font-family: 'IBM Plex Mono', monospace"></textarea>
+                        </div>
+
+                        <div style="grid-column: 1 / -1">
+                          <div style="font-size: 11px; font-weight: 600; color: #6b7078; margin-bottom: 6px">Рубрики из черновика</div>
+                          <sc-for list="{{ draft.rubricRows }}" as="dr" hint-placeholder-count="3">
+                            <div style="display: grid; grid-template-columns: minmax(0,1.2fr) 155px minmax(0,1fr); gap: 8px; margin-bottom: 7px; align-items: start; padding: 8px 10px; border: 1px solid #d0d6f0; border-radius: 5px; background: #fff">
+                              <div>
+                                <div style="font-size: 10.5px; color: #8a8f96; margin-bottom: 2px">Название</div>
+                                <input type="text" value="{{ dr.name }}" onChange="{{ dr.setName }}" style="width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 12px; background: #fff" />
+                              </div>
+                              <div>
+                                <div style="font-size: 10.5px; color: #8a8f96; margin-bottom: 2px">Тип (kind)</div>
+                                <select onChange="{{ dr.setKind }}" style="width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 11.5px; background: #fff">
+                                  <option value="" selected="{{ dr.kindEmpty }}">— не задан —</option>
+                                  <sc-for list="{{ dr.kindOptions }}" as="ko" hint-placeholder-count="5">
+                                    <option value="{{ ko.value }}" selected="{{ ko.selected }}">{{ ko.label }}</option>
+                                  </sc-for>
+                                </select>
+                              </div>
+                              <div>
+                                <div style="font-size: 10.5px; color: #8a8f96; margin-bottom: 2px">Темы ({{ dr.topicsCount }}) — по одной на строку</div>
+                                <textarea rows="3" value="{{ dr.topicsText }}" onChange="{{ dr.setTopics }}" placeholder="Одна тема на строку" style="width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid #c5ccf0; border-radius: 4px; font-size: 11.5px; line-height: 1.45; resize: vertical; background: #fff; font-family: 'IBM Plex Mono', monospace"></textarea>
+                              </div>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </div>
+                    </div>
+                  </sc-if>
+                </section>
+
                   </sc-if>
                 </section>
 
@@ -711,6 +758,34 @@
                   <p style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.5; color: #8a8f96"><b>Оставьте пустым</b>, если клиенту нужны разнообразные посты — тогда система сама чередует форматы и длину: короткие и длинные, истории и советы, разное число абзацев. Так лента выглядит живой, без единого шаблона.<br>Заполняйте, только если клиент просит <b>одинаковую структуру во всех постах</b>. Тогда случайное чередование отключается и каждый пост пишется строго по этому описанию.</p>
                   <textarea rows="3" placeholder="Например: заголовок, три коротких абзаца, призыв к действию. Всего 80–100 слов." value="{{ c.postFormat }}" onChange="{{ set.postFormat }}" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
                   <div style="margin-top: 6px; font-size: 11.5px; color: #8a8f96">{{ postFormatHint }}</div>
+
+                  <!-- cta_short ------------------------------------------------- -->
+                  <div style="display: flex; align-items: baseline; gap: 8px; margin: 16px 0 5px">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">cta_short</span>
+                    <span style="font-size: 11px; color: #8a8f96">короткий призыв — подпись к фото (&lt;1024 символов)</span>
+                  </div>
+                  <p style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.5; color: #8a8f96">Когда полный CTA не помещается в подпись к фото, Telegram обрезает сообщение на два фрагмента — Crosslybot зеркалит их порознь. Оставьте пустым, если полный CTA укладывается в 1024 символа.</p>
+                  <textarea rows="3" value="{{ c.ctaShort }}" onChange="{{ set.ctaShort }}" placeholder="Например: Бесплатная консультация: +7 …
+
+Имеются противопоказания. Необходима консультация." style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical"></textarea>
+                  <div style="margin-top: 5px; font-size: 11px; color: #8a8f96">{{ ctaShortHint }}</div>
+
+                  <!-- photo_topics ---------------------------------------------- -->
+                  <div style="display: flex; align-items: baseline; gap: 8px; margin: 16px 0 5px">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">photo_topics</span>
+                    <span style="font-size: 11px; color: #8a8f96">темы для фото-рубрики (одна на строку)</span>
+                  </div>
+                  <p style="margin: 0 0 6px; font-size: 11.5px; line-height: 1.5; color: #8a8f96">Заполняйте, только когда предмет на фото берётся из закрытого набора (операции у хирурга). Когда фото объясняет себя само — оставьте пустым: список вредит.</p>
+                  <textarea rows="5" value="{{ c.photoTopicsText }}" onChange="{{ onPhotoTopicsChange }}" placeholder="блефаропластика — коррекция птоза век
+ринопластика — коррекция спинки
+маммопластика — восстановление формы" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+
+                  <!-- photo_post_instruction ------------------------------------ -->
+                  <div style="display: flex; align-items: baseline; gap: 8px; margin: 14px 0 5px">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">photo_instruction</span>
+                    <span style="font-size: 11px; color: #8a8f96">подсказка ИИ для разбора фото · необязательно</span>
+                  </div>
+                  <textarea rows="2" value="{{ c.photoInstruction }}" onChange="{{ set.photoInstruction }}" placeholder="Например: назови операцию по снимку и опиши зону вмешательства" style="width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.55; resize: vertical"></textarea>
                 </section>
 
                 <section style="background: #fff; border: 1px solid #e3e3df; border-radius: 6px; padding: 14px 16px 16px">
@@ -718,6 +793,7 @@
                     <h2 style="margin: 0; font-size: 13px; font-weight: 600">Блок Б — рубрики и примеры</h2>
                     <div style="flex: 1"></div>
                     <button onClick="{{ buildPlan }}" style="{{ planBtn }}">{{ planLabel }}</button>
+                    <button onClick="{{ genAllTopics }}" style="{{ genAllTopicsBtn }}">{{ genAllTopicsLabel }}</button>
                     <button onClick="{{ genExamples }}" style="{{ examplesBtn }}">{{ examplesLabel }}</button>
                     <button onClick="{{ buildPdf }}" style="{{ pdfBtn }}" title="{{ pdfTitle }}">{{ pdfLabel }}</button>
                   </div>
@@ -754,6 +830,21 @@
                               </sc-for>
                             </div>
                           </div>
+                          <div style="min-width: 0">
+                            <select onChange="{{ r.setKind }}" style="width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 11px; background: #fff; color: #3e434a; margin-bottom: 5px">
+                              <option value="" selected="{{ r.kindBlock.kindEmpty }}">— тип не задан —</option>
+                              <sc-for list="{{ r.kindBlock.options }}" as="ko" hint-placeholder-count="5">
+                                <option value="{{ ko.value }}" selected="{{ ko.selected }}">{{ ko.label }}</option>
+                              </sc-for>
+                            </select>
+                            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px">
+                              <span style="font-size: 10.5px; color: #8a8f96">тем: {{ r.topicsCount }}</span>
+                              <div style="flex:1"></div>
+                              <button onClick="{{ r.genTopics }}" style="{{ r.genTopicsBtn }}" style-hover="border-color: #14171a">{{ r.genTopicsLabel }}</button>
+                            </div>
+                            <textarea rows="4" value="{{ r.topicsText }}" onChange="{{ r.setTopics }}" placeholder="Одна тема на строку" style="width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 11px; line-height: 1.45; resize: vertical; font-family: 'IBM Plex Mono', monospace"></textarea>
+                          </div>
+
                           <textarea rows="3" value="{{ r.prompt }}" onChange="{{ r.setPrompt }}" style="width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 12px; line-height: 1.5; resize: vertical"></textarea>
                           <div style="min-width: 0">
                             <div style="font-size: 12px; line-height: 1.5; color: #3e434a; white-space: pre-wrap">{{ r.example }}</div>
@@ -1270,7 +1361,11 @@
     dragleave: 'dragleave', drop: 'drop', dragend: 'dragend',
     // ручка «⠿»: перетаскивание включается только с неё, чтобы
     // выделение текста в полях строки продолжало работать
-    mousedown: 'mousedown'
+    mousedown: 'mousedown',
+    // <input type="file"> слушает 'change', а не 'input'.
+    // В разметке пишем onChange='...' на file-input, runtime смотрит сюда.
+    filepick: 'change',
+    paste: 'paste'
   };
 
   /* ---- разметка -> дерево описаний ---- */
@@ -1505,6 +1600,19 @@
 
 <script>
 const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+// Типы рубрик — должны совпадать с Code.gs (RUBRIC_KINDS без 'default')
+const RUBRIC_KINDS = ['faq','docs','results','inspiration','photo_case',
+  'observation','tips','before_after','promo','news','team','howto','service'];
+const RUBRIC_KIND_LABELS = {
+  faq: 'FAQ — ответ на вопрос', docs: 'Документы / объекты',
+  results: 'Результаты / отзывы', inspiration: 'Идеи / вдохновение',
+  photo_case: 'Фото работ (photo_case)', observation: 'Наблюдение из практики',
+  tips: 'Советы / полезное', 'before_after': 'До и после',
+  promo: 'Акция / оффер', news: 'Новость / событие',
+  team: 'Команда / за кулисами', howto: 'Инструкция / how-to',
+  service: 'Услуга / продукт'
+};
+const SCREENSHOT_MAX = 8;
 /* ------------------------------------------------------------------
  * РЕЕСТР ТАРИФОВ
  * Зеркало tariffs.json из корня репозитория. При загрузке страницы
@@ -1778,6 +1886,7 @@ function client(o) {
     faq: '', cta: '', limits: [], limitsText: '', networks: ['VK', 'Telegram', 'MAX'],
     topics: ['Фото работ', 'Советы и полезное'], photoQueue: 0, workflow: 'clients-post.yml',
     styleAnswers: ['', '', '', '', ''], stylePrompt: '', styleSourceText: '', rubrics: [], edits: '', iterations: 0,
+    ctaShort: '', photoTopics: [], photoInstruction: '', draft: null, screenshots: [],
     checks: {}, source: 'Avito', links: '', hasPhoto: false, niche: 'не указана',
     tariff: 'СТАРТ', pay: 'brief', slots: [], active: true,
     lastPostDate: '—', lastPostStatus: 'Не запущен',
@@ -1881,9 +1990,14 @@ function fromApi(o) {
     checks: o.checks || {},
     limitsOverride: o.limitsOverride || null,
     tariffHistory: Array.isArray(o.tariffHistory) ? o.tariffHistory : [],
+    ctaShort: String(o.ctaShort || ''),
+    photoTopics: Array.isArray(o.photoTopics) ? o.photoTopics.map(String) : [],
+    photoInstruction: String(o.photoInstruction || ''),
     rubrics: (o.rubrics || []).map(r => ({
       name: String(r.name || ''), caption: String(r.caption || ''),
       days: String(r.days || ''),
+      kind: String(r.kind || ''),
+      topics: Array.isArray(r.topics) ? r.topics.map(String) : [],
       prompt: String(r.prompt || ''), example: String(r.example || ''),
       manual: !!r.manual, dormant: !!r.dormant, custom: !!r.custom,
       dormantSince: String(r.dormantSince || '')
@@ -1925,6 +2039,9 @@ function toApi(c) {
     postFormat: c.postFormat || '',
     clientNumber: c.clientNumber || '',
     stylePrompt: c.stylePrompt, niche: c.niche,
+    ctaShort: c.ctaShort || '',
+    photoTopics: c.photoTopics || [],
+    photoInstruction: c.photoInstruction || '',
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
     lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus,
@@ -2531,7 +2648,7 @@ class Component extends DCLogic {
 
     const setter = key => e => this.patch(c.id, { [key]: e.target.value, });
     const set = {};
-    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'styleSourceText', 'edits', 'tgChannel', 'holidaysExtra', 'postFormat'].forEach(k => { set[k] = setter(k); });
+    ['business', 'city', 'about', 'audience', 'tone', 'holidays', 'faq', 'cta', 'limitsText', 'name', 'phone', 'tg', 'email', 'stylePrompt', 'styleSourceText', 'edits', 'tgChannel', 'holidaysExtra', 'postFormat', 'ctaShort', 'photoInstruction'].forEach(k => { set[k] = setter(k); });
 
     const chip = (on, label, onClick) => ({
       label, onClick,
@@ -3213,7 +3330,11 @@ class Component extends DCLogic {
         // на каждой перерисовке, хотя в таблице оно лежало. На этом же уже
         // теряли tgChannel и styleSourceText.
         postFormat: c.postFormat || '',
-        styleSourceText: c.styleSourceText || ''
+        styleSourceText: c.styleSourceText || '',
+        ctaShort: c.ctaShort || '',
+        photoInstruction: c.photoInstruction || '',
+        // photoTopicsText нужен для textarea «одна тема на строку»
+        photoTopicsText: (c.photoTopics || []).join('\n')
       },
       queueStyle: PILL + (c.photoQueue > 0
         ? 'background: #e6f4ec; color: #136c41; border: 1px solid #c3e3d1;'
@@ -3378,58 +3499,179 @@ class Component extends DCLogic {
         }),
 
       styleFilled,
-      styleTasks: TASKS.map((t, i) => ({
-        num: String(i + 1).padStart(2, '0'), task: t.task, example: t.example,
-        answer: c.styleAnswers[i],
-        copyLabel: st.copied === 'task' + i ? 'Скопировано ✓' : 'Скопировать',
-        onCopy: () => this.copy(
-          t.task + '\n\n' + t.example +
-          '\n\nНе старайтесь писать идеально — важнее ваша обычная манера общения.',
-          'task' + i
-        ),
-        onChange: e => {
-          const arr = c.styleAnswers.slice();
-          arr[i] = e.target.value;
-          this.patch(c.id, { styleAnswers: arr });
+
+      // ---- Скриншоты ----
+      screenshotMax: SCREENSHOT_MAX,
+      screenshotPickLabel: (c.screenshots || []).length === 0
+        ? 'Нажмите или перетащите скриншоты сюда (до ' + SCREENSHOT_MAX + ' фото)'
+        : ('Добавить ещё — выбрано: ' + (c.screenshots || []).length),
+      hasScreenshots: (c.screenshots || []).length > 0,
+      screenshotPreviews: (c.screenshots || []).map((s, si) => ({
+        src: s.data,
+        onRemove: () => {
+          const arr = (c.screenshots || []).filter((x, xi) => xi !== si);
+          this.patch(c.id, { screenshots: arr });
         }
       })),
-
-      // RouterAI: анализ стиля по пяти текстам клиента -> style_prompt
-      analyzeLabel: busy === 'style' ? 'Gemini думает…' : c.stylePrompt ? 'Проанализировать заново' : 'Проанализировать стиль',
-      analyzeBtn: styleFilled < 5 || busy ? this.btn('off') : this.btn('primary'),
-      analyzeStyle: () => {
-        if (styleFilled < 5) return this.flash('Нужны все пять ответов клиента');
-        this.act('style',
-          () => apiPost(conn, 'analyze_style', { id: c.id, client: toApi(c), answers: c.styleAnswers }).then(r => {
-            this.applyClient(r.client);
-            this.flash('style_prompt собран и записан в таблицу — проверьте и правьте руками');
+      onScreenshotPick: e => {
+        const files = Array.from(e.target.files || []);
+        const all = c.screenshots || [];
+        const remain = SCREENSHOT_MAX - all.length;
+        if (remain <= 0) return this.flash('Уже ' + SCREENSHOT_MAX + ' фото — удалите лишние перед добавлением');
+        const batch = files.slice(0, remain);
+        let done = 0;
+        const loaded = [];
+        batch.forEach((f, fi) => {
+          const reader = new FileReader();
+          reader.onload = ev => {
+            loaded[fi] = { name: f.name, data: ev.target.result };
+            done++;
+            if (done === batch.length) {
+              this.patch(c.id, { screenshots: all.concat(loaded.filter(Boolean)) });
+            }
+          };
+          reader.readAsDataURL(f);
+        });
+        // сбросить value чтобы можно было снова выбрать тот же файл
+        e.target.value = '';
+      },
+      screenshotLabel: st.busy === 'screenshots' ? 'Анализирую…' : (c.draft ? 'Переанализировать' : 'Анализировать скриншоты'),
+      screenshotBtn: (!(c.screenshots || []).length || !!st.busy) ? this.btn('off') : this.btn('primary'),
+      analyzeScreenshots: () => {
+        const shots = (c.screenshots || []).filter(s => s && s.data);
+        if (!shots.length) return this.flash('Сначала загрузите скриншоты');
+        if (st.busy) return;
+        this.act('screenshots',
+          () => apiPost(conn, 'analyze_screenshots', {
+            id: c.id,
+            client: toApi(c),
+            images: shots.map(s => ({ name: s.name, data: s.data.split(',')[1] || s.data, mediaType: (s.data.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg' }))
+          }).then(res => {
+            if (res.draft) this.patch(c.id, { draft: res.draft });
+            this.flash('Черновик готов — проверьте и нажмите «Применить»');
           }),
           () => {
-            this.patch(c.id, { stylePrompt: 'Средняя длина предложения 9–13 слов, без сложных конструкций. Обращение на «вы». Начинает с бытовой детали, переходит к сути, заканчивает коротким выводом. Разговорная лексика, минимум терминов, без эмодзи.' });
-            this.flash('Демо: style_prompt не от модели');
+            // Демо-черновик
+            const demo = {
+              business: c.business || 'Клиника Демо', city: c.city || 'Москва',
+              stylePrompt: 'От первого лица, тон эксперта. Короткие предложения.',
+              cta: 'Запишите в личные: +7 (999) 000-00-00',
+              ctaShort: '', ctaShortReason: 'Полный влезает в подпись.',
+              photoTopics: ['демо операция'], photoReason: 'Демо-причина.',
+              faq: ['Вопрос 1', 'Вопрос 2'],
+              forbidden: [], notes: 'Демо-черновик',
+              rubrics: [
+                { name: 'Фото работ', kind: 'photo_case', topics: ['демо тема'] },
+                { name: 'Советы', kind: 'tips', topics: [] }
+              ]
+            };
+            this.patch(c.id, { draft: demo });
+            this.flash('Демо: черновик не от модели');
           });
       },
-      // Вариант 2: реальные тексты клиента. Никаких файлов и Drive.
-      analyzeTextLabel: busy === 'styleText' ? 'Анализирую тексты…' : 'Проанализировать тексты',
-      analyzeTextBtn: busy || !c.styleSourceText.trim() ? this.btn('off') : this.btn('primary'),
-      styleTextStatus: busy === 'styleText' ? 'ИИ анализирует манеру письма…' : (c.stylePrompt ? 'style_prompt сохранён ✓' : 'Вставьте тексты и запустите анализ'),
-      analyzeStyleText: () => {
-        const sourceText = c.styleSourceText.trim();
-        if (!sourceText) return this.flash('Сначала вставьте хотя бы один текст клиента');
-        if (sourceText.length < 300) return this.flash('Для точного анализа нужно хотя бы 300 символов реального текста');
-        this.act('styleText',
-          () => apiPost(conn, 'analyze_style_text', { id: c.id, client: toApi(c), sourceText: sourceText }).then(r => {
-            this.applyClient(r.client, { styleSourceText: sourceText });
-            this.flash('Стиль проанализирован и записан в style_prompt. Теперь можно пересобрать план.');
-          }),
-          () => this.flash('Демо: анализ не отправлен в ИИ'));
+
+      // ---- Черновик ----
+      hasDraft: !!(c.draft),
+      discardDraft: () => this.patch(c.id, { draft: null }),
+      applyDraft: () => {
+        const d = c.draft;
+        if (!d) return;
+        const changes = { draft: null };
+        if (d.business) changes.business = d.business;
+        if (d.city) changes.city = d.city;
+        if (d.stylePrompt) changes.stylePrompt = d.stylePrompt;
+        if (d.cta) changes.cta = d.cta;
+        if (typeof d.ctaShort === 'string') changes.ctaShort = d.ctaShort;
+        if (Array.isArray(d.photoTopics)) changes.photoTopics = d.photoTopics;
+        if (d.photoInstruction) changes.photoInstruction = d.photoInstruction;
+        if (d.faq) changes.faq = Array.isArray(d.faq) ? d.faq.join('\n') : d.faq;
+        if (d.forbidden && d.forbidden.length) changes.limitsText = d.forbidden.join('; ');
+        // Рубрики из черновика: переносим name/kind/topics, дни и промпты — после buildPlan
+        if (d.rubrics && d.rubrics.length) {
+          changes.rubrics = d.rubrics.map(r => ({
+            name: r.name || '', kind: r.kind || '',
+            topics: Array.isArray(r.topics) ? r.topics : [],
+            days: '', prompt: '', caption: '', example: '', manual: false, dormant: false, custom: false
+          }));
+        }
+        this.patch(c.id, changes);
+        this.flash('Черновик применён. Нажмите «Собрать контент-план» — модель построит рубрики с днями и промптами.');
       },
+      draftSet: (() => {
+        const d = c.draft || {};
+        const upd = (key, val) => this.patch(c.id, { draft: Object.assign({}, c.draft || {}, { [key]: val }) });
+        return {
+          business: e => upd('business', e.target.value),
+          city: e => upd('city', e.target.value),
+          stylePrompt: e => upd('stylePrompt', e.target.value),
+          cta: e => upd('cta', e.target.value),
+          ctaShort: e => upd('ctaShort', e.target.value),
+          photoTopicsText: e => upd('photoTopics', e.target.value.split('\n').map(s => s.trim()).filter(Boolean)),
+        };
+      })(),
+      draft: (() => {
+        const d = c.draft || {};
+        const draftRubrics = Array.isArray(d.rubrics) ? d.rubrics : [];
+        return {
+          business: d.business || '',
+          city: d.city || '',
+          stylePrompt: d.stylePrompt || '',
+          cta: d.cta || '',
+          ctaShort: d.ctaShort || '',
+          ctaShortReason: d.ctaShortReason || '',
+          photoTopicsText: (d.photoTopics || []).join('\n'),
+          photoReason: d.photoReason || '',
+          rubricRows: draftRubrics.map((r, ri) => {
+            const updR = (key, val) => {
+              const rubrics = draftRubrics.map((x, xi) => xi === ri ? Object.assign({}, x, { [key]: val }) : x);
+              this.patch(c.id, { draft: Object.assign({}, c.draft || {}, { rubrics }) });
+            };
+            return {
+              name: r.name || '',
+              setName: e => updR('name', e.target.value),
+              kind: r.kind || '',
+              kindEmpty: !r.kind,
+              setKind: e => updR('kind', e.target.value),
+              kindOptions: RUBRIC_KINDS.map(k => ({
+                value: k, label: RUBRIC_KIND_LABELS[k] || k, selected: r.kind === k
+              })),
+              topicsText: (r.topics || []).join('\n'),
+              topicsCount: (r.topics || []).length,
+              setTopics: e => updR('topics', e.target.value.split('\n').map(s => s.trim()).filter(Boolean))
+            };
+          })
+        };
+      })(),
+
       hasStylePrompt: !!c.stylePrompt,
       hasRubrics: c.rubrics.length > 0,
-      // Подсказка под post_format: показывает, какой режим сейчас включён
+      genAllTopicsLabel: st.busy === 'topics_all' ? 'Генерирую темы…' : 'Все темы',
+      genAllTopicsBtn: (!c.rubrics.length || !!st.busy) ? this.btn('off') : this.btn('ghost'),
+      genAllTopics: () => {
+        if (st.busy) return;
+        this.act('topics_all',
+          () => apiPost(conn, 'gen_topics', { id: c.id, client: toApi(c) }).then(res => {
+            if (res.rubrics) this.patch(c.id, { rubrics: res.rubrics });
+            this.flash('Темы готовы: +' + (res.added || 0) + ' тем' + (res.failed && res.failed.length ? ', ошибки: ' + res.failed.join('; ') : ''));
+          }),
+          () => this.flash('Демо: запрос не отправлен'));
+      },
+
       postFormatHint: (c.postFormat || '').trim()
         ? 'Структура зафиксирована — все посты будут по этому описанию.'
         : 'Пусто — система сама чередует форматы и длину постов.',
+      ctaShortHint: (() => {
+        const full = (c.cta || '').length;
+        const sh = (c.ctaShort || '').length;
+        if (!c.cta) return 'Сначала заполните полный CTA (Призыв к действию).';
+        if (full <= 1024) return 'Полный CTA — ' + full + ' символов, влезает в подпись. Короткий не нужен.';
+        return 'Полный CTA — ' + full + ' символов (потолок 1024). Короткий вариант: ' + (sh ? sh + ' символов.' : 'не заполнен — фото-пост развалится на два фрагмента.');
+      })(),
+      photoTopicsText: (c.photoTopics || []).join('\n'),
+      onPhotoTopicsChange: e => {
+        const arr = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
+        this.patch(c.id, { photoTopics: arr });
+      },
 
       // RouterAI: контент-план по данным брифа
       planLabel: busy === 'plan' ? 'Собираю…' : c.rubrics.length ? 'Пересобрать план' : 'Собрать контент-план',
@@ -3526,7 +3768,7 @@ class Component extends DCLogic {
           // перехватывает выделение текста в полях строки.
           draggable: st.grabRubric === i ? 'true' : 'false',
           onGrab: () => this.setState({ grabRubric: i }),
-          rowStyle: 'display: grid; grid-template-columns: 18px 150px 172px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px;'
+          rowStyle: 'display: grid; grid-template-columns: 18px 150px 172px 130px minmax(0,1fr) minmax(0,1fr) 24px 24px;'
             + ' gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start;'
             + (isDragged ? ' opacity: 0.4;' : '')
             + (dragFrom !== null && dragFrom !== undefined && dragFrom !== i ? ' background: #fafaf7;' : ''),
@@ -3592,6 +3834,36 @@ class Component extends DCLogic {
               onPick: () => upd('days', pr.days.join(', '))
             };
           }),
+          kindBlock: {
+            options: RUBRIC_KINDS.map(k => ({
+              value: k, label: RUBRIC_KIND_LABELS[k] || k,
+              selected: r.kind === k
+            })),
+            kindEmpty: !r.kind,
+            current: r.kind ? (RUBRIC_KIND_LABELS[r.kind] || r.kind) : '— тип не задан'
+          },
+          setKind: e => upd('kind', e.target.value),
+          topicsText: (r.topics || []).join('\n'),
+          topicsCount: (r.topics || []).length,
+          setTopics: e => {
+            const topics = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
+            upd('topics', topics);
+          },
+          genTopicsLabel: st.busy === 'topics' + i ? 'Генерирую…' : 'Темы',
+          genTopicsBtn: 'border: 1px solid #d9d9d4; background: #fff; font-size: 11px; padding: 3px 7px; border-radius: 3px; cursor: pointer; white-space: nowrap;',
+          genTopics: () => {
+            if (st.busy) return;
+            this.act('topics' + i,
+              () => apiPost(conn, 'gen_topics', { id: c.id, client: toApi(c), rubric: r.name }).then(res => {
+                if (res.rubrics) this.patch(c.id, { rubrics: res.rubrics });
+                this.flash('Темы для «' + r.name + '» готовы' + (res.failed && res.failed.length ? ' (ошибки: ' + res.failed.join(', ') + ')' : ''));
+              }),
+              () => {
+                const demo = ['демо-тема 1', 'демо-тема 2', 'демо-тема 3'];
+                this.patch(c.id, { rubrics: c.rubrics.map((x, j) => j === i ? Object.assign({}, x, { topics: (x.topics || []).concat(demo) }) : x) });
+                this.flash('Демо: темы не от модели');
+              });
+          },
           setPrompt: e => upd('prompt', e.target.value),
           copyLabel: st.copied === 'r' + i ? 'Скопировано ✓' : 'Скопировать',
           copyBtn: 'margin-top: 6px; border: 1px solid ' + (r.example ? '#dedeD9' : '#eeeeea') + '; background: #fff; color: ' + (r.example ? '#14171a' : '#a3a7ac') + '; font-size: 11.5px; padding: 4px 9px; border-radius: 4px; cursor: pointer;',
