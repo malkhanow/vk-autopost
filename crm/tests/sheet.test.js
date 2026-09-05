@@ -48,7 +48,15 @@ class Sheet {
       setBackground() { return this; },
       setNote(n) { sh.notes = sh.notes || {}; sh.notes[r + ':' + c] = n; return this; },
       clearNote() { if (sh.notes) delete sh.notes[r + ':' + c]; return this; },
-      setDataValidation() { return this; }
+      setDataValidation() { return this; },
+      clearContent() {
+        for (let i = 0; i < nr; i++) {
+          for (let j = 0; j < nc; j++) {
+            if (sh.data[r - 1 + i]) sh.data[r - 1 + i][c - 1 + j] = '';
+          }
+        }
+        return this;
+      }
     };
   }
 }
