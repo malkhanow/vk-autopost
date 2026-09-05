@@ -2116,12 +2116,12 @@ var POST_ACTIONS = {
   set_tariff:         function (req) { return setTariff_(req); },
   build_pdf_examples: function (req) { return buildPdfExamples_(req); },
 
-  /** action=taskAdd / taskUpdate — создать или обновить задачу. */
-  taskAdd:    function (req) { return saveTask_(req, false); },
-  taskUpdate: function (req) { return saveTask_(req, true); },
+  /** action=taskadd / taskupdate — создать или обновить задачу. */
+  taskadd:    function (req) { return saveTask_(req, false); },
+  taskupdate: function (req) { return saveTask_(req, true); },
 
-  /** action=taskDone — переключить статус задачи. */
-  taskDone: function (req) {
+  /** action=taskdone — переключить статус задачи. */
+  taskdone: function (req) {
     var id = str_(req.id);
     if (!id) throw new Error('Не передан id задачи');
     var sh = sheet_(SHEET_TASKS, HEAD_TASKS);
@@ -2134,8 +2134,8 @@ var POST_ACTIONS = {
     return { ok: true };
   },
 
-  /** action=taskDelete — удалить задачу. */
-  taskDelete: function (req) {
+  /** action=taskdelete — удалить задачу. */
+  taskdelete: function (req) {
     var id = str_(req.id);
     if (!id) throw new Error('Не передан id задачи');
     var t = table_(SHEET_TASKS, HEAD_TASKS);
@@ -2148,12 +2148,12 @@ var POST_ACTIONS = {
     return { ok: true };
   },
 
-  /** action=commentAdd / commentUpdate — добавить или обновить комментарий. */
-  commentAdd:    function (req) { return saveComment_(req, false); },
-  commentUpdate: function (req) { return saveComment_(req, true); },
+  /** action=commentadd / commentupdate — добавить или обновить комментарий. */
+  commentadd:    function (req) { return saveComment_(req, false); },
+  commentupdate: function (req) { return saveComment_(req, true); },
 
-  /** action=commentDelete — удалить комментарий. */
-  commentDelete: function (req) {
+  /** action=commentdelete — удалить комментарий. */
+  commentdelete: function (req) {
     var id = str_(req.id);
     if (!id) throw new Error('Не передан id комментария');
     var t = table_(SHEET_COMMENTS, HEAD_COMMENTS);
