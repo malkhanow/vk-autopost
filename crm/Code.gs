@@ -443,7 +443,11 @@ var HEAD_CLIENTS_EXTRA = [
   'Фото в очереди', 'Последний пост', 'Статус последнего поста', 'Обновлено',
   'Telegram-канал', 'Утро фото', 'Свои праздники', 'Номер клиента', 'Месяцев оплачено',
   'Оплачено с', 'Письмо 1', 'Письмо 2', 'Ссылка Диск', 'Дата первого поста',
-  'Лимиты (JSON)', 'История тарифов (JSON)', 'Формат постов'
+  'Лимиты (JSON)', 'История тарифов (JSON)', 'Формат постов',
+  // Поля, которые до сих пор жили только в конфиге на GitHub и держались
+  // на mergePreservedConfig_. Без колонок их нельзя было ни завести в CRM,
+  // ни поправить: action=save молча выбрасывал их из карточки.
+  'Короткий призыв', 'Фото: направления', 'Фото: инструкция'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -483,6 +487,9 @@ var F = {
   niche: 'Ниша', topics: 'Темы',
   styleAnswers: 'Ответы на задания (JSON)', checks: 'Чек-лист (JSON)',
   iterations: 'Итерации', photoQueue: 'Фото в очереди',
+  ctaShort: 'Короткий призыв',
+  photoTopics: 'Фото: направления',
+  photoInstruction: 'Фото: инструкция',
   lastPostDate: 'Последний пост', lastPostStatus: 'Статус последнего поста',
   updatedAt: 'Обновлено'
 };
@@ -1034,6 +1041,11 @@ function rowToClient_(t, row, rowNumber) {
     limits: pickList_(val_(t, row, 'limits'), LIMITS_KNOWN),
     limitsText: str_(val_(t, row, 'limitsText')),
     cta: str_(val_(t, row, 'cta')),
+    // Короткий призыв уходит в подпись к фото вместо полного: подпись
+    // Telegram — 1024 символа против 4096 у обычного сообщения.
+    ctaShort: str_(val_(t, row, 'ctaShort')),
+    photoTopics: lines_(val_(t, row, 'photoTopics')),
+    photoInstruction: str_(val_(t, row, 'photoInstruction')),
     source: str_(val_(t, row, 'source')),
     startedAt: dateOut_(startedAt),
     // оплатами управляет дропдаун в листе — CRM их только показывает
@@ -1084,6 +1096,41 @@ function payState_(stored, nextPay) {
 /** Поля, которыми распоряжается учёт оплат: CRM их читает, но не пишет. */
 var PAY_FIELDS = ['pay', 'nextPay'];
 
+/** Максимум тем на одну рубрику. 40 — это больше месяца ежедневных постов,
+ *  дальше список перестаёт быть обозримым в интерфейсе. */
+var TOPICS_MAX = 40;
+
+/** Темы рубрики -> массив строк: без пустых, без маркеров списка, без дублей.
+ *  Принимает и массив, и текст из textarea построчно. */
+function normTopics_(v) {
+  var list = [];
+  if (typeof v === 'string') list = v.split('\n');
+  else if (Array.isArray(v)) list = v;
+  var seen = {}, out = [];
+  for (var i = 0; i < list.length; i++) {
+    // Маркер списка, затем нумерация: модель регулярно отдаёт «1. тема»
+    // и «2) тема», и цифра уезжала в конфиг вместе с темой. Пробел после
+    // номера обязателен, иначе пострадали бы темы вида «1.5 млн».
+    var t = str_(list[i])
+      .replace(/^[-\u2013\u2014\u2022\s]+/, '')
+      .replace(/^\d+[.)]\s+/, '')
+      .trim();
+    if (!t) continue;
+    var key = topicKey_(t);
+    if (!key || seen[key]) continue;
+    seen[key] = true;
+    out.push(t);
+    if (out.length >= TOPICS_MAX) break;
+  }
+  return out;
+}
+
+/** Ключ темы для сравнения: без регистра, пробелов и знаков.
+ *  «Что такое обременение?» и «что такое обременение» — одна тема. */
+function topicKey_(t) {
+  return String(t || '').toLowerCase().replace(/[^0-9a-z\u0430-\u044f\u0451]+/g, '');
+}
+
 function normRubrics_(v) {
   if (!Array.isArray(v)) return [];
   return v.map(function (r) {
@@ -1099,6 +1146,15 @@ function normRubrics_(v) {
       // повод её переименовать.
       caption: str_(r.caption)
     };
+    // kind и topics — то, чем живёт движок: тип рубрики задаёт её якорь,
+    // а темы не дают постам ходить по кругу. Раньше оба поля здесь молча
+    // терялись, и темы могли жить только в конфиге на GitHub.
+    // Сверка идёт по RUBRIC_KINDS, а не по RUBRIC_ANCHOR: в якорях есть
+    // ключ «default», и записать его в лист как тип рубрики нельзя.
+    var kind = str_(r.kind).toLowerCase();
+    if (kind && RUBRIC_KINDS.indexOf(kind) >= 0) out.kind = kind;
+    var topics = normTopics_(r.topics);
+    if (topics.length) out.topics = topics;
     // флаг manual важно сохранять: без него пересборка плана
     // удаляет рубрики добавленные вручную
     if (r.manual) out.manual = true;
@@ -1151,6 +1207,11 @@ var TO_CELL = {
   payMonths:      function (v) { return str_(v); },
   stylePrompt:   function (v) { return str_(v); },
   postFormat:    function (v) { return str_(v); },
+  ctaShort:      function (v) { return str_(v); },
+  photoTopics:   function (v) {
+    return (Array.isArray(v) ? v.map(str_) : lines_(v)).filter(String).join('\n');
+  },
+  photoInstruction: function (v) { return str_(v); },
   limitsOverride: function (v) {
     if (!v || (typeof v === 'object' && !Object.keys(v).length)) return '';
     return typeof v === 'string' ? v : JSON.stringify(v);
@@ -1378,6 +1439,13 @@ var SCREENSHOT_MAX = 8;
 // Сжатие делает браузер; здесь только страховка от совсем тяжёлых файлов.
 var SCREENSHOT_MAX_BYTES = 1600000;   // ~1.6 МБ на картинку после base64
 
+// Потолок на всю пачку. Без него восемь картинок по верхней границе дают
+// тело запроса под 13 МБ: столько не увезёт ни doPost, ни RouterAI, а
+// падение случится уже после того, как менеджер дождался загрузки.
+// Браузер жмёт до ~1000 px по длинной стороне — это 200–350 КБ на снимок,
+// то есть восемь штук укладываются в потолок с запасом.
+var SCREENSHOT_TOTAL_BYTES = 6000000; // ~6 МБ на весь запрос
+
 var SCREENSHOT_SYSTEM =
   'Ты разбираешь скриншоты постов из социальных сетей одного бизнеса и ' +
   'описываешь, КАК этот бизнес пишет. Твоя задача — не пересказать посты, ' +
@@ -1402,11 +1470,25 @@ function screenshotPrompt_(rubricNames, hint) {
     '  "tone": один из: "Простой и дружелюбный — как друг", "Экспертный — как специалист", "Деловой — как компания",',
     '  "style_prompt": "инструкция для нейросети, как писать посты этого бизнеса: лицо повествования, обращение к читателю, длина предложений, структура поста, характерные приёмы. 60-120 слов, повелительное наклонение",',
     '  "cta": "призыв к действию, если он повторяется в постах — ДОСЛОВНО как на скриншоте, вместе с телефоном и ссылками. Если призыва нет — пустая строка",',
+    '  "cta_short": "тот же призыв, укороченный до одной-двух строк. Телефоны, ссылки и обязательные юридические строки (например про противопоказания) переносятся ДОСЛОВНО, символ в символ. Выбрасываются только приглашения и вводные слова. Ничего нового не добавлять. Если полный призыв и так короткий — пустая строка",',
     '  "faq": ["вопросы, на которые бизнес отвечает в постах, по одному в строке"],',
     '  "forbidden": ["чего в постах этого бизнеса нет и быть не должно: например обещаний результата, цен, жаргона"],',
+    '  "photo": {',
+    '    "has_photos": true или false — есть ли на скриншотах посты с фотографиями,',
+    '    "identifiable": "none" если фотографий нет; "self" если предмет на фото понятен любому — документ с читаемым текстом, витрина, помещение, товар, еда; "expert" если предмет опознаётся только специалистом из закрытого набора работ или процедур — результат операции, этап монтажа, тип объекта,',
+    '    "topics": ["перечень направлений работы, которые видно по фотографиям, по одному в строке"],',
+    '    "instruction": "что специалист этой ниши обязан увидеть и прокомментировать на такой фотографии, 1-2 предложения. Пустая строка, если фотографий нет"',
+    '  },',
     '  "topics_by_rubric": { "название рубрики": ["тема", "тема"] },',
+    '  "rubric_kinds": { "название рубрики": "тип из списка ниже" },',
     '  "notes": "что осталось непонятным или требует проверки, 1-2 предложения"',
-    '}'
+    '}',
+    'Тип рубрики (rubric_kinds) — ровно одно значение из списка и ничего ' +
+      'кроме: ' + RUBRIC_KINDS.join(', ') + '. Выбирай по тому, что пост ' +
+      'ОБЯЗАН сделать: отвечает на вопрос читателя — faq; разбирает документ ' +
+      'или этап оформления — docs; показывает завершённую работу — results; ' +
+      'опирается на фотографию — photo_case; делится наблюдением — ' +
+      'observation; даёт совет — tips.'
   ];
   if (rubricNames && rubricNames.length) {
     lines.push('Рубрики клиента уже заданы. Разложи найденные темы ПО НИМ, ' +
@@ -1439,6 +1521,163 @@ function screenshotPart_(img, index) {
       Math.round(payloadLen / 1024) + ' КБ). Уменьшите картинку и повторите.');
   }
   return { type: 'image_url', image_url: { url: url } };
+}
+
+/** Порог, после которого призыв к действию перестаёт помещаться в подпись
+ *  к фотографии. Арифметика: подпись Telegram 1024 символа, минус хештеги
+ *  (≈60), минус два разделителя по 2 символа, минус тело поста при верхней
+ *  границе в 130 слов (≈840 символов при замеренных 6.45 символа на слово).
+ *  Остаётся 120. Всё, что длиннее, заставляет fit_caption резать тело.
+ *  Сверено с боевыми конфигами: 153 символа у одного клиента и 264 у
+ *  другого — короткий призыв нужен обоим, и он у обоих есть. */
+var CTA_SHORT_NEEDED_FROM = 120;
+
+/** Телефоны, ссылки и ники из текста. Нужны, чтобы проверить: короткий
+ *  призыв обязан состоять из того же, что и полный, а не из выдуманного. */
+function contactTokens_(text) {
+  var t = String(text || '');
+  var out = [];
+  var patterns = [
+    /(?:\+7|\b8)[\s\-]*\(?\d{3}\)?[\s\-]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/g,
+    /https?:\/\/\S+/g,
+    /(?:t\.me|vk\.(?:com|ru)|max\.ru|wa\.me)\/\S+/gi,
+    /[\w.+-]+@[\w-]+\.[a-zA-Z\u0430-\u044f]{2,}/g,
+    /(?:^|[^\w@])@[A-Za-z][\w_]{3,}/g
+  ];
+  patterns.forEach(function (re) {
+    var m;
+    while ((m = re.exec(t)) !== null) {
+      out.push(String(m[0]).replace(/^[^\w@+]+/, '').replace(/[\s.,;)]+$/, ''));
+    }
+  });
+  return out;
+}
+
+/** Ключ контакта для сравнения. У телефона берём последние десять цифр:
+ *  +7 (999) 216-02-79 и 89992160279 — один и тот же номер, отличается
+ *  только код страны. У ссылок и ников — текст без пробелов. */
+function contactKey_(v) {
+  var s = String(v || '').toLowerCase();
+  var isPhone = /\d/.test(s) && !/[a-z\u0430-\u044f]/.test(s.replace(/^\+/, ''));
+  if (!isPhone) return s.replace(/\s+/g, '');
+  var digits = s.replace(/\D/g, '');
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+/**
+ * Решает судьбу короткого призыва к действию.
+ * Правил два, оба проверяемые:
+ *   1. Полный призыв короче CTA_SHORT_NEEDED_FROM — короткий не нужен вовсе.
+ *   2. Каждый телефон и ссылка из короткого обязаны встречаться в полном.
+ *      Не встречаются — модель их сочинила, вариант выбрасывается целиком.
+ * Возвращает { value, reason } — reason показывается менеджеру в черновике.
+ */
+function decideCtaShort_(cta, ctaShort) {
+  var full = String(cta || '').trim();
+  var short = String(ctaShort || '').trim();
+
+  if (!full) return { value: '', reason: 'Призыв к действию на скриншотах не найден.' };
+  if (full.length <= CTA_SHORT_NEEDED_FROM) {
+    return {
+      value: '',
+      reason: 'Короткий призыв не нужен: полный укладывается в ' + full.length +
+        ' символов и помещается в подпись к фото.'
+    };
+  }
+  if (!short) {
+    return {
+      value: '',
+      reason: 'Полный призыв — ' + full.length + ' символов, он будет съедать ' +
+        'тело поста с фотографией. Короткий вариант нужно написать руками.'
+    };
+  }
+
+  var have = {};
+  contactTokens_(full).forEach(function (t) { have[contactKey_(t)] = true; });
+  var invented = contactTokens_(short).filter(function (t) { return !have[contactKey_(t)]; });
+  if (invented.length) {
+    return {
+      value: '',
+      reason: 'Короткий вариант отброшен: в нём контакты, которых нет в полном ' +
+        'призыве (' + invented.join(', ') + '). Напишите короткий вариант руками.'
+    };
+  }
+  if (short.length >= full.length) {
+    return { value: '', reason: 'Короткий вариант не короче полного — отброшен.' };
+  }
+
+  // Обратная сверка. Выдуманный контакт мы уже отсекли, но опаснее другое:
+  // модель молча ВЫБРАСЫВАЕТ телефон или ссылку, а короткий призыв уходит
+  // в подпись к фотографии вместо полного — и пост публикуется без связи.
+  var inShort = {};
+  contactTokens_(short).forEach(function (t) { inShort[contactKey_(t)] = true; });
+  var lost = [], lostSeen = {};
+  contactTokens_(full).forEach(function (t) {
+    var k = contactKey_(t);
+    if (inShort[k] || lostSeen[k]) return;
+    lostSeen[k] = true;
+    lost.push(t);
+  });
+
+  return {
+    value: short,
+    reason: 'Полный призыв — ' + full.length + ' символов, короткий — ' +
+      short.length + '. ' +
+      (lost.length
+        ? 'ВНИМАНИЕ: в коротком нет контактов из полного (' + lost.join(', ') +
+          '). Именно этот текст уйдёт в подпись к фото — проверьте, что так и задумано. '
+        : 'Все контакты полного призыва на месте. ') +
+      'Юридические строки (противопоказания, оферта, лицензия) сверьте дословно ' +
+      'сами: код их не отличает от обычного текста.'
+  };
+}
+
+/**
+ * Решает, нужен ли photo_topics. Список направлений помогает, только когда
+ * предмет на снимке опознаётся из закрытого набора работ: результат операции,
+ * тип объекта, этап монтажа. Если фотография объясняет себя сама — документ
+ * с читаемым текстом, помещение, товар, — список не нужен и вреден: он
+ * подталкивает модель назвать снимок тем, чем он не является.
+ */
+function decidePhoto_(raw) {
+  var src = (raw && raw.photo) || {};
+  var mode = String(src.identifiable || '').toLowerCase();
+  if (mode !== 'self' && mode !== 'expert') mode = 'none';
+
+  var topics = [];
+  var list = src.topics;
+  if (Object.prototype.toString.call(list) === '[object Array]') {
+    topics = list.map(function (x) { return String(x || '').trim(); }).filter(String).slice(0, 12);
+  }
+  var instruction = String(src.instruction || '').trim();
+
+  if (mode === 'expert') {
+    return {
+      mode: mode,
+      topics: topics,
+      instruction: instruction,
+      reason: topics.length
+        ? 'Предмет на фото опознаётся только специалистом — список направлений ' +
+          'нужен, иначе модель промахнётся с названием работы.'
+        : 'Предмет на фото опознаётся только специалистом, но направления с ' +
+          'фотографий не считались. Перечислите их руками.'
+    };
+  }
+  if (mode === 'self') {
+    return {
+      mode: mode,
+      topics: [],
+      instruction: instruction,
+      reason: 'Фотографии объясняют себя сами — список направлений не нужен. ' +
+        'Он подтолкнул бы модель назвать снимок тем, чем он не является.'
+    };
+  }
+  return {
+    mode: mode,
+    topics: [],
+    instruction: '',
+    reason: 'Постов с фотографиями на скриншотах не видно.'
+  };
 }
 
 /** Достаёт JSON из ответа модели, даже если та обернула его в ```json. */
@@ -1478,24 +1717,71 @@ function normalizeScreenshotDraft_(raw, rubricNames) {
     known[String(n).trim().toLowerCase()] = String(n).trim();
   });
 
-  var byRubric = [];
-  var src = (raw && raw.topics_by_rubric) || {};
-  for (var key in src) {
-    if (!Object.prototype.hasOwnProperty.call(src, key)) continue;
-    var name = s(key);
-    if (!name) continue;
-    // Если рубрики заданы — берём только их, чтобы модель не завела своих.
+  // Словарь и только словарь: массив в topics_by_rubric дал бы рубрику с
+  // именем «0» и темой «[object Object]».
+  function dict(v) {
+    if (!v || typeof v !== 'object') return {};
+    if (Object.prototype.toString.call(v) === '[object Array]') return {};
+    return v;
+  }
+
+  var srcTopics = dict(raw && raw.topics_by_rubric);
+  var srcKinds  = dict(raw && raw.rubric_kinds);
+
+  // Тип рубрики приходит отдельным словарём. Значение вне RUBRIC_KINDS не
+  // берём: пусть тип останется пустым и его выберет человек, чем в конфиг
+  // уедет выдуманный или «default», который в движке гасит угадывание.
+  var kindByName = {}, kk;
+  for (kk in srcKinds) {
+    if (!Object.prototype.hasOwnProperty.call(srcKinds, kk)) continue;
+    var candidate = s(srcKinds[kk]).toLowerCase();
+    if (RUBRIC_KINDS.indexOf(candidate) >= 0) kindByName[s(kk).toLowerCase()] = candidate;
+  }
+
+  // Имена собираем из обоих словарей: рубрика, у которой модель распознала
+  // только тип, раньше выбрасывалась целиком вместе с этим типом.
+  var order = [], seenName = {}, key;
+  function addName(k) {
+    var name = s(k);
+    if (!name) return;
     if (rubricNames && rubricNames.length) {
       var match = known[name.toLowerCase()];
-      if (!match) continue;
+      if (!match) return;          // своих рубрик модель заводить не должна
       name = match;
     }
-    var topics = arr(src[key]).slice(0, 12);
-    if (topics.length) byRubric.push({ name: name, topics: topics });
+    var low = name.toLowerCase();
+    if (seenName[low]) return;
+    seenName[low] = true;
+    order.push({ name: name });
   }
+  for (key in srcTopics) {
+    if (Object.prototype.hasOwnProperty.call(srcTopics, key)) addName(key);
+  }
+  for (key in srcKinds) {
+    if (Object.prototype.hasOwnProperty.call(srcKinds, key)) addName(key);
+  }
+
+  var byRubric = [];
+  order.forEach(function (item) {
+    var low = item.name.toLowerCase();
+    var topics = [];
+    for (var k in srcTopics) {
+      if (!Object.prototype.hasOwnProperty.call(srcTopics, k)) continue;
+      if (s(k).toLowerCase() !== low) continue;
+      topics = arr(srcTopics[k]).slice(0, 12);
+      break;
+    }
+    var kind = kindByName[low] || '';
+    if (!topics.length && !kind) return;
+    byRubric.push({ name: item.name, kind: kind, topics: topics });
+  });
 
   var person = s(raw && raw.person).toLowerCase();
   if (person !== 'я' && person !== 'мы') person = '';
+
+  var cta = s(raw && raw.cta);
+  var shortCta = decideCtaShort_(cta, s(raw && raw.cta_short));
+  var photo = decidePhoto_(raw);
 
   return {
     business: s(raw && raw.business),
@@ -1503,9 +1789,15 @@ function normalizeScreenshotDraft_(raw, rubricNames) {
     person: person,
     tone: tone,
     stylePrompt: s(raw && raw.style_prompt),
-    cta: s(raw && raw.cta),
+    cta: cta,
+    ctaShort: shortCta.value,
+    ctaShortReason: shortCta.reason,
     faq: arr(raw && raw.faq).slice(0, 10),
     forbidden: arr(raw && raw.forbidden).slice(0, 10),
+    photoMode: photo.mode,
+    photoTopics: photo.topics,
+    photoInstruction: photo.instruction,
+    photoReason: photo.reason,
     rubrics: byRubric,
     notes: s(raw && raw.notes)
   };
@@ -1523,6 +1815,16 @@ function analyzeScreenshots_(req) {
   if (images.length > SCREENSHOT_MAX) {
     throw new Error('За раз можно разобрать не больше ' + SCREENSHOT_MAX +
       ' скриншотов, пришло ' + images.length);
+  }
+
+  var totalBytes = 0;
+  for (var b = 0; b < images.length; b++) {
+    totalBytes += String((images[b] && images[b].data) || '').length;
+  }
+  if (totalBytes > SCREENSHOT_TOTAL_BYTES) {
+    throw new Error('Пачка слишком тяжёлая (' + (totalBytes / 1048576).toFixed(1) +
+      ' МБ при потолке ' + (SCREENSHOT_TOTAL_BYTES / 1048576).toFixed(1) +
+      ' МБ). Уменьшите картинки или разберите их в два захода.');
   }
 
   // Названия рубрик берём из карточки, если клиент уже заведён.
@@ -1550,7 +1852,11 @@ function analyzeScreenshots_(req) {
   var answer = ai_([
     { role: 'system', content: SCREENSHOT_SYSTEM },
     { role: 'user', content: content }
-  ], { json: true, maxTokens: 2600, temperature: 0.3, reasoningEffort: 'low' });
+    // 2600 не хватало: пять рубрик по двенадцать тем плюс style_prompt на
+    // 120 слов упирались в потолок, и ai_ повторял запрос — заново отправляя
+    // все восемь картинок, то есть оплачивая зрение дважды. В json-режиме
+    // вторая обрезка вообще заканчивается исключением.
+  ], { json: true, maxTokens: 4200, temperature: 0.3, reasoningEffort: 'low' });
 
   var raw;
   try {
@@ -1659,6 +1965,10 @@ var POST_ACTIONS = {
   analyze_style: function (req) { return aiAnalyzeStyle_(req); },
   analyze_style_text: function (req) { return aiAnalyzeStyleText_(req); },
   build_plan:          function (req) { return aiBuildPlan_(req); },
+
+  /** action=gen_topics — набить рубрики темами. Без тем движок придумывает
+   *  тему каждого поста заново, и лента начинает повторяться. */
+  gen_topics:          function (req) { return aiGenTopics_(req); },
   dispatch_test:       function (req) { return dispatchTest_(req); },
   update_post_status:  function (req) { return updatePostStatus_(req); },
   confirm_payment:     function (req) { return confirmPayment_(req); },
@@ -1900,12 +2210,24 @@ function buildConfig_(c) {
     holidays: c.holidays,
     forbidden: (c.limits || []).concat(c.limitsText ? [c.limitsText] : []),
     cta: c.cta,
+    // Пустые значения mergePreservedConfig_ подхватит из старого файла:
+    // isBlankValue_ считает незаполненными и '' и []. Поэтому карточка без
+    // этих полей не затирает то, что уже собрано в конфиге вручную.
+    cta_short: str_(c.ctaShort),
+    photo_topics: (c.photoTopics || []).map(String).filter(String),
+    photo_post_instruction: str_(c.photoInstruction),
     faq: c.faq ? c.faq.split('\n') : [],
     rubrics: (c.rubrics || []).filter(function (r) { return !r.dormant; }).map(function (r) {
       return {
         name: r.name,
         caption: r.caption || '',
         days: String(r.days || '').split(',').map(function (d) { return d.trim(); }).filter(String),
+        // kind отдаём ТОЛЬКО заданный явно. Считать его здесь по названию
+        // нельзя: у Ольги «Объекты и документы» — это photo_case, а
+        // угадывание по ключевым словам даёт docs и затёрло бы конфиг.
+        // Пустое значение mergePreservedConfig_ подхватит из старого файла.
+        kind: r.kind || '',
+        topics: normTopics_(r.topics),
         prompt: r.prompt
       };
     }),
@@ -1975,7 +2297,9 @@ function ghRepo_() {
  * ---------------------------------------------------------------- */
 
 // Поля верхнего уровня, которые CRM не редактирует и не должна терять.
-var PRESERVED_TOP_FIELDS = ['cta_short', 'photo_topics', 'photo_post'];
+var PRESERVED_TOP_FIELDS = [
+  'cta_short', 'photo_topics', 'photo_post', 'photo_post_instruction'
+];
 
 // Поля рубрики, которые CRM не редактирует и не должна терять.
 var PRESERVED_RUBRIC_FIELDS = ['kind', 'topics'];
@@ -2607,6 +2931,20 @@ function isShowcaseRubric_(name) {
  * реже, чем сгенерированные рассуждения. Правило детерминированное: модель
  * его не решает, а получает уже готовым.
  */
+/**
+ * Копия рубрики с новыми днями. Раньше pinShowcaseDaily_ и
+ * enforcePlanLimits_ пересобирали рубрику по списку полей — и всё, чего в
+ * списке не было, молча пропадало: kind, topics, example, dormant, custom.
+ * Из-за этого тип рубрики, который модель возвращает в aiBuildPlan_, не
+ * доживал до листа ни разу.
+ */
+function rubricWithDays_(r, days) {
+  var out = {}, k;
+  for (k in r) if (Object.prototype.hasOwnProperty.call(r, k)) out[k] = r[k];
+  out.days = days;
+  return out;
+}
+
 function pinShowcaseDaily_(rubrics, q) {
   if (!q || (q.perDay || 1) < 2) return rubrics;
 
@@ -2620,11 +2958,7 @@ function pinShowcaseDaily_(rubrics, q) {
   var rest = (q.postsPerWeek || 0) - WEEK_DAYS.length;
 
   var out = rubrics.map(function (r, i) {
-    return {
-      name: r.name, caption: r.caption,
-      days: i === idx ? full : r.days,
-      prompt: r.prompt, manual: r.manual
-    };
+    return rubricWithDays_(r, i === idx ? full : r.days);
   });
 
   // Остаток недели раскладываем по остальным рубрикам поровну.
@@ -2670,10 +3004,7 @@ function enforcePlanLimits_(rubrics, q) {
       days[big].pop();
     }
     out = out.map(function (r, i) {
-      return {
-        name: r.name, caption: r.caption, days: days[i].join(', '),
-        prompt: r.prompt, manual: r.manual
-      };
+      return rubricWithDays_(r, days[i].join(', '));
     }).filter(function (r) { return r.days; });
   }
 
@@ -2735,6 +3066,9 @@ function aiBuildPlan_(req) {
             '- caption — короткое пояснение к рубрике, 2–4 слова;\n') +
         '- days — дни недели через запятую (пн, вт, ср, чт, пт, сб, вс), ' +
         'не больше ' + perDay + ' публикаци(и/й) в один день;\n' +
+        '- kind — тип рубрики, ровно одно значение из списка и ничего кроме: ' +
+        RUBRIC_KINDS.join(', ') + '. От него зависит, по какому закону ' +
+        'пишется пост, поэтому выбирай по сути рубрики, а не по её названию;\n' +
         '- prompt — подробная инструкция для нейросети, 4–7 предложений. ' +
         'По этому промпту потом пишутся сотни постов, поэтому он должен задавать ' +
         'рамку, а не один конкретный пост. Обязательно опиши:\n' +
@@ -2757,7 +3091,7 @@ function aiBuildPlan_(req) {
         'обрываться на середине предложения.' +
         manualHint +
         '\n\nВерни JSON: {"rubrics": [{"name": "…", "caption": "…", ' +
-        '"days": "пн, чт", "prompt": "…"}]}'
+        '"days": "пн, чт", "kind": "faq", "prompt": "…"}]}'
     }
   ], { json: true, temperature: 0.6, maxTokens: 4000 });
 
@@ -2775,6 +3109,8 @@ function aiBuildPlan_(req) {
     if (manualNames[r.name]) r.manual = true;
     return r;
   });
+  // Темы и типы уже собранных рубрик переживают пересборку плана.
+  finalRubrics = carryRubricMemory_(finalRubrics, c.rubrics);
 
   saveRubrics_(c.id, finalRubrics);
   return { rubrics: finalRubrics, client: refetchClient_(c.id) };
@@ -3245,6 +3581,17 @@ var RUBRIC_ANCHOR = {
     'он никогда не отменяет задачу рубрики.'
 };
 
+/** Допустимые значения kind. Список берётся из RUBRIC_ANCHOR, чтобы он не
+ *  разъезжался с якорями: добавили якорь — тип сразу доступен в CRM.
+ *
+ *  «default» из списка исключён намеренно. Это фолбэк, а не выбор: в
+ *  clients_post.py (rubric_kind) явно заданный тип ПРЕКРАЩАЕТ угадывание по
+ *  названию, поэтому kind="default" у рубрики «Фото работ» лишил бы её
+ *  photo_case — и она перестала бы попадать в ранний слот. */
+var RUBRIC_KINDS = Object.keys(RUBRIC_ANCHOR).filter(function (k) {
+  return k !== 'default';
+});
+
 /**
  * Наборы форматов под конкретные рубрики. Каждый вариант решает задачу
  * СВОЕЙ рубрики, меняется только подача. Рубрики, которых здесь нет,
@@ -3672,6 +4019,160 @@ function trimToSentence_(text) {
 }
 
 /** applyEdits: правки клиента -> обновлённые промпты и примеры рубрик. */
+/** Сколько тем просим на рубрику по умолчанию. 15 тем при выходе рубрики
+ *  дважды в неделю — это почти два месяца без единого повтора. */
+var TOPICS_DEFAULT = 15;
+
+/**
+ * Генерирует список тем для рубрик. Это то, чего в CRM не хватало совсем:
+ * план собирался с промптами, но без тем, и движок при пустом topics
+ * придумывал тему каждого поста заново — отсюда повторы.
+ *
+ * req.rubric   — название одной рубрики; пусто = все подходящие
+ * req.replace  — true: переписать темы заново; false: дописать недостающие
+ * req.count    — сколько тем нужно (5..30)
+ */
+function aiGenTopics_(req) {
+  var c = aiClient_(req);
+  var rubrics = normRubrics_(req.rubrics || c.rubrics);
+  if (!rubrics.length) throw new Error('Сначала соберите контент-план');
+
+  var only = str_(req.rubric);
+  var replace = req.replace === true;
+  var want = Math.min(Math.max(num_(req.count) || TOPICS_DEFAULT, 5), 30);
+
+  var targets = rubrics.filter(function (r) {
+    if (r.dormant) return false;
+    if (only) return str_(r.name).toLowerCase() === only.toLowerCase();
+    // без «переписать» трогаем только пустые рубрики: чужие темы,
+    // выправленные руками, молча заменять нельзя
+    return replace ? true : !(r.topics && r.topics.length);
+  });
+  if (!targets.length) {
+    throw new Error(only
+      ? 'Рубрика «' + only + '» не найдена'
+      : 'У всех рубрик темы уже есть. Включите «переписать заново» или ' +
+        'запросите темы для одной рубрики.');
+  }
+
+  var added = 0;
+  var failed = [];
+  for (var i = 0; i < targets.length; i++) {
+    var r = targets[i];
+    var keep = replace ? [] : (r.topics || []);
+    if (keep.length >= TOPICS_MAX) {
+      // Иначе рубрика молча даёт added = 0 и выглядит как отказ модели.
+      failed.push(str_(r.name) + ' — уже ' + keep.length +
+        ' тем, это потолок (' + TOPICS_MAX + '). Нужны новые — включите «переписать заново».');
+      continue;
+    }
+
+    // Темы соседних рубрик: их модель видит, чтобы не написать то же самое
+    // другими словами. Ключи — чтобы отсечь совпадения уже после ответа.
+    var taken = [], takenKeys = {};
+    rubrics.forEach(function (o) {
+      if (o === r) return;
+      (o.topics || []).forEach(function (t) {
+        taken.push('[' + o.name + '] ' + t);
+        takenKeys[topicKey_(t)] = true;
+      });
+    });
+
+    // kind нужен здесь только для якоря в промпте. В рубрику он НЕ
+    // записывается: rubricKind_ при пустом поле угадывает по названию, а
+    // угадывание врёт — «Объекты и документы» у клиента по недвижимости
+    // это photo_case, а по ключевым словам выходит docs. Записанный тип
+    // buildConfig_ отдаёт как заданный явно, и mergePreservedConfig_ уже
+    // не вернёт правильный из конфига. Тип ставит человек в карточке.
+    var kind = rubricKind_(r);
+    var fresh;
+    try {
+      fresh = genTopicsForRubric_(c, r, kind, want, keep, taken);
+    } catch (e) {
+      // Одна упавшая рубрика не должна уносить темы остальных: раньше
+      // исключение выходило наружу до saveRubrics_, и работа по всем
+      // предыдущим рубрикам пропадала вместе с оплаченными запросами.
+      failed.push(str_(r.name) + ' — ' + ((e && e.message) || e));
+      continue;
+    }
+    fresh = fresh.filter(function (t) { return !takenKeys[topicKey_(t)]; });
+
+    var merged = normTopics_(keep.concat(fresh));
+    added += Math.max(0, merged.length - keep.length);
+    r.topics = merged;
+  }
+
+  if (!added) {
+    throw new Error(failed.length
+      ? 'Темы не получены: ' + failed.join('; ')
+      : 'Модель не дала ни одной новой темы — все повторяют уже имеющиеся.');
+  }
+
+  saveRubrics_(c.id, rubrics);
+  return {
+    rubrics: rubrics,
+    added: added,
+    failed: failed,
+    client: refetchClient_(c.id)
+  };
+}
+
+/** Один запрос к модели на одну рубрику. Разбивка по рубрикам намеренная:
+ *  в общем запросе модель экономит и выдаёт по три темы на каждую. */
+function genTopicsForRubric_(c, r, kind, want, keep, taken) {
+  var anchor = RUBRIC_ANCHOR[kind] || RUBRIC_ANCHOR['default'];
+
+  var content = ai_([
+    {
+      role: 'system',
+      content: 'Ты редактор рубрики в контент-плане. Придумываешь темы будущих ' +
+        'постов: каждая тема — повод для одного отдельного поста. ' +
+        'Отвечай только JSON.'
+    },
+    {
+      role: 'user',
+      content: briefContext_(c) +
+        '\n\nРубрика: «' + r.name + '»' +
+        (r.caption ? ' (' + r.caption + ')' : '') +
+        '\nТип рубрики: ' + kind + '. ' + anchor +
+        (r.prompt ? '\nПромпт рубрики: ' + r.prompt : '') +
+        (keep.length
+          ? '\n\nЭти темы у рубрики уже есть, повторять их нельзя:\n- ' +
+            keep.join('\n- ')
+          : '') +
+        (taken.length
+          ? '\n\nЭти темы заняты соседними рубриками. Не бери их и не ' +
+            'пересказывай другими словами:\n- ' + taken.join('\n- ')
+          : '') +
+        '\n\nПридумай ровно ' + want + ' новых тем для этой рубрики.\n' +
+        'Требования к каждой теме:\n' +
+        '- это конкретный повод для ОДНОГО поста, а не направление и не ' +
+        'название раздела;\n' +
+        '- 4–12 слов, по-русски, без кавычек, без нумерации, без точки в конце;\n' +
+        '- тема обязана подходить под тип рубрики, описанный выше: если ' +
+        'рубрика отвечает на вопросы — тема формулируется как вопрос ' +
+        'читателя; если разбирает документ — как название документа с ' +
+        'уточнением, что в нём смотреть;\n' +
+        '- темы отличаются друг от друга по существу, а не формулировкой. ' +
+        'Две темы про одно и то же с разных сторон — это одна тема;\n' +
+        '- опирайся на нишу, город и реальную практику клиента, а не на ' +
+        'общие слова про качество и подход;\n' +
+        '- никаких цен, ставок, сроков, процентов, гарантий, имён и ' +
+        'названий брендов;\n' +
+        '- соблюдай запреты клиента, перечисленные выше.\n\n' +
+        'Внутри значений JSON не используй двойные кавычки.\n' +
+        'Верни JSON: {"topics": ["…", "…"]}'
+    }
+  ], { json: true, temperature: 0.85, maxTokens: 1800 });
+
+  var parsed = parseJsonLoose_(content);
+  var list = parsed && parsed.topics;
+  if (!Array.isArray(list) || !list.length) {
+    throw new Error('Модель не вернула темы для рубрики «' + r.name + '»');
+  }
+  return normTopics_(list);
+}
+
 function aiApplyEdits_(req) {
   var c = aiClient_(req);
   var edits = str_(req.edits || c.edits);
@@ -3700,7 +4201,8 @@ function aiApplyEdits_(req) {
     }
   ], { json: true, temperature: 0.6, maxTokens: 3000 });
 
-  var updated = normRubrics_(parseJsonLoose_(content).rubrics || []);
+  var updated = carryRubricMemory_(
+    normRubrics_(parseJsonLoose_(content).rubrics || []), rubrics);
   if (!updated.length) throw new Error('Модель не вернула обновлённые рубрики');
 
   var iterations = num_(c.iterations) + 1;
@@ -3711,6 +4213,29 @@ function aiApplyEdits_(req) {
     return true;
   });
   return { rubrics: updated, iterations: iterations, client: refetchClient_(c.id) };
+}
+
+/**
+ * Переносит kind и topics со старых рубрик на новые, сопоставляя по названию.
+ * Модель их не возвращает — ни при пересборке плана, ни при правках, — а
+ * терять полсотни тем из-за того, что переписали промпт, недопустимо.
+ * Переименование рубрики темы по-прежнему теряет: сопоставлять больше не по чему.
+ */
+function carryRubricMemory_(fresh, prev) {
+  var byName = {};
+  (prev || []).forEach(function (r) {
+    var n = str_(r && r.name).toLowerCase();
+    if (n && !byName[n]) byName[n] = r;
+  });
+  return (fresh || []).map(function (r) {
+    var old = byName[str_(r.name).toLowerCase()];
+    if (!old) return r;
+    if (!r.kind && old.kind) r.kind = old.kind;
+    if ((!r.topics || !r.topics.length) && old.topics && old.topics.length) {
+      r.topics = old.topics;
+    }
+    return r;
+  });
 }
 
 function saveRubrics_(id, rubrics) {
