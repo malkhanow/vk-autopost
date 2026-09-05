@@ -1,5 +1,4 @@
 {
-  "id": "pro-nedvizhimost-s-natal",
   "business": "Недвижимость в Санкт-Петербурге и на Северном Кипре",
   "city": "Санкт-Петербург",
   "person": "я",
@@ -113,5 +112,6 @@
     }
   ],
   "holidays": "none",
-  "tariff": "СТАРТ"
+  "tariff": "СТАРТ",
+  "client_id": "pro-nedvizhimost-s-natal"
 }
