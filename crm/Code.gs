@@ -1615,6 +1615,7 @@ function screenshotPrompt_(rubricNames, hint) {
     '  },',
     '  "topics_by_rubric": { "название рубрики": ["тема", "тема"] },',
     '  "rubric_kinds": { "название рубрики": "тип из списка ниже" },',
+    '  "example_by_rubric": { "название рубрики": "один реальный пост целиком — дословно как написано на скриншоте, включая эмодзи, переносы строк, знаки препинания. Выбери тот пост, который лучше всего отражает стиль и тематику рубрики. Если для рубрики подходящего поста не нашлось — пустая строка" },',
     '  "notes": "что осталось непонятным или требует проверки, 1-2 предложения"',
     '}',
     'Тип рубрики (rubric_kinds) — ровно одно значение из списка и ничего ' +
@@ -1859,8 +1860,9 @@ function normalizeScreenshotDraft_(raw, rubricNames) {
     return v;
   }
 
-  var srcTopics = dict(raw && raw.topics_by_rubric);
-  var srcKinds  = dict(raw && raw.rubric_kinds);
+  var srcTopics   = dict(raw && raw.topics_by_rubric);
+  var srcKinds    = dict(raw && raw.rubric_kinds);
+  var srcExamples = dict(raw && raw.example_by_rubric);
 
   // Тип рубрики приходит отдельным словарём. Значение вне RUBRIC_KINDS не
   // берём: пусть тип останется пустым и его выберет человек, чем в конфиг
@@ -1906,8 +1908,16 @@ function normalizeScreenshotDraft_(raw, rubricNames) {
       break;
     }
     var kind = kindByName[low] || '';
-    if (!topics.length && !kind) return;
-    byRubric.push({ name: item.name, kind: kind, topics: topics });
+    // Пример поста: ищем в example_by_rubric по тому же регистронезависимому ключу
+    var example = '';
+    for (var ek in srcExamples) {
+      if (!Object.prototype.hasOwnProperty.call(srcExamples, ek)) continue;
+      if (s(ek).toLowerCase() !== low) continue;
+      example = s(srcExamples[ek]);
+      break;
+    }
+    if (!topics.length && !kind && !example) return;
+    byRubric.push({ name: item.name, kind: kind, topics: topics, example: example });
   });
 
   var person = s(raw && raw.person).toLowerCase();
