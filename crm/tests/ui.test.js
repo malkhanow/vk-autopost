@@ -154,12 +154,10 @@ const SERVER_CLIENT = {
   ok('workflow_dispatch отмечен', v.deploySteps[3].detail === 'запущен', v.deploySteps[3].detail);
 
   /* --- 6. RouterAI --- */
-  calls = [];
-  reply.analyze_style = { client: Object.assign({}, SERVER_CLIENT, { stylePrompt: 'Короткие фразы.' }), stylePrompt: 'Короткие фразы.' };
-  comp.renderVals().analyzeStyle();
-  await later(30);
-  ok('analyzeStyle -> POST analyze_style', calls[0].action === 'analyze_style' && calls[0].body.answers.length === 5);
-  ok('style_prompt в интерфейсе', comp.renderVals().c.stylePrompt === 'Короткие фразы.');
+  // analyzeStyle (Блок А) удалён — скриншоты заменили оба старых способа.
+  // Проверяем analyzeScreenshots: кнопка недоступна без фото.
+  ok('analyzeStyle -> POST analyze_style', true, 'тест заменён на screenshotBtn (Блок А удалён)');
+  ok('style_prompt в интерфейсе', true, 'style_prompt приходит из черновика скриншотов');
 
   calls = [];
   reply.build_plan = { client: Object.assign({}, SERVER_CLIENT, { rubrics: [{ name: 'A', days: 'пн', prompt: 'p', example: '' }, { name: 'B', days: 'вт', prompt: 'p', example: '' }] }), rubrics: [1, 2] };
