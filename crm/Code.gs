@@ -424,8 +424,13 @@ function sendTelegram(text) {
  * ==================================================================== */
 
 // Лист клиентов — тот же, что у учёта оплат (константа SHEET_NAME выше).
-var SHEET_BRIEFS = 'Брифы';
-var SHEET_LOG    = 'Лог';
+var SHEET_BRIEFS   = 'Брифы';
+var SHEET_LOG      = 'Лог';
+var SHEET_TASKS    = 'Задачи';
+var SHEET_COMMENTS = 'Комментарии';
+
+var HEAD_TASKS = ['id', 'client_id', 'title', 'description', 'priority', 'status', 'date_from', 'date_to', 'created'];
+var HEAD_COMMENTS = ['id', 'client_id', 'text', 'created', 'edited'];
 
 /** Обязательные колонки листа «Клиенты» — ровно в этом порядке. */
 var HEAD_CLIENTS = [
@@ -777,6 +782,120 @@ function missingClientColumns_(sh) {
  * Автоматически, во время запросов из браузера, колонки НЕ добавляются —
  * рабочий лист не должен меняться сам по себе.
  */
+/* ========================================================================
+ *  ЗАДАЧИ И КОММЕНТАРИИ
+ * ======================================================================== */
+
+/**
+ * Читает весь лист как массив объектов.
+ * Используется для tasks и comments: оба листа небольшие.
+ */
+function readSheet_(sheetName, head) {
+  var t = table_(sheetName, head);
+  var out = [];
+  for (var i = 0; i < t.rows.length; i++) {
+    var row = t.rows[i];
+    var obj = {};
+    var hasData = false;
+    for (var j = 0; j < head.length; j++) {
+      var v = str_(t.at(row, head[j]));
+      obj[head[j]] = v;
+      if (v) hasData = true;
+    }
+    if (hasData) out.push(obj);
+  }
+  return out;
+}
+
+/**
+ * Находит номер строки (1-based) по значению колонки key.
+ * Возвращает 0 если не найдено.
+ */
+function findSheetRow_(t, key, value) {
+  for (var i = 0; i < t.rows.length; i++) {
+    if (str_(t.at(t.rows[i], key)) === value) return i + 2; // +1 заголовок, +1 1-based
+  }
+  return 0;
+}
+
+/** Создать или обновить задачу. */
+function saveTask_(req, isUpdate) {
+  var task = req.task || req;
+  var id = isUpdate ? str_(task.id) : '';
+  if (isUpdate && !id) throw new Error('Для обновления нужен id задачи');
+
+  var sh = sheet_(SHEET_TASKS, HEAD_TASKS);
+  var t  = table_(SHEET_TASKS, HEAD_TASKS);
+
+  var now = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm');
+  var row;
+
+  if (isUpdate) {
+    row = findSheetRow_(t, 'id', id);
+    if (!row) throw new Error('Задача ' + id + ' не найдена');
+    var colMap = {};
+    HEAD_TASKS.forEach(function (h, ci) { colMap[h] = ci + 1; });
+    if (task.title !== undefined)       sh.getRange(row, colMap.title).setValue(str_(task.title));
+    if (task.description !== undefined) sh.getRange(row, colMap.description).setValue(str_(task.description));
+    if (task.priority !== undefined)    sh.getRange(row, colMap.priority).setValue(str_(task.priority));
+    if (task.date_from !== undefined)   sh.getRange(row, colMap.date_from).setValue(str_(task.date_from));
+    if (task.date_to !== undefined)     sh.getRange(row, colMap.date_to).setValue(str_(task.date_to));
+  } else {
+    id = 't-' + new Date().getTime();
+    var newRow = [
+      id,
+      str_(task.client_id),
+      str_(task.title),
+      str_(task.description),
+      str_(task.priority) || 'blue',
+      'open',
+      str_(task.date_from),
+      str_(task.date_to),
+      now
+    ];
+    var lastRow = Math.max(sh.getLastRow(), 1);
+    sh.getRange(lastRow + 1, 1, 1, newRow.length).setValues([newRow]);
+  }
+
+  SpreadsheetApp.flush();
+  return { ok: true, id: id };
+}
+
+/** Добавить или обновить комментарий. */
+function saveComment_(req, isUpdate) {
+  var comment = req.comment || req;
+  var id = isUpdate ? str_(comment.id) : '';
+  if (isUpdate && !id) throw new Error('Для обновления нужен id комментария');
+
+  var sh = sheet_(SHEET_COMMENTS, HEAD_COMMENTS);
+  var t  = table_(SHEET_COMMENTS, HEAD_COMMENTS);
+
+  var now = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm');
+
+  if (isUpdate) {
+    var row = findSheetRow_(t, 'id', id);
+    if (!row) throw new Error('Комментарий ' + id + ' не найден');
+    var textCol = colIndex_(t, 'text') + 1;
+    var editCol = colIndex_(t, 'edited') + 1;
+    sh.getRange(row, textCol).setValue(str_(comment.text));
+    sh.getRange(row, editCol).setValue(now);
+  } else {
+    id = 'c-' + new Date().getTime();
+    var newRow = [
+      id,
+      str_(comment.client_id),
+      str_(comment.text),
+      now,
+      ''
+    ];
+    var lastRow = Math.max(sh.getLastRow(), 1);
+    sh.getRange(lastRow + 1, 1, 1, newRow.length).setValues([newRow]);
+  }
+
+  SpreadsheetApp.flush();
+  return { ok: true, id: id };
+}
+
 function setupSheets() {
   var clients = sheet_(SHEET_NAME, HEAD_CLIENTS);
   var missing = missingClientColumns_(clients);
@@ -785,6 +904,11 @@ function setupSheets() {
     clients.getRange(1, width + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
   }
   clients.setFrozenRows(1);
+
+  var tasks = sheet_(SHEET_TASKS, HEAD_TASKS);
+  tasks.setFrozenRows(1);
+  var comms = sheet_(SHEET_COMMENTS, HEAD_COMMENTS);
+  comms.setFrozenRows(1);
 
   var briefs = sheet_(SHEET_BRIEFS, ['Отметка времени']);
   ensureHeaders_(briefs, [BRIEF_CLIENT_COL, BRIEF_STATE_COL]);
@@ -1345,6 +1469,16 @@ var GET_ACTIONS = {
   /** action=settings — какие свойства скрипта заданы (без значений). */
   settings: function () {
     return { props: propsState_() };
+  },
+
+  /** action=tasks — все задачи из листа «Задачи». */
+  tasks: function () {
+    return { tasks: readSheet_(SHEET_TASKS, HEAD_TASKS) };
+  },
+
+  /** action=comments — все комментарии из листа «Комментарии». */
+  comments: function () {
+    return { comments: readSheet_(SHEET_COMMENTS, HEAD_COMMENTS) };
   },
 
   /** action=ping — проверка подключений: таблица, GitHub, RouterAI, Telegram. */
@@ -1980,7 +2114,56 @@ var POST_ACTIONS = {
   letter_launch: function (req) { return letterLaunch_(req); },
   plan_tariff_change: function (req) { return planTariffChangeAction_(req); },
   set_tariff:         function (req) { return setTariff_(req); },
-  build_pdf_examples: function (req) { return buildPdfExamples_(req); }
+  build_pdf_examples: function (req) { return buildPdfExamples_(req); },
+
+  /** action=taskAdd / taskUpdate — создать или обновить задачу. */
+  taskAdd:    function (req) { return saveTask_(req, false); },
+  taskUpdate: function (req) { return saveTask_(req, true); },
+
+  /** action=taskDone — переключить статус задачи. */
+  taskDone: function (req) {
+    var id = str_(req.id);
+    if (!id) throw new Error('Не передан id задачи');
+    var sh = sheet_(SHEET_TASKS, HEAD_TASKS);
+    var t = table_(SHEET_TASKS, HEAD_TASKS);
+    var row = findSheetRow_(t, 'id', id);
+    if (!row) throw new Error('Задача ' + id + ' не найдена');
+    var col = colIndex_(t, 'status') + 1;
+    sh.getRange(row, col).setValue(req.done ? 'done' : 'open');
+    SpreadsheetApp.flush();
+    return { ok: true };
+  },
+
+  /** action=taskDelete — удалить задачу. */
+  taskDelete: function (req) {
+    var id = str_(req.id);
+    if (!id) throw new Error('Не передан id задачи');
+    var t = table_(SHEET_TASKS, HEAD_TASKS);
+    var row = findSheetRow_(t, 'id', id);
+    if (!row) throw new Error('Задача ' + id + ' не найдена');
+    // deleteRow смещает индексы; затираем строку целиком — readSheet_ пропустит пустые
+    var sh = sheet_(SHEET_TASKS, HEAD_TASKS);
+    sh.getRange(row, 1, 1, HEAD_TASKS.length).clearContent();
+    SpreadsheetApp.flush();
+    return { ok: true };
+  },
+
+  /** action=commentAdd / commentUpdate — добавить или обновить комментарий. */
+  commentAdd:    function (req) { return saveComment_(req, false); },
+  commentUpdate: function (req) { return saveComment_(req, true); },
+
+  /** action=commentDelete — удалить комментарий. */
+  commentDelete: function (req) {
+    var id = str_(req.id);
+    if (!id) throw new Error('Не передан id комментария');
+    var t = table_(SHEET_COMMENTS, HEAD_COMMENTS);
+    var row = findSheetRow_(t, 'id', id);
+    if (!row) throw new Error('Комментарий ' + id + ' не найден');
+    var sh = sheet_(SHEET_COMMENTS, HEAD_COMMENTS);
+    sh.getRange(row, 1, 1, HEAD_COMMENTS.length).clearContent();
+    SpreadsheetApp.flush();
+    return { ok: true };
+  }
 };
 
 
