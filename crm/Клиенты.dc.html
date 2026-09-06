@@ -2082,9 +2082,17 @@ class Component extends DCLogic {
     if (!raw) return;
     const next = fromApi(raw);
     this.setState(s => ({
-      clients: s.clients.map(x => (x.id === next.id
-        ? Object.assign({}, next, { edits: x.edits }, extra || {})
-        : x)),
+      clients: s.clients.map(x => {
+        if (x.id !== next.id) return x;
+        return Object.assign({}, next, {
+          // edits, screenshots и draft живут только в браузере —
+          // сервер их не хранит, поэтому после любого save/push
+          // они берутся из старого объекта, а не из ответа сервера
+          edits: x.edits,
+          screenshots: x.screenshots || [],
+          draft: x.draft || null
+        }, extra || {});
+      }),
       syncAt: s.syncAt
     }));
   }
