@@ -3231,9 +3231,10 @@ function aiBuildPlan_(req) {
   var manualRubrics = (c.rubrics || []).filter(function(r) { return r.manual; });
   var manualHint = manualRubrics.length
     ? '\n\nОБЯЗАТЕЛЬНО включи в план следующие зафиксированные рубрики ' +
-      '(название и дни менять нельзя, только напиши для них промпт):\n' +
+      '(название менять нельзя; если дни указаны — оставь их, иначе подбери сам):\n' +
       manualRubrics.map(function(r) {
-        return '- name: «' + r.name + '», days: «' + r.days + '»';
+        var daysStr = str_(r.days);
+        return '- name: «' + r.name + '»' + (daysStr ? ', days: «' + daysStr + '»' : ' (дни не заданы — подбери сам)');
       }).join('\n')
     : '';
 
@@ -4373,39 +4374,124 @@ function aiApplyEdits_(req) {
   var rubrics = normRubrics_(req.rubrics || c.rubrics);
   if (!rubrics.length) throw new Error('Сначала соберите контент-план');
 
-  var content = ai_([
+  // Шаг 1: обновляем только промпты — короткий JSON-запрос, не лопается по токенам.
+  // Примеры в этот запрос не включаем: они длинные, и именно они раньше
+  // обрезались при finish_reason=length (3000 токенов на все рубрики сразу).
+  var promptContent = ai_([
     {
       role: 'system',
-      content: 'Ты редактор контент-плана. Переписываешь промпты рубрик так, ' +
-        'чтобы учесть правки клиента, и обновляешь примеры постов. Отвечай только JSON.'
+      content: 'Ты редактор контент-плана. Переписываешь промпты рубрик, ' +
+        'чтобы учесть правки клиента. Отвечай только JSON, без примеров постов.'
     },
     {
       role: 'user',
       content: briefContext_(c) +
         '\n\nТекущие рубрики:\n' + JSON.stringify(rubrics.map(function (r) {
-          return { name: r.name, days: r.days, prompt: r.prompt, example: r.example };
+          return { name: r.name, days: r.days, prompt: r.prompt };
         }), null, 2) +
         '\n\nПравки клиента (его словами):\n' + edits +
-        '\n\nОбнови промпты рубрик так, чтобы правки были учтены навсегда, ' +
-        'и перепиши примеры постов по обновлённым промптам. ' +
+        '\n\nОбнови промпты так, чтобы правки были учтены навсегда. ' +
         'Названия и дни оставь прежними, если клиент не просил их менять. ' +
         'Рубрику можно удалить или добавить, если клиент прямо об этом просит.\n\n' +
-        'Верни JSON: {"rubrics": [{"name": "…", "days": "…", "prompt": "…", "example": "…"}]}'
+        'Верни JSON: {"rubrics": [{"name": "…", "days": "…", "prompt": "…"}]}'
     }
-  ], { json: true, temperature: 0.6, maxTokens: 3000 });
+  ], { json: true, temperature: 0.6, maxTokens: 1200 });
 
-  var updated = carryRubricMemory_(
-    normRubrics_(parseJsonLoose_(content).rubrics || []), rubrics);
-  if (!updated.length) throw new Error('Модель не вернула обновлённые рубрики');
+  var updatedPrompts = carryRubricMemory_(
+    normRubrics_(parseJsonLoose_(promptContent).rubrics || []), rubrics);
+  if (!updatedPrompts.length) throw new Error('Модель не вернула обновлённые рубрики');
+
+  // Шаг 2: перегенерируем примеры по обновлённым промптам — каждый отдельным
+  // запросом с retry, ровно как это делает aiGenExamples_. Так ни один пост
+  // не обрежется: у каждого свой бюджет 1400 токенов и проверка полноты.
+  var ctx = briefContext_(c);
+  var fixedFormat = str_(c.postFormat);
+  var usedOpeners = [];
+
+  var withExamples = updatedPrompts.map(function (r, i) {
+    // Для рубрики без примера или с заблокированным примером просто берём старый.
+    var prevRubric = rubrics.filter(function (x) {
+      return str_(x.name).toLowerCase() === str_(r.name).toLowerCase();
+    })[0];
+    // Если промпт не изменился — пример оставляем, чтобы не тратить токены.
+    if (prevRubric && prevRubric.prompt === r.prompt && prevRubric.example) {
+      var keep = firstWords_(prevRubric.example, 5);
+      if (keep) usedOpeners.push(keep);
+      return Object.assign({}, r, { example: prevRubric.example });
+    }
+
+    var kind = rubricKind_(r);
+    var anchor = 'ГЛАВНОЕ ТРЕБОВАНИЕ: ' +
+      (RUBRIC_ANCHOR[kind] || RUBRIC_ANCHOR['default']);
+
+    var formatRule, sceneRules = [];
+    if (fixedFormat) {
+      formatRule = 'Структура поста задана клиентом и обязательна: ' + fixedFormat;
+    } else {
+      var fmt = rubricFormat_(r, i);
+      formatRule = fmt.text;
+      if (!fmt.scene) {
+        sceneRules.push(SCENE_BAN);
+        sceneRules.push(OPENER_MOVES[i % OPENER_MOVES.length]);
+      }
+    }
+
+    function ask(extraBan) {
+      return stripModelNoise_(ai_([
+        {
+          role: 'system',
+          content: 'Ты пишешь посты для соцсетей малого бизнеса от лица владельца. ' +
+            'Каждый пост в наборе должен отличаться от остальных структурой, длиной ' +
+            'и формой подачи — чередуй короткие и длинные, истории и советы, ' +
+            'вопросы к читателю и утверждения. ' + openersRule_(usedOpeners.concat(extraBan || [])) + ' ' +
+            'В ответе — только готовый текст поста, ничего больше: ни черновиков, ' +
+            'ни заметок о проверке длины, ни заголовков вроде «Пост:» или «Draft». ' +
+            'Не показывай ход рассуждений — только финальный результат.'
+        },
+        {
+          role: 'user',
+          content: ctx +
+            '\n\nРубрика: ' + r.name +
+            '\n\n' + anchor +
+            '\n\n' + formatRule +
+            (sceneRules.length ? '\n' + sceneRules.join('\n') : '') +
+            '\n\nИНСТРУКЦИЯ РУБРИКИ — она главнее формата, выполни её целиком:\n' +
+            r.prompt +
+            '\n\nНапиши один пример поста по этой рубрике ' +
+            (c.stylePrompt
+              ? 'строго в стиле клиента, описанном выше в style_prompt. '
+              : 'простым разговорным языком. ') +
+            'Не пиши в конце поста призыв к действию, контакты, ссылки и ' +
+            'приглашение подписаться — они добавляются автоматически после ' +
+            'генерации, дословно из карточки клиента. ' +
+            'Не выдумывай цены, сроки и гарантии. Ответь только текстом поста, ' +
+            'без черновиков и пометок о проверке.'
+        }
+      ], { temperature: 0.85, maxTokens: 1400 }));
+    }
+
+    var example = ask();
+    if (hasForbiddenOpener_(example, usedOpeners) || !textIsComplete_(example)) {
+      var retry = ask([firstWords_(example, 5)]);
+      if (retry && textIsComplete_(retry)) example = retry;
+    }
+    example = trimToSentence_(example);
+    example = appendCta_(example, c);
+
+    var opener = firstWords_(example, 5);
+    if (opener) usedOpeners.push(opener);
+
+    return Object.assign({}, r, { example: example });
+  });
 
   var iterations = num_(c.iterations) + 1;
   withLock_(function () {
     var t = clientsTable_();
-    writeRow_(t, findRow_(t, c.id), { rubrics: updated, iterations: iterations });
+    writeRow_(t, findRow_(t, c.id), { rubrics: withExamples, iterations: iterations });
     SpreadsheetApp.flush();
     return true;
   });
-  return { rubrics: updated, iterations: iterations, client: refetchClient_(c.id) };
+  return { rubrics: withExamples, iterations: iterations, client: refetchClient_(c.id) };
 }
 
 /**

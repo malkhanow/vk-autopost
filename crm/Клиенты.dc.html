@@ -3353,17 +3353,27 @@ class Component extends DCLogic {
         if (d.photoInstruction) changes.photoInstruction = d.photoInstruction;
         if (d.faq) changes.faq = Array.isArray(d.faq) ? d.faq.join('\n') : d.faq;
         if (d.forbidden && d.forbidden.length) changes.limitsText = d.forbidden.join('; ');
-        // Рубрики из черновика: переносим name/kind/topics, дни и промпты — после buildPlan
+        // Рубрики из черновика: ставим manual:true, чтобы buildPlan их
+        // увидел как зафиксированные и обязательно включил с их именами.
+        // kind/topics сохраняем — carryRubricMemory_ перенесёт их после buildPlan.
         if (d.rubrics && d.rubrics.length) {
-          changes.rubrics = d.rubrics.map(r => ({
-            name: r.name || '', kind: r.kind || '',
-            topics: Array.isArray(r.topics) ? r.topics : [],
-            example: r.example || '',
-            days: '', prompt: '', caption: '', manual: false, dormant: false, custom: false
-          }));
+          // Если у клиента уже были рубрики с manual:true — сохраняем их,
+          // добавляя только те из черновика, которых ещё нет по имени.
+          const existingNames = new Set((c.rubrics || []).map(r => (r.name || '').toLowerCase()));
+          const fromDraft = d.rubrics
+            .filter(r => r.name)
+            .map(r => ({
+              name: r.name, kind: r.kind || '',
+              topics: Array.isArray(r.topics) ? r.topics : [],
+              example: r.example || '',
+              days: '', prompt: '', caption: '', manual: true, dormant: false, custom: false
+            }));
+          // Оставляем старые manual-рубрики (замок) + новые из черновика
+          const kept = (c.rubrics || []).filter(r => r.manual && !fromDraft.some(dr => dr.name.toLowerCase() === (r.name||'').toLowerCase()));
+          changes.rubrics = [...kept, ...fromDraft];
         }
         this.patch(c.id, changes);
-        this.flash('Черновик применён. Нажмите «Собрать контент-план» — модель построит рубрики с днями и промптами.');
+        this.flash('Черновик применён — рубрики зафиксированы. Нажмите «Пересобрать план» — модель добавит дни и промпты, затем «Сгенерировать примеры».');
       },
       draftSet: (() => {
         const d = c.draft || {};
