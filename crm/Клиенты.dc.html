@@ -2577,7 +2577,7 @@ class Component extends DCLogic {
       forbidden: c.limits.concat(c.limitsText ? [c.limitsText] : []),
       cta: c.cta,
       faq: c.faq ? c.faq.split('\n') : [],
-      rubrics: c.rubrics.map(r => ({ name: r.name, caption: r.caption || '', days: r.days.split(',').map(d2 => d2.trim()), prompt: r.prompt, manual: !!r.manual })),
+      rubrics: c.rubrics.map(r => ({ name: r.name, caption: r.caption || '', days: r.days.split(',').map(d2 => d2.trim()), kind: r.kind || '', topics: r.topics || [], prompt: r.prompt, manual: !!r.manual })),
       tg_channel: c.tgChannel || null,
       morning_photo: !!c.morningPhoto,
       holidays_extra: c.holidaysExtra || '',
