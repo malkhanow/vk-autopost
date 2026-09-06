@@ -652,8 +652,8 @@
                   </div>
                   <p style="margin: 6px 0 10px; font-size: 11.5px; color: #8a8f96">Загрузите скриншоты сайта, аккаунта, примеров постов или прайса. ИИ заполнит черновик: бизнес, ниша, стиль, CTA, рубрики с типами. Вы проверяете и нажимаете «Применить».</p>
 
-                  <label style="display: block; border: 2px dashed #d2d2cc; border-radius: 6px; padding: 16px; text-align: center; cursor: pointer; background: #fafaf7; margin-bottom: 10px" style-hover="border-color: #2b4acf; background: #f0f3fd">
-                    <input type="file" accept="image/*" multiple filepick="{{ onScreenshotPick }}" style="display: none" />
+                  <label onDragOver="{{ onScreenshotDragOver }}" onDrop="{{ onScreenshotDrop }}" style="display: block; border: 2px dashed #d2d2cc; border-radius: 6px; padding: 16px; text-align: center; cursor: pointer; background: #fafaf7; margin-bottom: 10px" style-hover="border-color: #2b4acf; background: #f0f3fd">
+                    <input type="file" accept="image/*" multiple onFilepick="{{ onScreenshotPick }}" style="display: none" />
                     <span style="font-size: 12.5px; color: #6b7078">{{ screenshotPickLabel }}</span>
                   </label>
 
@@ -1617,6 +1617,45 @@ const RUBRIC_KIND_LABELS = {
   service: 'Услуга / продукт'
 };
 const SCREENSHOT_MAX = 8;
+/* Потолки бэкенда (Code.gs): 1.6 МБ base64 на картинку и 6 МБ на пачку.
+ * Скриншот с монитора в PNG легко весит больше, поэтому перед отправкой
+ * уменьшаем длинную сторону и пережимаем в JPEG прямо в браузере. */
+const SCREENSHOT_LIMIT_BYTES = 1600000;
+const SCREENSHOT_MAX_SIDE = 1400;
+const SCREENSHOT_QUALITY = 0.82;
+
+/** Файл -> { name, data: 'data:image/jpeg;base64,…' }. */
+function readScreenshot(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл: ' + file.name));
+    reader.onload = ev => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Это не картинка: ' + file.name));
+      img.onload = () => {
+        const scale = Math.min(1, SCREENSHOT_MAX_SIDE / Math.max(img.width, img.height, 1));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';          // прозрачный PNG -> белый фон, иначе JPEG чернит
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        let data = canvas.toDataURL('image/jpeg', SCREENSHOT_QUALITY);
+        if (data.length > SCREENSHOT_LIMIT_BYTES) data = canvas.toDataURL('image/jpeg', 0.6);
+        if (data.length > SCREENSHOT_LIMIT_BYTES) {
+          reject(new Error('Слишком тяжёлый скриншот: ' + file.name));
+          return;
+        }
+        resolve({ name: file.name, data: data });
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 /* ------------------------------------------------------------------
  * РЕЕСТР ТАРИФОВ
  * Зеркало tariffs.json из корня репозитория. При загрузке страницы
@@ -2379,6 +2418,23 @@ class Component extends DCLogic {
 
   patch(id, changes) {
     this.setState(s => ({ clients: s.clients.map(c => (c.id === id ? Object.assign({}, c, changes) : c)) }));
+  }
+
+  /** Общий приём файлов: и из диалога выбора, и из перетаскивания. */
+  addScreenshots(clientId, fileList) {
+    const files = Array.from(fileList || []).filter(f => f && /^image\//.test(f.type || ''));
+    if (!files.length) return;
+    const has = ((this.state.clients.find(x => x.id === clientId) || {}).screenshots || []).length;
+    const remain = SCREENSHOT_MAX - has;
+    if (remain <= 0) return this.flash('Уже ' + SCREENSHOT_MAX + ' фото — удалите лишние перед добавлением');
+    const batch = files.slice(0, remain);
+    this.flash(batch.length === 1 ? 'Загружаю фото…' : ('Загружаю фото: ' + batch.length + '…'));
+    Promise.all(batch.map(readScreenshot)).then(loaded => {
+      const cur = (this.state.clients.find(x => x.id === clientId) || {}).screenshots || [];
+      this.patch(clientId, { screenshots: cur.concat(loaded).slice(0, SCREENSHOT_MAX) });
+      this.flash('Готово, фото добавлено: ' + loaded.length +
+        (files.length > batch.length ? ' (лишние отброшены — потолок ' + SCREENSHOT_MAX + ')' : ''));
+    }).catch(err => this.flash(err && err.message ? err.message : 'Не удалось загрузить скриншоты'));
   }
 
   cur() { return this.state.clients.find(c => c.id === this.state.current) || this.state.clients[0] || BLANK; }
@@ -3518,26 +3574,17 @@ class Component extends DCLogic {
         }
       })),
       onScreenshotPick: e => {
-        const files = Array.from(e.target.files || []);
-        const all = c.screenshots || [];
-        const remain = SCREENSHOT_MAX - all.length;
-        if (remain <= 0) return this.flash('Уже ' + SCREENSHOT_MAX + ' фото — удалите лишние перед добавлением');
-        const batch = files.slice(0, remain);
-        let done = 0;
-        const loaded = [];
-        batch.forEach((f, fi) => {
-          const reader = new FileReader();
-          reader.onload = ev => {
-            loaded[fi] = { name: f.name, data: ev.target.result };
-            done++;
-            if (done === batch.length) {
-              this.patch(c.id, { screenshots: all.concat(loaded.filter(Boolean)) });
-            }
-          };
-          reader.readAsDataURL(f);
-        });
+        this.addScreenshots(c.id, e.target.files);
         // сбросить value чтобы можно было снова выбрать тот же файл
         e.target.value = '';
+      },
+      onScreenshotDragOver: e => {
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'copy'; } catch (err) {}
+      },
+      onScreenshotDrop: e => {
+        e.preventDefault();
+        this.addScreenshots(c.id, e.dataTransfer && e.dataTransfer.files);
       },
       screenshotLabel: st.busy === 'screenshots' ? 'Анализирую…' : (c.draft ? 'Переанализировать' : 'Анализировать скриншоты'),
       screenshotBtn: (!(c.screenshots || []).length || !!st.busy) ? this.btn('off') : this.btn('primary'),
@@ -3549,7 +3596,10 @@ class Component extends DCLogic {
           () => apiPost(conn, 'analyze_screenshots', {
             id: c.id,
             client: toApi(c),
-            images: shots.map(s => ({ name: s.name, data: s.data.split(',')[1] || s.data, mediaType: (s.data.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg' }))
+            images: shots.map(s => {
+              const mime = (String(s.data).match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
+              return { name: s.name, data: String(s.data).split(',')[1] || s.data, mime: mime, mediaType: mime };
+            })
           }).then(res => {
             if (res.draft) this.patch(c.id, { draft: res.draft });
             this.flash('Черновик готов — проверьте и нажмите «Применить»');
