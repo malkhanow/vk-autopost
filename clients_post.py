@@ -2350,8 +2350,17 @@ def main():
     today = now.date()
     today_abbr = DOW_ABBR[today.weekday()]
 
-    test_mode = bool(TEST_CLIENT_ID)
-    if not test_mode and not SLOT:
+    # Три режима запуска:
+    #   1. Только SLOT             — плановый: все клиенты этого слота
+    #   2. SLOT + TEST_CLIENT_ID   — точечный: один клиент, но по нормальной
+    #                                слот-логике (расписание, праздники, фото).
+    #                                Удобно для ручной проверки нужного поста.
+    #   3. Только TEST_CLIENT_ID   — тест: один клиент, рубрика по кругу,
+    #                                drift-окно и slot_done игнорируются.
+    targeted_mode = bool(TEST_CLIENT_ID and SLOT)   # режим 2
+    test_mode     = bool(TEST_CLIENT_ID and not SLOT)  # режим 3
+
+    if not TEST_CLIENT_ID and not SLOT:
         print("Не задан ни SLOT, ни TEST_CLIENT_ID — нечего делать.")
         sys.exit(0)
 
@@ -2362,7 +2371,7 @@ def main():
     # публикуем только если запуск попал в разумное окно вокруг слота.
     # Точное время обеспечивает триггер Apps Script, который дёргает workflow
     # через workflow_dispatch; расписание GitHub остаётся запасным вариантом.
-    if not test_mode and SLOT in SLOT_UTC_HOUR:
+    if not test_mode and not targeted_mode and SLOT in SLOT_UTC_HOUR:
         now_utc = datetime.now(timezone.utc)
         planned = now_utc.replace(
             hour=SLOT_UTC_HOUR[SLOT], minute=0, second=0, microsecond=0
@@ -2379,11 +2388,26 @@ def main():
 
     clients = load_clients()
     if test_mode:
+        # режим 3: один клиент, рубрика по кругу
         clients = [c for c in clients if c["client_id"] == TEST_CLIENT_ID]
         if not clients:
             print(f"Клиент {TEST_CLIENT_ID} не найден среди clients/*.json")
             sys.exit(1)
+    elif targeted_mode:
+        # режим 2: один клиент, нормальная слот-логика
+        clients = [c for c in clients if c["client_id"] == TEST_CLIENT_ID]
+        if not clients:
+            print(f"Клиент {TEST_CLIENT_ID} не найден среди clients/*.json")
+            sys.exit(1)
+        clients = [
+            c for c in clients
+            if any(s.get("name") == SLOT for s in c.get("slots", []))
+        ]
+        if not clients:
+            print(f"У клиента {TEST_CLIENT_ID} нет слота «{SLOT}».")
+            sys.exit(1)
     else:
+        # режим 1: все активные клиенты слота
         clients = [c for c in clients if c.get("active", True)]
         clients = [
             c for c in clients
@@ -2406,7 +2430,7 @@ def main():
         # получит два поста подряд. Отметка в состоянии это исключает.
         cs = client_state(state, cid)
         slot_done = cs.setdefault("slot_done", {})
-        if not test_mode and SLOT and slot_done.get(SLOT) == today.isoformat():
+        if not test_mode and not targeted_mode and SLOT and slot_done.get(SLOT) == today.isoformat():
             print(f"{cid}: слот «{SLOT}» сегодня уже отработал, пропускаю.")
             continue
 
@@ -2514,7 +2538,7 @@ def main():
             posted_any = True
             # отметку ставим только после реальной публикации: если пост упал,
             # следующий запуск в том же окне должен попробовать ещё раз
-            if not test_mode and SLOT:
+            if not test_mode and not targeted_mode and SLOT:
                 slot_done[SLOT] = today.isoformat()
             if holiday:
                 mark_holiday_done(state, cid, today, holiday, kind)
