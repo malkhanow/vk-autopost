@@ -805,12 +805,14 @@
                   <div style="{{ weekLoadStyle }}">{{ weekLoadText }}</div>
                   <sc-if value="{{ hasRubrics }}" hint-placeholder-val="{{ true }}">
                     <div style="border: 1px solid #ebebe7; border-radius: 5px; overflow: hidden">
-                      <div style="display: grid; grid-template-columns: 18px 150px 172px minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
+                      <div style="display: grid; grid-template-columns: 18px 150px 172px 130px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
                         <div></div>
                         <div>Рубрика</div>
                         <div>Дни</div>
+                        <div>Тип / Темы</div>
                         <div>Промпт</div>
                         <div>Пример поста</div>
+                        <div></div>
                         <div></div>
                       </div>
                       <sc-for list="{{ rubrics }}" as="r" hint-placeholder-count="5">
