@@ -2266,6 +2266,63 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
 
 # ---------- основной цикл ----------
 
+def normalize_slots(raw):
+    """
+    Слоты приводим к единому виду [{"name": ...}, ...].
+
+    Конфиг клиента может прийти из CRM, а может быть собран руками — и там
+    слоты иногда записаны просто списком строк ["morning"]. Движок читает
+    s.get("name"), поэтому строка роняла ВЕСЬ прогон на AttributeError,
+    и посты не выходили ни у кого, включая клиентов с корректным конфигом.
+    """
+    out = []
+    for s in (raw or []):
+        if isinstance(s, dict):
+            name = str(s.get("name") or "").strip().lower()
+            if name:
+                item = dict(s)
+                item["name"] = name
+                out.append(item)
+        elif isinstance(s, str):
+            name = s.strip().lower()
+            if name:
+                out.append({"name": name})
+    return out
+
+
+def normalize_days(raw):
+    """
+    Дни рубрики приводим к списку сокращений ["пн", "пт"].
+
+    В конфиге дни встречаются строкой: "ср" или "пн, пт". Код перебирает
+    days поэлементно, поэтому строка "ср" разбиралась на символы "с" и "р",
+    ни один день недели не совпадал — и рубрика не выходила никогда.
+    """
+    if isinstance(raw, str):
+        parts = raw.replace("/", ",").replace(";", ",").split(",")
+    elif isinstance(raw, (list, tuple)):
+        parts = raw
+    else:
+        return []
+    out = []
+    for d in parts:
+        d = str(d).strip().lower()
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def normalize_client(data):
+    """Единая точка приведения конфига клиента к формату, который ждёт движок."""
+    data["slots"] = normalize_slots(data.get("slots"))
+    rubrics = data.get("rubrics")
+    if isinstance(rubrics, list):
+        for r in rubrics:
+            if isinstance(r, dict):
+                r["days"] = normalize_days(r.get("days"))
+    return data
+
+
 def load_clients():
     out = []
     for path in sorted(glob.glob(os.path.join(CLIENTS_DIR, "*.json"))):
@@ -2276,6 +2333,12 @@ def load_clients():
             print(f"Пропускаю {path}: не читается ({e})")
             continue
         if not data.get("client_id"):
+            continue
+        # Один кривой конфиг не должен обрушивать прогон остальных клиентов.
+        try:
+            data = normalize_client(data)
+        except Exception as e:
+            print(f"Пропускаю {path}: конфиг не удалось разобрать ({e})")
             continue
         out.append(data)
     return out
