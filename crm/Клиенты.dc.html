@@ -825,6 +825,11 @@
                                 <option value="{{ fo.value }}" selected="{{ fo.selected }}">{{ fo.label }}</option>
                               </sc-for>
                             </select>
+                            <select onChange="{{ r.loopSelect.onChange }}" title="{{ r.loopSelect.title }}" style="{{ r.loopSelect.style }}">
+                              <option value="" selected="{{ r.loopSelect.isAuto }}">{{ r.loopSelect.autoLabel }}</option>
+                              <option value="true" selected="{{ r.loopSelect.isOn }}">🔁 по кругу — фото не расходуются</option>
+                              <option value="false" selected="{{ r.loopSelect.isOff }}">1️⃣ одноразово — расходуются, переезжают в posted</option>
+                            </select>
                           </div>
                           <div style="min-width: 0">
                             <div style="display: flex; gap: 3px">
@@ -1824,7 +1829,8 @@ function fromApi(o) {
       dormantSince: String(r.dormantSince || ''),
       every_n_weeks: parseInt(r.every_n_weeks, 10) > 1 ? parseInt(r.every_n_weeks, 10) : 1,
       photo_folder: PHOTO_FOLDERS.indexOf(String(r.photo_folder || '').toLowerCase()) >= 0
-        ? String(r.photo_folder).toLowerCase() : ''
+        ? String(r.photo_folder).toLowerCase() : '',
+      photo_loop: typeof r.photo_loop === 'boolean' ? r.photo_loop : null
     })),
     edits: ''
   }));
@@ -2653,7 +2659,10 @@ class Component extends DCLogic {
       forbidden: c.limits.concat(c.limitsText ? [c.limitsText] : []),
       cta: c.cta,
       faq: c.faq ? c.faq.split('\n') : [],
-      rubrics: c.rubrics.map(r => Object.assign({ name: r.name, caption: r.caption || '', days: r.days.split(',').map(d2 => d2.trim()), kind: r.kind || '', topics: r.topics || [], prompt: r.prompt, manual: !!r.manual }, (r.every_n_weeks && r.every_n_weeks > 1) ? { every_n_weeks: r.every_n_weeks } : {})),
+      rubrics: c.rubrics.map(r => Object.assign({ name: r.name, caption: r.caption || '', days: r.days.split(',').map(d2 => d2.trim()), kind: r.kind || '', topics: r.topics || [], prompt: r.prompt, manual: !!r.manual },
+        (r.every_n_weeks && r.every_n_weeks > 1) ? { every_n_weeks: r.every_n_weeks } : {},
+        r.photo_folder ? { photo_folder: r.photo_folder } : {},
+        typeof r.photo_loop === 'boolean' ? { photo_loop: r.photo_loop } : {})),
       tg_channel: c.tgChannel || null,
       morning_photo: !!c.morningPhoto,
       holidays_extra: c.holidaysExtra || '',
@@ -3722,6 +3731,30 @@ class Component extends DCLogic {
               + ' font-family: \'IBM Plex Mono\', monospace; background: ' + (r.photo_folder ? '#eef1fe' : '#fff')
               + '; color: ' + (r.photo_folder ? '#2b4acf' : '#6b7078') + ';'
           },
+          loopSelect: (() => {
+            const autoLoop = folderPath.folder === 'rubrics/tips' || folderPath.folder === 'rubrics/faq';
+            const isAuto = typeof r.photo_loop !== 'boolean';
+            const isOn = r.photo_loop === true;
+            const isOff = r.photo_loop === false;
+            return {
+              isAuto, isOn, isOff,
+              autoLabel: '— авто: ' + (autoLoop ? '🔁 по кругу' : '1️⃣ одноразово') + ' (по папке) —',
+              title: isAuto
+                ? 'Не задано явно — решает папка: tips/faq по умолчанию по кругу, остальные одноразово.'
+                : (isOn
+                  ? 'Явно включено: фото берутся по очереди без повторов и не расходуются — движок помнит последнее использованное и на следующий раз берёт следующее.'
+                  : 'Явно выключено: фото расходуется и переезжает в posted/ после публикации, даже если папка по умолчанию зациклена.'),
+              onChange: e => {
+                const val = e.target.value;
+                const patch = { photo_loop: val === '' ? null : val === 'true' };
+                this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, patch) : x)) });
+              },
+              style: 'width: 100%; box-sizing: border-box; padding: 3px 5px; margin-top: 3px; border: 1px solid '
+                + (isAuto ? '#e6e6e1' : '#2b4acf') + '; border-radius: 3px; font-size: 10.5px;'
+                + ' background: ' + (isAuto ? '#fff' : '#eef1fe')
+                + '; color: ' + (isAuto ? '#6b7078' : '#2b4acf') + ';'
+            };
+          })(),
           setFolder: e => {
             const val = e.target.value;
             const patch = { photo_folder: val };

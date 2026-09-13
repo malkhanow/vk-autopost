@@ -1287,6 +1287,15 @@ function normRubrics_(v) {
     // интерфейсе. Пусто/не из списка — авто по kind (см. rubricFolder_).
     var photoFolder = str_(r.photoFolder || r.photo_folder).toLowerCase();
     if (PHOTO_FOLDERS.indexOf(photoFolder) >= 0) out.photo_folder = photoFolder;
+    // photo_loop — явный переключатель "по кругу / одноразово", независимый
+    // от папки: по умолчанию (не задано) решает папка — tips/faq по кругу,
+    // остальные одноразово (см. rubric_loops_photos в clients_post.py).
+    // Три состояния: не задано / true / false — поэтому сравниваем со
+    // строкой, а не просто проверяем истинность.
+    var photoLoop = r.photoLoop === true || r.photoLoop === 'true' || r.photo_loop === true || r.photo_loop === 'true';
+    var photoLoopOff = r.photoLoop === false || r.photoLoop === 'false' || r.photo_loop === false || r.photo_loop === 'false';
+    if (photoLoop) out.photo_loop = true;
+    else if (photoLoopOff) out.photo_loop = false;
     // флаг manual важно сохранять: без него пересборка плана
     // удаляет рубрики добавленные вручную
     if (r.manual) out.manual = true;
@@ -4142,7 +4151,7 @@ function aiGenExamples_(req) {
       name: r.name, caption: r.caption, days: r.days, prompt: r.prompt,
       manual: r.manual, dormant: r.dormant, custom: r.custom,
       kind: r.kind, topics: r.topics, every_n_weeks: r.every_n_weeks,
-      photo_folder: r.photo_folder,
+      photo_folder: r.photo_folder, photo_loop: r.photo_loop,
       example: example
     };
   });
@@ -4527,6 +4536,9 @@ function carryRubricMemory_(fresh, prev) {
     // пересборка плана (buildPlan_) не должна его стирать, особенно у
     // рубрик с manual=true (замочек в интерфейсе).
     if (!r.photo_folder && old.photo_folder) r.photo_folder = old.photo_folder;
+    if (typeof r.photo_loop !== 'boolean' && typeof old.photo_loop === 'boolean') {
+      r.photo_loop = old.photo_loop;
+    }
     return r;
   });
 }
