@@ -798,11 +798,12 @@
                   </div>
                   <p style="margin: 6px 0 12px; font-size: 11.5px; color: #8a8f96">Бриф → Gemini → рубрики с расписанием и промптами. Примеры постов клиенту не публикуются — только на согласование.</p>
                   <div style="{{ weekLoadStyle }}">{{ weekLoadText }}</div>
+                  <p style="margin: 0 0 10px; font-size: 11px; line-height: 1.6; color: #8a8f96">Папки на Диске клиента: <b style="color: #2b4acf">to_post</b> — общая очередь, фото работ и услуг (её заполняет клиент постоянно); <span style="font-family: 'IBM Plex Mono', monospace">rubrics/faq</span>, <span style="font-family: 'IBM Plex Mono', monospace">rubrics/ideas</span>, <span style="font-family: 'IBM Plex Mono', monospace">rubrics/reviews</span>, <span style="font-family: 'IBM Plex Mono', monospace">rubrics/tips</span> — заполняются один раз про запас. Папка выбирается списком под названием рубрики: «авто» — по типу рубрики, выбор явно — жёстко фиксирует её и переживает пересборку плана у зафиксированных (🔒) рубрик.</p>
                   <sc-if value="{{ hasRubrics }}" hint-placeholder-val="{{ true }}">
                     <div style="border: 1px solid #ebebe7; border-radius: 5px; overflow: hidden">
                       <div style="display: grid; grid-template-columns: 18px 150px 172px 130px minmax(0, 1.1fr) minmax(0, 1.1fr) 24px 24px; gap: 10px; padding: 8px 11px; background: #f8f8f5; border-bottom: 1px solid #ebebe7; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8189">
                         <div></div>
-                        <div>Рубрика</div>
+                        <div>Рубрика / Папка</div>
                         <div>Дни</div>
                         <div>Тип / Темы</div>
                         <div>Промпт</div>
@@ -818,6 +819,12 @@
                             <sc-if value="{{ r.hasCaption }}" hint-placeholder-val="{{ true }}">
                               <div style="margin-top: 4px; font-size: 10.5px; line-height: 1.4; color: #a0a4aa">{{ r.caption }}</div>
                             </sc-if>
+                            <select onChange="{{ r.setFolder }}" title="{{ r.folderSelect.title }}" style="{{ r.folderSelect.style }}">
+                              <option value="" selected="{{ r.folderSelect.isAuto }}">{{ r.folderSelect.autoLabel }}</option>
+                              <sc-for list="{{ r.folderSelect.options }}" as="fo" hint-placeholder-count="5">
+                                <option value="{{ fo.value }}" selected="{{ fo.selected }}">{{ fo.label }}</option>
+                              </sc-for>
+                            </select>
                           </div>
                           <div style="min-width: 0">
                             <div style="display: flex; gap: 3px">
@@ -830,12 +837,17 @@
                                 <button onClick="{{ p.onPick }}" title="{{ p.title }}" style="{{ p.style }}">{{ p.label }}</button>
                               </sc-for>
                             </div>
+                            <div style="display: flex; align-items: center; gap: 4px; margin-top: 5px" title="1 — выходит каждую неделю в отмеченные дни; больше — раз в столько недель считая от последнего реального выхода">
+                              <span style="font-size: 10px; color: #8a8f96; white-space: nowrap">раз в</span>
+                              <input type="number" min="1" max="12" value="{{ r.everyNWeeks }}" onChange="{{ r.setEveryNWeeks }}" style="width: 32px; box-sizing: border-box; padding: 2px 3px; border: 1px solid #e0e0db; border-radius: 3px; font-size: 10.5px; text-align: center" />
+                              <span style="font-size: 10px; color: #8a8f96; white-space: nowrap">нед.</span>
+                            </div>
                           </div>
                           <div style="min-width: 0">
-                            <select onChange="{{ r.setKind }}" style="width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid #e6e6e1; border-radius: 4px; font-size: 11px; background: #fff; color: #3e434a; margin-bottom: 5px">
-                              <option value="" selected="{{ r.kindBlock.kindEmpty }}">— тип не задан —</option>
+                            <select onChange="{{ r.setKind }}" title="Тип определяет, как ИИ пишет текст рубрики. Подставляется сам по названию рубрики или выбранной папке — трогать нужно, только если подсказка ошиблась." style="width: auto; max-width: 100%; box-sizing: border-box; padding: 2px 5px; border: 1px solid #ececea; border-radius: 3px; font-size: 10px; background: #fafaf8; color: #9a9ea4; margin-bottom: 5px">
+                              <option value="" selected="{{ r.kindBlock.kindEmpty }}">тип: — не определён —</option>
                               <sc-for list="{{ r.kindBlock.options }}" as="ko" hint-placeholder-count="5">
-                                <option value="{{ ko.value }}" selected="{{ ko.selected }}">{{ ko.label }}</option>
+                                <option value="{{ ko.value }}" selected="{{ ko.selected }}">тип: {{ ko.label }}</option>
                               </sc-for>
                             </select>
                             <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 2px">
@@ -1322,6 +1334,67 @@ const RUBRIC_KIND_LABELS = {
   service: 'Услуга / продукт'
 };
 const SCREENSHOT_MAX = 8;
+
+// Папка на Яндекс.Диске, откуда рубрика берёт фото — то же решение, что
+// rubric_folder() в clients_post.py и rubricFolder_() в Code.gs: сначала
+// явный выбор клиента (поле photo_folder — выпадающий список в интерфейсе),
+// потом kind, и только для старых рубрик без обоих — угадывание по названию.
+const PHOTO_FOLDERS = ['to_post', 'rubrics/faq', 'rubrics/ideas', 'rubrics/reviews', 'rubrics/tips'];
+const RUBRIC_KIND_FOLDER = {
+  photo_case: 'to_post', before_after: 'to_post',
+  results: 'rubrics/reviews', tips: 'rubrics/tips',
+  faq: 'rubrics/faq', inspiration: 'rubrics/ideas'
+};
+// Тот же список ключевых слов, что RUBRIC_KEYWORDS в clients_post.py и
+// Code.gs — угадывание типа по названию рубрики, когда тип ещё не выбран.
+// Порядок важен: сверху вниз, первое совпадение побеждает.
+const RUBRIC_KEYWORDS = [
+  ['photo_case',   ['фото работ', 'фото работы', 'наши работы', 'фотоотч']],
+  ['faq',          ['вопрос', 'чзв', 'faq', 'разбор', 'ответы на']],
+  ['docs',         ['документ', 'объект', 'юрид', 'договор', 'справк']],
+  ['results',      ['результат', 'отзыв', 'кейс', 'клиент говор', 'благодар']],
+  ['before_after', ['до и после', 'до/после', 'преображ', 'трансформац']],
+  ['promo',        ['акци', 'скидк', 'спецпредлож', 'предложение недел', 'промо']],
+  ['news',         ['новинк', 'новост', 'поступлен', 'ассортимент', 'что нового']],
+  ['howto',        ['уход', 'инструкц', 'как ухаживать', 'как выбрать', 'как понять', 'памятк', 'лайфхак']],
+  ['team',         ['мастер', 'команд', 'о нас', 'сотрудник', 'знакомств', 'специалист']],
+  ['service',      ['услуг', 'процедур', 'прайс', 'что мы делаем', 'работ']],
+  ['inspiration',  ['вдохнов', 'уют', 'иде', 'атмосфер', 'настроен', 'эстетик']],
+  ['observation',  ['наблюден', 'практик', 'изнутри', 'будни', 'закулис']],
+  ['tips',         ['совет', 'польз', 'рекоменд']]
+];
+function guessKindFromName(name) {
+  const n = String(name || '').toLowerCase();
+  for (let i = 0; i < RUBRIC_KEYWORDS.length; i++) {
+    const [kind, words] = RUBRIC_KEYWORDS[i];
+    if (words.some(w => n.indexOf(w) >= 0)) return kind;
+  }
+  return '';
+}
+// Обратная сторона карты RUBRIC_KIND_FOLDER — какой тип подставить, если
+// выбрали папку явно, а тип ещё пустой. to_post чаще всего значит «фото
+// работ». Используется, только если угадывание по названию не сработало.
+const FOLDER_KIND_DEFAULT = {
+  to_post: 'photo_case', 'rubrics/reviews': 'results',
+  'rubrics/tips': 'tips', 'rubrics/faq': 'faq', 'rubrics/ideas': 'inspiration'
+};
+const FOLDER_NAME_GUESS = [
+  [/совет|польз/, 'rubrics/tips'],
+  [/вопрос|чзв|faq/, 'rubrics/faq'],
+  [/иде|вдохнов/, 'rubrics/ideas'],
+  [/отзыв|результат/, 'rubrics/reviews']
+];
+function rubricFolderPath(r) {
+  const explicit = String((r && r.photo_folder) || '').toLowerCase();
+  if (PHOTO_FOLDERS.indexOf(explicit) >= 0) return { folder: explicit, source: 'explicit' };
+  const kind = String((r && r.kind) || '').toLowerCase();
+  if (RUBRIC_KIND_FOLDER[kind]) return { folder: RUBRIC_KIND_FOLDER[kind], source: 'kind' };
+  const name = String((r && r.name) || '').toLowerCase();
+  for (let i = 0; i < FOLDER_NAME_GUESS.length; i++) {
+    if (FOLDER_NAME_GUESS[i][0].test(name)) return { folder: FOLDER_NAME_GUESS[i][1], source: 'name' };
+  }
+  return { folder: 'to_post', source: 'name' };
+}
 /* Потолки бэкенда (Code.gs): 1.6 МБ base64 на картинку и 6 МБ на пачку.
  * Скриншот с монитора в PNG легко весит больше, поэтому перед отправкой
  * уменьшаем длинную сторону и пережимаем в JPEG прямо в браузере. */
@@ -1748,7 +1821,10 @@ function fromApi(o) {
       topics: Array.isArray(r.topics) ? r.topics.map(String) : [],
       prompt: String(r.prompt || ''), example: String(r.example || ''),
       manual: !!r.manual, dormant: !!r.dormant, custom: !!r.custom,
-      dormantSince: String(r.dormantSince || '')
+      dormantSince: String(r.dormantSince || ''),
+      every_n_weeks: parseInt(r.every_n_weeks, 10) > 1 ? parseInt(r.every_n_weeks, 10) : 1,
+      photo_folder: PHOTO_FOLDERS.indexOf(String(r.photo_folder || '').toLowerCase()) >= 0
+        ? String(r.photo_folder).toLowerCase() : ''
     })),
     edits: ''
   }));
@@ -2577,7 +2653,7 @@ class Component extends DCLogic {
       forbidden: c.limits.concat(c.limitsText ? [c.limitsText] : []),
       cta: c.cta,
       faq: c.faq ? c.faq.split('\n') : [],
-      rubrics: c.rubrics.map(r => ({ name: r.name, caption: r.caption || '', days: r.days.split(',').map(d2 => d2.trim()), kind: r.kind || '', topics: r.topics || [], prompt: r.prompt, manual: !!r.manual })),
+      rubrics: c.rubrics.map(r => Object.assign({ name: r.name, caption: r.caption || '', days: r.days.split(',').map(d2 => d2.trim()), kind: r.kind || '', topics: r.topics || [], prompt: r.prompt, manual: !!r.manual }, (r.every_n_weeks && r.every_n_weeks > 1) ? { every_n_weeks: r.every_n_weeks } : {})),
       tg_channel: c.tgChannel || null,
       morning_photo: !!c.morningPhoto,
       holidays_extra: c.holidaysExtra || '',
@@ -3540,6 +3616,8 @@ class Component extends DCLogic {
         const upd = (key, val) => this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { [key]: val }) : x)) });
         const dragFrom = st.dragRubric;
         const isDragged = dragFrom === i;
+        const folderPath = rubricFolderPath(r);
+        const isToPost = folderPath.folder === 'to_post';
         return {
           name: r.name, days: r.days, prompt: r.prompt, example: r.example || '— примера ещё нет',
           caption: r.caption || '',
@@ -3551,6 +3629,7 @@ class Component extends DCLogic {
           onGrab: () => this.setState({ grabRubric: i }),
           rowStyle: 'display: grid; grid-template-columns: 18px 150px 172px 130px minmax(0,1fr) minmax(0,1fr) 24px 24px;'
             + ' gap: 10px; padding: 9px 11px; border-bottom: 1px solid #f1f1ed; align-items: start;'
+            + (isToPost ? ' background: #f8f9ff; border-left: 3px solid #2b4acf;' : ' border-left: 3px solid transparent;')
             + (isDragged ? ' opacity: 0.4;' : '')
             + (dragFrom !== null && dragFrom !== undefined && dragFrom !== i ? ' background: #fafaf7;' : ''),
           onDragStart: e => {
@@ -3577,7 +3656,15 @@ class Component extends DCLogic {
             const updated = c.rubrics.map((x, j) => j === i ? Object.assign({}, x, { manual: !x.manual }) : x);
             this.patch(c.id, { rubrics: updated });
           },
-          setName: e => upd('name', e.target.value),
+          setName: e => {
+            const val = e.target.value;
+            const patch = { name: val };
+            if (!r.kind) {
+              const guess = guessKindFromName(val);
+              if (guess) patch.kind = guess;
+            }
+            this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, patch) : x)) });
+          },
           setDays: e => upd('days', e.target.value),
 
           // Дни — переключатели вместо текстового поля. Раньше сюда вписывали
@@ -3623,6 +3710,30 @@ class Component extends DCLogic {
             kindEmpty: !r.kind,
             current: r.kind ? (RUBRIC_KIND_LABELS[r.kind] || r.kind) : '— тип не задан'
           },
+          folderSelect: {
+            options: PHOTO_FOLDERS.map(f => ({ value: f, label: '📁 ' + f, selected: r.photo_folder === f })),
+            isAuto: !r.photo_folder,
+            autoLabel: '— авто: 📁 ' + folderPath.folder + (folderPath.source === 'kind' ? ' (по типу)' : folderPath.source === 'name' ? ' (по названию)' : '') + ' —',
+            title: r.photo_folder
+              ? 'Папка на Диске зафиксирована явно — не зависит от типа рубрики и её названия.'
+              : 'Папка не выбрана явно — определяется по типу рубрики (или по названию, если тип не задан). Выберите папку, чтобы зафиксировать её жёстко.',
+            style: 'width: 100%; box-sizing: border-box; padding: 3px 5px; margin-top: 3px; border: 1px solid '
+              + (r.photo_folder ? '#2b4acf' : '#e6e6e1') + '; border-radius: 3px; font-size: 10.5px;'
+              + ' font-family: \'IBM Plex Mono\', monospace; background: ' + (r.photo_folder ? '#eef1fe' : '#fff')
+              + '; color: ' + (r.photo_folder ? '#2b4acf' : '#6b7078') + ';'
+          },
+          setFolder: e => {
+            const val = e.target.value;
+            const patch = { photo_folder: val };
+            // Тип ещё не задан — подставляем тот, что этой папке
+            // соответствует по умолчанию. Только подсказка: если тип
+            // уже стоит — не трогаем, если подсказка не подходит —
+            // её всегда можно поменять вручную.
+            if (val && !r.kind && FOLDER_KIND_DEFAULT[val]) patch.kind = FOLDER_KIND_DEFAULT[val];
+            this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, patch) : x)) });
+          },
+          everyNWeeks: (r.every_n_weeks && r.every_n_weeks > 1) ? r.every_n_weeks : 1,
+          setEveryNWeeks: e => upd('every_n_weeks', Math.max(1, Math.min(12, parseInt(e.target.value, 10) || 1))),
           setKind: e => upd('kind', e.target.value),
           topicsText: (r.topics || []).join('\n'),
           topicsCount: (r.topics || []).length,

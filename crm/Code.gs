@@ -1279,6 +1279,14 @@ function normRubrics_(v) {
     if (kind && RUBRIC_KINDS.indexOf(kind) >= 0) out.kind = kind;
     var topics = normTopics_(r.topics);
     if (topics.length) out.topics = topics;
+    // every_n_weeks — рубрика выходит не каждую неделю, а раз в N. 1 или
+    // не задано — обычное еженедельное расписание, поле не пишем совсем.
+    var everyNWeeks = parseInt(r.everyNWeeks || r.every_n_weeks, 10);
+    if (everyNWeeks && everyNWeeks > 1) out.every_n_weeks = everyNWeeks;
+    // photo_folder — явный выбор папки на Диске из выпадающего списка в
+    // интерфейсе. Пусто/не из списка — авто по kind (см. rubricFolder_).
+    var photoFolder = str_(r.photoFolder || r.photo_folder).toLowerCase();
+    if (PHOTO_FOLDERS.indexOf(photoFolder) >= 0) out.photo_folder = photoFolder;
     // флаг manual важно сохранять: без него пересборка плана
     // удаляет рубрики добавленные вручную
     if (r.manual) out.manual = true;
@@ -4133,6 +4141,8 @@ function aiGenExamples_(req) {
     return {
       name: r.name, caption: r.caption, days: r.days, prompt: r.prompt,
       manual: r.manual, dormant: r.dormant, custom: r.custom,
+      kind: r.kind, topics: r.topics, every_n_weeks: r.every_n_weeks,
+      photo_folder: r.photo_folder,
       example: example
     };
   });
@@ -4513,6 +4523,10 @@ function carryRubricMemory_(fresh, prev) {
     if ((!r.topics || !r.topics.length) && old.topics && old.topics.length) {
       r.topics = old.topics;
     }
+    // Явный выбор папки — то же самое "зафиксировано", что kind и topics:
+    // пересборка плана (buildPlan_) не должна его стирать, особенно у
+    // рубрик с manual=true (замочек в интерфейсе).
+    if (!r.photo_folder && old.photo_folder) r.photo_folder = old.photo_folder;
     return r;
   });
 }
@@ -5034,8 +5048,26 @@ function letterSetup_(req) {
  * Название рубрики -> папка с фото. Порт rubric_folder() из clients_post.py:
  * если разойдутся, письмо начнёт называть клиенту несуществующие папки.
  */
-function rubricFolder_(name) {
-  var n = norm_(name);
+/**
+ * Рубрика (объект с name/kind/photo_folder, или просто строка-название) ->
+ * папка. Синхронно с rubric_folder() в clients_post.py: явный photo_folder
+ * решает раньше kind, kind — раньше названия, название — только запасной
+ * вариант для старых рубрик без явного kind.
+ */
+var PHOTO_FOLDERS = ['to_post', 'rubrics/faq', 'rubrics/ideas', 'rubrics/reviews', 'rubrics/tips'];
+
+function rubricFolder_(rubric) {
+  var explicit = str_(rubric && rubric.photo_folder).toLowerCase();
+  if (PHOTO_FOLDERS.indexOf(explicit) >= 0) return explicit === 'to_post' ? null : explicit;
+
+  var kind = str_(rubric && rubric.kind).toLowerCase();
+  if (kind === 'photo_case' || kind === 'before_after') return null; // to_post
+  if (kind === 'results') return 'rubrics/reviews';
+  if (kind === 'tips') return 'rubrics/tips';
+  if (kind === 'faq') return 'rubrics/faq';
+  if (kind === 'inspiration') return 'rubrics/ideas';
+
+  var n = norm_(rubric && (rubric.name || rubric));
   if (n.indexOf('совет') >= 0 || n.indexOf('польз') >= 0) return 'rubrics/tips';
   if (n.indexOf('вопрос') >= 0 || n.indexOf('чзв') >= 0 || n.indexOf('faq') >= 0) return 'rubrics/faq';
   if (n.indexOf('иде') >= 0 || n.indexOf('вдохнов') >= 0) return 'rubrics/ideas';
@@ -5140,7 +5172,7 @@ function letterLaunchText_(c) {
   var need = {};
   var needToPost = false;
   rubrics.forEach(function (r) {
-    var folder = rubricFolder_(r.name);
+    var folder = rubricFolder_(r);
     if (folder) need[folder] = true;
     else needToPost = true;
   });
