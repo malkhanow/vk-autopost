@@ -14,10 +14,17 @@ clients/{client_id}.json и собирается CRM из брифа.
      (photo_case / before_after) идут в самый ранний слот, текстовые —
      в самый поздний. Флаг "morning_photo" в конфигах остался от старой
      схемы и движком не используется.
-  4. Если у выбранной рубрики есть своя подпапка с фото
-     ({yandex_folder}/rubrics/<тема>) — берёт оттуда следующее по очереди;
-     иначе ищет в {yandex_folder}/to_post (общая утренняя очередь).
-     После публикации фото переезжает в {yandex_folder}/posted.
+     Рубрика может также иметь every_n_weeks > 1 — тогда она пропускает
+     совпадающие по дню недели запуски, пока не пройдёт нужное число
+     недель с её последнего реального выхода (см. rubric_due).
+  4. Папка с фото для рубрики определяется явным полем photo_folder из
+     CRM (выпадающий список в интерфейсе), если он задан, иначе — по kind
+     (photo_case/before_after -> to_post, results -> rubrics/reviews,
+     tips/faq/inspiration -> своя папка). Название рубрики — запасной
+     вариант только для старых рубрик без явного photo_folder и kind.
+     Если своей папки нет — берёт следующее фото из
+     {yandex_folder}/to_post. После публикации фото переезжает в
+     {yandex_folder}/posted.
   5. RouterAI (Gemini Flash Lite) пишет текст поста по промпту рубрики,
      с учётом style_prompt, тона и запретов клиента.
   6. Публикует в Telegram-канал клиента. Канал берётся из поля
@@ -290,15 +297,52 @@ def _move_to_posted(src_path, filename, posted_dir):
         print(f"Не удалось перенести {filename} в posted: {resp.text[:200]}")
 
 
-def rubric_folder(rubric_name):
+PHOTO_FOLDERS = {"rubrics/faq", "rubrics/ideas", "rubrics/reviews", "rubrics/tips"}
+
+
+def rubric_folder(rubric):
     """
-    Название рубрики -> подпапка с фото для неё, или None.
-    None означает общую очередь to_post (рубрика без привязанной папки,
-    например «Фото работ» или «Объекты и документы»).
-    Сопоставление по ключевым словам: название рубрики редактируется
-    в CRM руками и может немного отличаться от исходного.
+    Рубрика -> подпапка с фото для неё, или None (общая очередь to_post).
+
+    Принимает либо словарь рубрики, либо просто её название (для обратной
+    совместимости со старыми вызовами).
+
+    Приоритет: явный выбор клиента в CRM ("photo_folder", выпадающий список
+    в интерфейсе) -> "kind" -> угадывание по ключевым словам названия.
+    Раньше папка определялась ТОЛЬКО по названию, и «Фото работ» / «Объекты
+    и документы» попадали в to_post случайно — их название просто не
+    совпадало ни с одним из ключевых слов ниже. Если бы позже в список
+    добавилось похожее слово — такая рубрика молча уехала бы не в ту папку.
+    Теперь kind == "photo_case" / "before_after" жёстко закрепляет рубрику
+    за to_post независимо от того, как она названа, а явный photo_folder
+    закрепляет ещё жёстче — независимо даже от kind.
     """
-    name = (rubric_name or "").lower()
+    if isinstance(rubric, dict):
+        explicit = str(rubric.get("photo_folder") or "").strip().lower()
+        if explicit == "to_post":
+            return None
+        if explicit in PHOTO_FOLDERS:
+            return explicit
+        kind = str(rubric.get("kind") or "").strip().lower()
+        name = str(rubric.get("name") or "")
+    else:
+        kind = ""
+        name = str(rubric or "")
+
+    if kind in ("photo_case", "before_after"):
+        return None  # to_post: реальные фото клиента, закреплено по kind
+    if kind == "results":
+        return "rubrics/reviews"
+    if kind == "tips":
+        return "rubrics/tips"
+    if kind == "faq":
+        return "rubrics/faq"
+    if kind == "inspiration":
+        return "rubrics/ideas"
+
+    # kind не задан (старые конфиги без явного типа) — угадываем по названию,
+    # как раньше.
+    name = name.lower()
     if "совет" in name or "польз" in name:
         return "rubrics/tips"
     if "вопрос" in name or "чзв" in name or "faq" in name:
@@ -307,7 +351,7 @@ def rubric_folder(rubric_name):
         return "rubrics/ideas"
     if "отзыв" in name or "результат" in name:
         return "rubrics/reviews"
-    return None  # to_post: «Фото работ», «Объекты и документы» и т.п.
+    return None  # to_post
 
 
 def rubric_uses_vision(rubric_name_or_dict):
@@ -332,7 +376,7 @@ def rubric_uses_vision(rubric_name_or_dict):
     else:
         name = str(rubric_name_or_dict or "")
 
-    folder = rubric_folder(name)
+    folder = rubric_folder(rubric_name_or_dict)
     if folder == "rubrics/reviews":
         return True
     if folder is None:
@@ -340,7 +384,7 @@ def rubric_uses_vision(rubric_name_or_dict):
     return False
 
 
-def rubric_loops_photos(rubric_name):
+def rubric_loops_photos(rubric):
     """
     Для ряда рубрик фото-заглушки крутятся по кругу бесконечно и НЕ
     переезжают в posted/ после публикации. Когда файлы закончатся, система
@@ -353,13 +397,16 @@ def rubric_loops_photos(rubric_name):
     после публикации (для to_post/ideas — чтобы те же фото не повторялись
     в канале, для reviews — скриншот привязан к реальному отзыву).
     """
-    folder = rubric_folder(rubric_name)
+    folder = rubric_folder(rubric)
     return folder in ("rubrics/tips", "rubrics/faq")
 
 
-def next_photo_for_client(yandex_folder, rubric_name="", state=None, client_id=""):
+def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id=""):
     """
     Следующее фото для рубрики клиента, или (None, None), если фото нет.
+
+    rubric — словарь рубрики (нужен kind, чтобы папка определялась
+    надёжно) или просто её название для обратной совместимости.
 
     Две стратегии зависят от рубрики:
 
@@ -372,14 +419,14 @@ def next_photo_for_client(yandex_folder, rubric_name="", state=None, client_id="
     Когда дошли до конца списка — начинаем сначала. Позволяет загрузить
     несколько заглушек один раз и больше не следить за папкой.
     """
-    folder = rubric_folder(rubric_name)
+    folder = rubric_folder(rubric)
     source = f"{yandex_folder}/{folder}" if folder else f"{yandex_folder}/to_post"
     posted = f"{yandex_folder}/posted"
     files = list_folder(source)
     if not files:
         return None, None
 
-    loops = rubric_loops_photos(rubric_name)
+    loops = rubric_loops_photos(rubric)
 
     if loops and state is not None and client_id:
         # круговой перебор: запоминаем имя последнего файла в state
@@ -1372,7 +1419,7 @@ def build_post(client, rubric, photo_path=None, state=None, client_id=""):
     uses_vision = rubric_uses_vision(rubric)  # передаём словарь чтобы учитывался kind
 
     if uses_vision and photo_path:
-        folder = rubric_folder(rubric.get("name", ""))
+        folder = rubric_folder(rubric)
         is_reviews = folder == "rubrics/reviews"
 
         if is_reviews:
@@ -1971,30 +2018,80 @@ def post_to_telegram(channel, text, photo_path=None):
 
 # ---------- выбор рубрики ----------
 
-def matching_rubrics(client, today_abbr):
+def rubric_interval_weeks(rubric):
+    """
+    every_n_weeks у рубрики: 1 (по умолчанию, каждую неделю) или больше —
+    тогда рубрика пропускает совпадающие по дню недели запуски, пока не
+    пройдёт нужное число недель с её последнего реального выхода.
+    """
+    try:
+        n = int(rubric.get("every_n_weeks") or 1)
+    except (TypeError, ValueError):
+        n = 1
+    return n if n > 1 else 1
+
+
+def rubric_due(rubric, cs, today):
+    """
+    True, если рубрике пора выходить по интервалу every_n_weeks.
+
+    Отсчёт — от даты её ПОСЛЕДНЕГО реального выхода (self-healing): если
+    публикация когда-то сорвалась, рубрика не теряется навсегда, а просто
+    дождётся следующего совпадения дня недели через N недель от последнего
+    успеха, а не от жёсткого календарного якоря, который сбился бы при сбое.
+    Ещё ни разу не выходила — значит, пора.
+    """
+    n = rubric_interval_weeks(rubric)
+    if n <= 1 or today is None:
+        return True
+    last = (cs.get("rubric_last_run") or {}).get(str(rubric.get("name") or ""))
+    if not last:
+        return True
+    from datetime import datetime
+    try:
+        last_date = datetime.strptime(last, "%Y-%m-%d").date()
+    except ValueError:
+        return True
+    return (today - last_date).days >= n * 7
+
+
+def mark_rubric_run(state, client_id, today, rubric):
+    """Отметка ставится только после успешной публикации — как и для
+    праздников (mark_holiday_done), чтобы сбой не «съедал» рубрику."""
+    name = str(rubric.get("name") or "")
+    if not name:
+        return
+    cs = client_state(state, client_id)
+    last_run = cs.get("rubric_last_run") or {}
+    last_run[name] = today.isoformat()
+    cs["rubric_last_run"] = last_run
+
+
+def matching_rubrics(client, today_abbr, cs=None, today=None):
     out = []
     for r in client.get("rubrics", []):
         days = [str(d).strip().lower() for d in (r.get("days") or [])]
-        if today_abbr in days:
-            out.append(r)
+        if today_abbr not in days:
+            continue
+        if cs is not None and not rubric_due(r, cs, today):
+            continue
+        out.append(r)
     return out
 
 
-def pick_rubric(client, today_abbr, state, test_mode):
+def pick_rubric(client, today_abbr, state, test_mode, today=None):
     rubrics = client.get("rubrics", [])
     if not rubrics:
         return None
+    cs = client_state(state, client["client_id"])
     if test_mode:
-        cs = client_state(state, client["client_id"])
         idx = cs["tie_index"] % len(rubrics)
         cs["tie_index"] += 1
         return rubrics[idx]
 
-    matches = matching_rubrics(client, today_abbr)
+    matches = matching_rubrics(client, today_abbr, cs, today)
     if not matches:
         return None
-
-    cs = client_state(state, client["client_id"])
 
     # У клиента на двух слотах день часто закрыт одной рубрикой — тогда оба
     # слота получали её же, и в канал уходило два поста на одну тему подряд.
@@ -2195,9 +2292,10 @@ def mark_holiday_done(state, client_id, today, holiday, kind):
     cs["holiday_done"] = done[-30:]
 
 
-def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
+def pick_rubric_for_run(client, slot, today_abbr, state, test_mode, today=None):
     """
-    Расписание по дням недели (поле days[] у рубрики).
+    Расписание по дням недели (поле days[] у рубрики) и, если задан,
+    интервалу every_n_weeks (см. rubric_due).
 
     При двух и более слотах рубрики делятся по типу:
       - kind == "photo_case" / "before_after" — это «фото работ» клиента.
@@ -2205,9 +2303,11 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
       - все остальные — идут в ПОЗДНИЙ слот и чередуются между собой
         по назначенным дням.
 
-    В каждом слоте берутся только рубрики, назначенные на сегодня.
-    Если на сегодня ничего не назначено — слот пропускается (None).
-    Рубрика с пустым days[] считается ежедневной.
+    В каждом слоте берутся только рубрики, назначенные на сегодня и,
+    если у них задан every_n_weeks > 1, для которых прошло достаточно
+    недель с последнего реального выхода. Если на сегодня ничего не
+    назначено — слот пропускается (None). Рубрика с пустым days[]
+    считается ежедневной.
 
     Если у клиента вообще нет фото-рубрик, ранний слот берёт из общего
     пула сегодняшних рубрик — чтобы не пропадал впустую.
@@ -2216,21 +2316,24 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     Тест — по кругу по всем рубрикам.
     """
     if test_mode:
-        return pick_rubric(client, today_abbr, state, test_mode)
+        return pick_rubric(client, today_abbr, state, test_mode, today)
 
     slot_names = [s.get("name") for s in client.get("slots", []) if s.get("name")]
     ordered_slots = [s for s in SLOT_ORDER if s in slot_names]
 
     if len(ordered_slots) <= 1:
-        return pick_rubric(client, today_abbr, state, test_mode)
+        return pick_rubric(client, today_abbr, state, test_mode, today)
 
     rubrics = client.get("rubrics", [])
     if not rubrics:
         return None
 
+    cs = client_state(state, client["client_id"])
+
     def scheduled_today(r):
         days = r.get("days") or []
-        return (not days) or (today_abbr in [d.strip() for d in days])
+        day_ok = (not days) or (today_abbr in [d.strip() for d in days])
+        return day_ok and rubric_due(r, cs, today)
 
     def is_photo_rubric(r):
         # rubric_kind() учитывает и явное поле kind, и угадывание по названию.
@@ -2241,7 +2344,6 @@ def pick_rubric_for_run(client, slot, today_abbr, state, test_mode):
     photo_pool = [r for r in rubrics if is_photo_rubric(r)]
     text_pool  = [r for r in rubrics if not is_photo_rubric(r)]
 
-    cs = client_state(state, client["client_id"])
     is_early = (slot == ordered_slots[0])
 
     if is_early:
@@ -2320,6 +2422,7 @@ def normalize_client(data):
         for r in rubrics:
             if isinstance(r, dict):
                 r["days"] = normalize_days(r.get("days"))
+                r["every_n_weeks"] = rubric_interval_weeks(r)
     return data
 
 
@@ -2459,13 +2562,13 @@ def main():
                                                    kind=kind, state=state,
                                                    client_id=cid), None
         else:
-            rubric = pick_rubric_for_run(client, SLOT, today_abbr, state, test_mode)
+            rubric = pick_rubric_for_run(client, SLOT, today_abbr, state, test_mode, today)
             if not rubric:
                 print(f"{cid}: сегодня рубрик нет, пропускаю.")
                 continue
             what = f"рубрику «{rubric.get('name')}»"
             photo_path, photo_meta = next_photo_for_client(
-                client.get("yandex_folder", ""), rubric.get("name", ""),
+                client.get("yandex_folder", ""), rubric,
                 state=state, client_id=cid
             )
             try:
@@ -2542,6 +2645,8 @@ def main():
                 slot_done[SLOT] = today.isoformat()
             if holiday:
                 mark_holiday_done(state, cid, today, holiday, kind)
+            else:
+                mark_rubric_run(state, cid, today, rubric)
             if photo_meta:
                 src_path, filename, posted_dir = photo_meta
                 move_to_posted(src_path, filename, posted_dir)
