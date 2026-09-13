@@ -391,12 +391,21 @@ def rubric_loops_photos(rubric):
     начнёт с самого старого снова. Это позволяет загрузить несколько картинок
     один раз и не следить за пополнением папки.
 
-    tips, faq — типичные заглушки без привязки к конкретному событию.
+    Приоритет: явный переключатель "photo_loop" в CRM (да/нет) -> папка по
+    умолчанию. tips, faq — по кругу по умолчанию, остальные — одноразово.
+    Явный переключатель позволяет включить круговой перебор для ЛЮБОЙ
+    рубрики и папки, не только для tips/faq — например для «10 фото по
+    очереди, без повторов, по кругу» в произвольной рубрике.
 
-    to_post (None), ideas, reviews — НЕ зацикленные: фото уходит в posted/
-    после публикации (для to_post/ideas — чтобы те же фото не повторялись
-    в канале, для reviews — скриншот привязан к реальному отзыву).
+    to_post (None), ideas, reviews — по умолчанию НЕ зацикленные: фото
+    уходит в posted/ после публикации (для to_post/ideas — чтобы те же
+    фото не повторялись в канале, для reviews — скриншот привязан к
+    реальному отзыву).
     """
+    if isinstance(rubric, dict):
+        explicit = rubric.get("photo_loop")
+        if isinstance(explicit, bool):
+            return explicit
     folder = rubric_folder(rubric)
     return folder in ("rubrics/tips", "rubrics/faq")
 
@@ -429,9 +438,11 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id=""):
     loops = rubric_loops_photos(rubric)
 
     if loops and state is not None and client_id:
-        # круговой перебор: запоминаем имя последнего файла в state
+        # круговой перебор: запоминаем имя последнего файла в state.
+        # folder может быть None (to_post) — раньше цикл сюда не попадал,
+        # теперь может, если photo_loop включён явно.
         cs = client_state(state, client_id)
-        loop_key = f"loop_{folder.replace('/', '_')}"
+        loop_key = f"loop_{(folder or 'to_post').replace('/', '_')}"
         last_name = cs.get(loop_key, "")
         # сортируем по имени — стабильный порядок, не зависящий от времени
         names = sorted(f["name"] for f in files)
