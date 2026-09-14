@@ -413,7 +413,7 @@
             <div style="padding: 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; row-gap: 12px">
 
               <div style="width: 96px; height: 96px; flex: none; border-radius: 50%; background: linear-gradient(135deg,#2563eb,#7c5cf6); box-shadow: 0 4px 12px rgba(37,99,235,0.25); position: relative; overflow: hidden">
-                <div data-cid="{{ c.id }}" onDrop="{{ onAvatarDrop }}" onDragOver="{{ onAvatarDragOver }}" onClick="{{ onAvatarClick }}" class="avatar-wrap" title="Клик — загрузить фото · Перетащи фото — позиционировать" style="width: 100%; height: 100%; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center">
+                <label for="{{ avatarInputId }}" onDrop="{{ onAvatarDrop }}" onDragOver="{{ onAvatarDragOver }}" class="avatar-wrap" title="Клик — загрузить фото" style="width: 100%; height: 100%; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center">
                   <sc-if value="{{ c.avatar }}" hint-placeholder-val="{{ false }}">
                     <img src="{{ c.avatar }}" onError="this.style.display='none'" onMouseDown="{{ onAvatarDragStart }}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 1; object-position: {{ c.avatarPos }}">
                   </sc-if>
@@ -427,7 +427,8 @@
                       <div style="width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: avatarSpin 0.7s linear infinite"></div>
                     </div>
                   </sc-if>
-                </div>
+                </label>
+                <input type="file" id="{{ avatarInputId }}" accept="image/*" onChange="{{ onAvatarChange }}" style="display: none">
               </div>
 
               <div style="flex: 1; min-width: 220px; overflow: hidden">
@@ -484,7 +485,7 @@
                         <input type="text" value="{{ c.name }}" onChange="{{ set.name }}" style="margin-top: 4px; width: 100%; box-sizing: border-box; font-size: 13px; color: #0f172a; border: 1px solid #dde6f7; border-radius: 6px; padding: 5px 8px; font-family: inherit"/>
                       </sc-if>
                       <sc-if value="{{ contactNotEditing }}" hint-placeholder-val="{{ true }}">
-                        <div style="margin-top: 2px; font-size: 13px; color: #334155; overflow-wrap: break-word">{{ c.name }}</div>
+                        <div style="margin-top: 2px; font-size: 13px; color: #334155; overflow-wrap: break-word; padding-left: 23px">{{ c.name }}</div>
                       </sc-if>
                     </div>
                     <div style="padding: 7px 0; border-bottom: 1px solid #f1f5f9">
@@ -497,7 +498,7 @@
                         <input type="text" value="{{ c.phone }}" onChange="{{ set.phone }}" style="margin-top: 4px; width: 100%; box-sizing: border-box; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #0f172a; border: 1px solid #dde6f7; border-radius: 6px; padding: 5px 8px; font-family: inherit"/>
                       </sc-if>
                       <sc-if value="{{ contactNotEditing }}" hint-placeholder-val="{{ true }}">
-                        <div style="margin-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #334155; overflow-wrap: break-word">{{ c.phone }}</div>
+                        <div style="margin-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #334155; overflow-wrap: break-word; padding-left: 23px">{{ c.phone }}</div>
                       </sc-if>
                     </div>
                     <div style="padding: 7px 0; border-bottom: 1px solid #f1f5f9">
@@ -510,7 +511,7 @@
                         <input type="text" value="{{ c.email }}" onChange="{{ set.email }}" style="margin-top: 4px; width: 100%; box-sizing: border-box; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #0f172a; border: 1px solid #dde6f7; border-radius: 6px; padding: 5px 8px; font-family: inherit"/>
                       </sc-if>
                       <sc-if value="{{ contactNotEditing }}" hint-placeholder-val="{{ true }}">
-                        <div style="margin-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #334155; overflow-wrap: break-word">{{ c.email }}</div>
+                        <div style="margin-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #334155; overflow-wrap: break-word; padding-left: 23px">{{ c.email }}</div>
                       </sc-if>
                     </div>
                     <div style="padding: 7px 0; border-bottom: 1px solid #f1f5f9">
@@ -523,7 +524,7 @@
                         <input type="text" value="{{ c.tg }}" onChange="{{ set.tg }}" style="margin-top: 4px; width: 100%; box-sizing: border-box; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #0f172a; border: 1px solid #dde6f7; border-radius: 6px; padding: 5px 8px; font-family: inherit"/>
                       </sc-if>
                       <sc-if value="{{ contactNotEditing }}" hint-placeholder-val="{{ true }}">
-                        <div style="margin-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #334155; overflow-wrap: break-word">{{ c.tg }}</div>
+                        <div style="margin-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #334155; overflow-wrap: break-word; padding-left: 23px">{{ c.tg }}</div>
                       </sc-if>
                     </div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px">
@@ -611,7 +612,7 @@
                     </sc-for>
                     <sc-if value="{{ cardTasksEmpty }}" hint-placeholder-val="{{ false }}">
                       <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 14px 18px; text-align: center">
-                        <div style="width: 40px; height: 40px; border-radius: 50%; background: #f0fdf4; display: grid; place-items: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+                        <div style="width: 40px; height: 40px; border-radius: 50%; background: #f0fdf4; display: grid; place-items: center; overflow: hidden; flex: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
                         <p style="margin: 0; font-size: 12.5px; color: #64748b; font-weight: 500">Открытых задач нет.</p>
                         <p style="margin: 0; font-size: 11.5px; color: #a3a7ac">Отличная работа! Все задачи выполнены.</p>
                       </div>
@@ -3642,7 +3643,9 @@ class Component extends DCLogic {
       copyEmail: () => this.copy(c.email, 'copy-email', 'Email скопирован'),
       copyTg: () => this.copy(c.tg, 'copy-tg', 'Telegram скопирован'),
       copyName: () => this.copy(c.name, 'copy-name', 'ФИО скопировано'),
+      avatarInputId: 'avatar-' + c.id,
       avatarPos: c.avatarPos || '50% 50%',
+      onAvatarChange: (e) => { if (e.target.files && e.target.files[0]) this.uploadAvatar(c.id, e.target.files[0], conn); },
       onAvatarDragStart: (e) => {
         if (e.button !== 0) return;
         e.preventDefault(); e.stopPropagation();
