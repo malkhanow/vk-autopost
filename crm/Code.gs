@@ -452,7 +452,8 @@ var HEAD_CLIENTS_EXTRA = [
   // Поля, которые до сих пор жили только в конфиге на GitHub и держались
   // на mergePreservedConfig_. Без колонок их нельзя было ни завести в CRM,
   // ни поправить: action=save молча выбрасывал их из карточки.
-  'Короткий призыв', 'Фото: направления', 'Фото: инструкция'
+  'Короткий призыв', 'Фото: направления', 'Фото: инструкция',
+  'Аватар'
 ];
 
 var HEAD_LOG = ['client_id', 'Дата', 'Время', 'Рубрика', 'Статус', 'Ошибка'];
@@ -496,7 +497,8 @@ var F = {
   photoTopics: 'Фото: направления',
   photoInstruction: 'Фото: инструкция',
   lastPostDate: 'Последний пост', lastPostStatus: 'Статус последнего поста',
-  updatedAt: 'Обновлено'
+  updatedAt: 'Обновлено',
+  avatar: 'Аватар'
 };
 
 /**
@@ -1199,7 +1201,8 @@ function rowToClient_(t, row, rowNumber) {
     diskLink: str_(val_(t, row, 'diskLink')),
     firstPostDate: dateOut_(parseDate_(val_(t, row, 'firstPostDate'))),
     lastPostDate: str_(val_(t, row, 'lastPostDate')) || '—',
-    lastPostStatus: str_(val_(t, row, 'lastPostStatus')) || 'Не запущен'
+    lastPostStatus: str_(val_(t, row, 'lastPostStatus')) || 'Не запущен',
+    avatar: str_(val_(t, row, 'avatar'))
   };
 }
 
@@ -1348,6 +1351,7 @@ var TO_CELL = {
   payMonths:      function (v) { return str_(v); },
   stylePrompt:   function (v) { return str_(v); },
   postFormat:    function (v) { return str_(v); },
+  avatar:        function (v) { return str_(v); },
   ctaShort:      function (v) { return str_(v); },
   photoTopics:   function (v) {
     return (Array.isArray(v) ? v.map(str_) : lines_(v)).filter(String).join('\n');
