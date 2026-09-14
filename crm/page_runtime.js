@@ -178,15 +178,19 @@
     });
   }
 
-  function create(vnode) {
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var SVG_TAGS = { svg:1, path:1, circle:1, rect:1, line:1, polyline:1, polygon:1, ellipse:1, g:1, defs:1, use:1, text:1, tspan:1, linearGradient:1, radialGradient:1, stop:1, clipPath:1, mask:1, pattern:1, filter:1, image:1, symbol:1, marker:1 };
+
+  function create(vnode, inSvg) {
     if (vnode.text !== undefined) {
       vnode.el = document.createTextNode(vnode.text);
       return vnode.el;
     }
-    var el = document.createElement(vnode.tag);
+    var isSvg = inSvg || vnode.tag === 'svg' || SVG_TAGS[vnode.tag];
+    var el = isSvg ? document.createElementNS(SVG_NS, vnode.tag) : document.createElement(vnode.tag);
     vnode.el = el;
     // дети раньше атрибутов: <select value="…"> должен видеть свои <option>
-    vnode.children.forEach(function (child) { el.appendChild(create(child)); });
+    vnode.children.forEach(function (child) { el.appendChild(create(child, isSvg)); });
     applyAttrs(el, {}, vnode.attrs);
     bindEvents(el, vnode.events);
     return el;
@@ -211,6 +215,7 @@
   }
 
   function patchChildren(parent, oldList, list) {
+    var inSvg = parent.namespaceURI === SVG_NS;
     var count = Math.max(oldList.length, list.length);
     for (var i = 0; i < count; i++) {
       var was = oldList[i];
@@ -219,11 +224,11 @@
       if (!now) {
         if (was && was.el && was.el.parentNode === parent) parent.removeChild(was.el);
       } else if (!was) {
-        parent.appendChild(create(now));
+        parent.appendChild(create(now, inSvg));
       } else if (sameKind(was, now)) {
         patchNode(was, now);
       } else {
-        parent.replaceChild(create(now), was.el);
+        parent.replaceChild(create(now, inSvg), was.el);
       }
     }
   }
