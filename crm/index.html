@@ -1592,12 +1592,15 @@
     });
   }
 
+  var SVG_ATTR_FIX = { viewbox: 'viewBox', preserveaspectratio: 'preserveAspectRatio', gradienttransform: 'gradientTransform', patterntransform: 'patternTransform', gradientunits: 'gradientUnits', spreadmethod: 'spreadMethod', clippathunits: 'clipPathUnits' };
+
   function applyAttrs(el, oldAttrs, attrs) {
+    var isSvg = el.namespaceURI === 'http://www.w3.org/2000/svg';
     Object.keys(oldAttrs).forEach(function (name) {
       if (name in attrs) return;
       if (name === 'style') el.style.cssText = el.__baseStyle = '';
       else if (name === 'checked') el.checked = false;
-      else el.removeAttribute(name);
+      else el.removeAttribute(isSvg && SVG_ATTR_FIX[name] || name);
     });
 
     Object.keys(attrs).forEach(function (name) {
@@ -1630,7 +1633,8 @@
         return;
       }
       var str = String(value);
-      if (el.getAttribute(name) !== str) el.setAttribute(name, str);
+      var attrName = isSvg && SVG_ATTR_FIX[name] || name;
+      if (el.getAttribute(attrName) !== str) el.setAttribute(attrName, str);
     });
   }
 
@@ -1643,6 +1647,14 @@
         var handler = el.__handlers && el.__handlers[kind];
         if (typeof handler === 'function') handler(e);
       });
+      // файлы/чекбоксы/селекты не всегда шлют 'input' — подписываемся и на нативный 'change'
+      if (kind === 'change' && EVENTS[kind] !== 'change' && !el['__bound_change_native']) {
+        el['__bound_change_native'] = true;
+        el.addEventListener('change', function (e) {
+          var handler = el.__handlers && el.__handlers.change;
+          if (typeof handler === 'function') handler(e);
+        });
+      }
     });
   }
 
