@@ -4,10 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SMM-сервис · CRM</title>
-<!--
-  Файл собран из «Клиенты.dc.html» — руками не правьте.
-  Меняйте холст и пересобирайте: python3 crm/build_page.py
--->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -416,13 +412,13 @@
 
             <div style="padding: 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; row-gap: 12px">
 
-              <div style="width: 96px; height: 96px; flex: none; border-radius: 18px; background: linear-gradient(135deg,#2563eb,#7c5cf6); box-shadow: 0 4px 12px rgba(37,99,235,0.25); position: relative; overflow: hidden">
-                <div data-cid="{{ c.id }}" onDrop="{{ onAvatarDrop }}" onDragOver="{{ onAvatarDragOver }}" onClick="{{ onAvatarClick }}" class="avatar-wrap" title="Изменить аватар" style="width: 100%; height: 100%; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center">
+              <div style="width: 96px; height: 96px; flex: none; border-radius: 50%; background: linear-gradient(135deg,#2563eb,#7c5cf6); box-shadow: 0 4px 12px rgba(37,99,235,0.25); position: relative; overflow: hidden">
+                <div data-cid="{{ c.id }}" onDrop="{{ onAvatarDrop }}" onDragOver="{{ onAvatarDragOver }}" onClick="{{ onAvatarClick }}" class="avatar-wrap" title="Клик — загрузить фото · Перетащи фото — позиционировать" style="width: 100%; height: 100%; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center">
                   <sc-if value="{{ c.avatar }}" hint-placeholder-val="{{ false }}">
-                    <img src="{{ c.avatar }}" onError="this.style.display='none'" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 18px; z-index: 1">
+                    <img src="{{ c.avatar }}" onError="this.style.display='none'" onMouseDown="{{ onAvatarDragStart }}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 1; object-position: {{ c.avatarPos }}">
                   </sc-if>
                   <div class="avatar-initials" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 700; color: rgba(255,255,255,0.9); letter-spacing: -0.02em; pointer-events: none; z-index: 0; transition: opacity 0.15s">{{ avatarInitials }}</div>
-                  <div class="avatar-hover-overlay" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: rgba(0,0,0,0.45); border-radius: 18px; opacity: 0; transition: opacity 0.15s; z-index: 3; pointer-events: none">
+                  <div class="avatar-hover-overlay" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: rgba(0,0,0,0.45); border-radius: 50%; opacity: 0; transition: opacity 0.15s; z-index: 3; pointer-events: none">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
                     <span style="font-size: 9px; font-weight: 600; color: white; text-align: center; line-height: 1.2">Изменить<br>аватар</span>
                   </div>
@@ -2126,7 +2122,7 @@ function client(o) {
     tgChannel: '', morningPhoto: false, holidaysExtra: '', postFormat: '',
     paidAt: null, payMonths: 0,
     letterSetup: '', letterLaunch: '', diskLink: '', firstPostDate: null,
-    limitsOverride: null, tariffHistory: [], avatar: '', _uploading: false
+    limitsOverride: null, tariffHistory: [], avatar: '', avatarPos: '50% 50%', _uploading: false
   }, o);
 }
 
@@ -3646,11 +3642,29 @@ class Component extends DCLogic {
       copyEmail: () => this.copy(c.email, 'copy-email', 'Email скопирован'),
       copyTg: () => this.copy(c.tg, 'copy-tg', 'Telegram скопирован'),
       copyName: () => this.copy(c.name, 'copy-name', 'ФИО скопировано'),
-      copyId: () => this.copy(c.id, 'copy-id', 'ID скопирован'),
+      avatarPos: c.avatarPos || '50% 50%',
+      onAvatarDragStart: (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const id = c.id;
+        const rect = e.currentTarget.parentElement.getBoundingClientRect();
+        const startX = e.clientX, startY = e.clientY;
+        const [ox, oy] = (c.avatarPos || '50% 50%').split(' ').map(v => parseFloat(v));
+        const move = (ev) => {
+          const dx = (ev.clientX - startX) / rect.width * 100;
+          const dy = (ev.clientY - startY) / rect.height * 100;
+          const nx = Math.max(0, Math.min(100, ox - dx));
+          const ny = Math.max(0, Math.min(100, oy - dy));
+          this.patch(id, { avatarPos: nx.toFixed(1) + '% ' + ny.toFixed(1) + '%' });
+        };
+        const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+      },
       avatarInitials: (c.business || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?',
       onAvatarDrop: (e) => { e.preventDefault(); const id = e.currentTarget.dataset.cid; const f = (e.dataTransfer.files||[])[0]; if (f && id) this.uploadAvatar(id, f, conn); },
       onAvatarDragOver: (e) => e.preventDefault(),
-      onAvatarClick: (e) => { const id = e.currentTarget.dataset.cid; if (!id) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = () => { if (inp.files[0]) this.uploadAvatar(id, inp.files[0], conn); }; inp.click(); },
+      onAvatarClick: (e) => { const id = e.currentTarget.dataset.cid; if (!id) return; if (e.target.closest('.avatar-reposition')) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.style.display = 'none'; document.body.appendChild(inp); inp.onchange = () => { if (inp.files[0]) this.uploadAvatar(id, inp.files[0], conn); document.body.removeChild(inp); }; setTimeout(() => inp.click(), 0); },
       contactEditing: !!st.contactEdit,
       contactNotEditing: !st.contactEdit,
       contactEditLabel: busy === 'save' ? 'Сохраняю…' : (st.contactEdit ? 'Сохранить' : 'Изменить'),
