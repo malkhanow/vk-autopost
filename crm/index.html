@@ -417,7 +417,7 @@
             <div style="padding: 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; row-gap: 12px">
 
               <div style="width: 96px; height: 96px; flex: none; border-radius: 50%; background: linear-gradient(135deg,#2563eb,#7c5cf6); box-shadow: 0 4px 12px rgba(37,99,235,0.25); position: relative; overflow: hidden">
-                <label for="{{ avatarInputId }}" onDrop="{{ onAvatarDrop }}" onDragOver="{{ onAvatarDragOver }}" class="avatar-wrap" title="Клик — загрузить фото" style="width: 100%; height: 100%; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center">
+                <div onClick="{{ onAvatarPick }}" onDrop="{{ onAvatarDrop }}" onDragOver="{{ onAvatarDragOver }}" class="avatar-wrap" title="Клик — загрузить фото" style="width: 100%; height: 100%; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center">
                   <sc-if value="{{ c.avatar }}" hint-placeholder-val="{{ false }}">
                     <img src="{{ c.avatar }}" onError="this.style.display='none'" onMouseDown="{{ onAvatarDragStart }}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 1; object-position: {{ c.avatarPos }}">
                   </sc-if>
@@ -431,8 +431,7 @@
                       <div style="width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: avatarSpin 0.7s linear infinite"></div>
                     </div>
                   </sc-if>
-                </label>
-                <input type="file" id="{{ avatarInputId }}" accept="image/*" onChange="{{ onAvatarChange }}" style="display: none">
+                </div>
               </div>
 
               <div style="flex: 1; min-width: 220px; overflow: hidden">
@@ -2640,7 +2639,11 @@ class Component extends DCLogic {
   }
 
   uploadAvatar(id, file, conn) {
-    const resize = dataUrl => new Promise(resolve => {
+    if (!file || !/^image\//.test(file.type || '')) return this.flash('Это не картинка — нужен jpg или png');
+    this.flash('Загружаю фото…');
+    this.patch(id, { _uploading: true });
+
+    const resize = dataUrl => new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         const MAX = 240, s = Math.min(MAX / img.width, MAX / img.height, 1);
@@ -2649,20 +2652,39 @@ class Component extends DCLogic {
         cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
         resolve(cv.toDataURL('image/jpeg', 0.88));
       };
+      img.onerror = () => reject(new Error('браузер не смог открыть этот файл'));
       img.src = dataUrl;
     });
+
+    /** Показываем локально: аватар виден сразу, даже если таблица недоступна. */
+    const showLocal = base64 => {
+      try { localStorage.setItem('crm_avatar_' + id, base64); } catch (e) {}
+      this.patch(id, { avatar: base64, _uploading: false });
+    };
+
     const reader = new FileReader();
+    reader.onerror = () => { this.patch(id, { _uploading: false }); this.flash('Не удалось прочитать файл'); };
     reader.onload = ev => {
       resize(ev.target.result).then(base64 => {
         if (!conn || !conn.WEBAPP_URL) {
-          try { localStorage.setItem('crm_avatar_' + id, base64); } catch(e) {}
-          this.patch(id, { avatar: base64, _uploading: false });
+          showLocal(base64);
+          this.flash('Фото показано локально — задайте WEBAPP_URL, чтобы сохранить в таблицу');
           return;
         }
-        this.patch(id, { _uploading: true });
         apiPost(conn, 'upload_avatar', { client_id: id, image: base64 })
-          .then(r => this.patch(id, { avatar: r.url, _uploading: false }))
-          .catch(err => { console.error('Avatar upload:', err); this.patch(id, { _uploading: false }); });
+          .then(r => {
+            if (!r || !r.url) throw new Error('бэкенд не вернул ссылку на файл');
+            this.patch(id, { avatar: r.url, _uploading: false });
+            this.flash('Фото сохранено');
+          })
+          .catch(err => {
+            console.error('Avatar upload:', err);
+            showLocal(base64);
+            this.flash('Фото не ушло в таблицу: ' + (err && err.message ? err.message : 'ошибка') + ' — показано локально');
+          });
+      }).catch(err => {
+        this.patch(id, { _uploading: false });
+        this.flash('Не удалось обработать фото: ' + err.message);
       });
     };
     reader.readAsDataURL(file);
@@ -3665,7 +3687,23 @@ class Component extends DCLogic {
       copyName: () => this.copy(c.name, 'copy-name', 'ФИО скопировано'),
       avatarInputId: 'avatar-' + c.id,
       avatarPos: c.avatarPos || '50% 50%',
-      onAvatarChange: (e) => { if (e.target.files && e.target.files[0]) this.uploadAvatar(c.id, e.target.files[0], conn); },
+      /** Выбор файла на «живом» инпуте вне шаблона: его change не зависит от рантайма. */
+      onAvatarPick: () => {
+        const id = c.id;
+        const inp = document.createElement('input');
+        inp.type = 'file';
+        inp.accept = 'image/*';
+        inp.style.cssText = 'position: fixed; left: -9999px; top: 0';
+        document.body.appendChild(inp);
+        const cleanup = () => setTimeout(() => { if (inp.parentNode) inp.parentNode.removeChild(inp); }, 0);
+        inp.addEventListener('change', () => {
+          const f = inp.files && inp.files[0];
+          if (f) this.uploadAvatar(id, f, conn);
+          cleanup();
+        });
+        inp.addEventListener('cancel', cleanup);
+        inp.click();
+      },
       onAvatarDragStart: (e) => {
         if (e.button !== 0) return;
         e.preventDefault(); e.stopPropagation();
@@ -3685,9 +3723,8 @@ class Component extends DCLogic {
         document.addEventListener('mouseup', up);
       },
       avatarInitials: (c.business || '').trim().split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?',
-      onAvatarDrop: (e) => { e.preventDefault(); const id = e.currentTarget.dataset.cid; const f = (e.dataTransfer.files||[])[0]; if (f && id) this.uploadAvatar(id, f, conn); },
+      onAvatarDrop: (e) => { e.preventDefault(); const f = (e.dataTransfer.files||[])[0]; if (f) this.uploadAvatar(c.id, f, conn); },
       onAvatarDragOver: (e) => e.preventDefault(),
-      onAvatarClick: (e) => { const id = e.currentTarget.dataset.cid; if (!id) return; if (e.target.closest('.avatar-reposition')) return; const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.style.display = 'none'; document.body.appendChild(inp); inp.onchange = () => { if (inp.files[0]) this.uploadAvatar(id, inp.files[0], conn); document.body.removeChild(inp); }; setTimeout(() => inp.click(), 0); },
       contactEditing: !!st.contactEdit,
       contactNotEditing: !st.contactEdit,
       contactEditLabel: busy === 'save' ? 'Сохраняю…' : (st.contactEdit ? 'Сохранить' : 'Изменить'),
