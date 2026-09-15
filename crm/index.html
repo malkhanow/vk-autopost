@@ -2294,7 +2294,10 @@ function toApi(c) {
     topics: c.topics, styleAnswers: c.styleAnswers, checks: c.checks,
     iterations: c.iterations, photoQueue: c.photoQueue,
     lastPostDate: c.lastPostDate, lastPostStatus: c.lastPostStatus,
-    limitsOverride: c.limitsOverride || null, tariffHistory: c.tariffHistory || []
+    limitsOverride: c.limitsOverride || null, tariffHistory: c.tariffHistory || [],
+    // avatar едет вместе с остальными полями: иначе полное сохранение карточки
+    // перезаписывало бы колонку «Аватар» пустым значением
+    avatar: c.avatar || ''
   };
 }
 
@@ -3679,6 +3682,11 @@ class Component extends DCLogic {
         photoInstruction: c.photoInstruction || '',
         // photoTopicsText нужен для textarea «одна тема на строку»
         photoTopicsText: (c.photoTopics || []).join('\n'),
+        // avatar / avatarPos / _uploading тоже обязательны: разметка читает
+        // {{ c.avatar }} и {{ c._uploading }}, без них фото не отрисовывалось
+        avatar: c.avatar || '',
+        avatarPos: c.avatarPos || '50% 50%',
+        _uploading: !!c._uploading,
         active: c.active
       },
       activeLabel: c.active ? 'Активный клиент' : 'Неактивен',
