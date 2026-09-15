@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SMM-сервис · CRM</title>
+<!--
+  Файл собран из «Клиенты.dc.html» скриптом crm/build_page.py — руками не правьте.
+  Меняйте холст и пересобирайте:  python3 crm/build_page.py
+-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -47,11 +51,11 @@
   pre { background: #f7f9fc !important; border: 1px solid #e8edf5 !important; color: #475569 !important; border-radius: 12px !important; }
   input[type=checkbox] { accent-color: #2563eb; }
   main > div { color: #334155; }
+  select.sel-auto { background: #eff6ff !important; color: #2563eb !important; border-color: #2563eb !important; font-weight: 700 !important; }
+  select.sel-manual { background: #fff !important; color: #64748b !important; border-color: #e2e8f0 !important; }
   @keyframes avatarSpin { to { transform: rotate(360deg); } }
   .avatar-wrap:hover .avatar-hover-overlay { opacity: 1 !important; }
   .avatar-wrap:hover .avatar-initials { opacity: 0.3; }
-  select.sel-auto { background: #eff6ff !important; color: #2563eb !important; border-color: #2563eb !important; font-weight: 700 !important; }
-  select.sel-manual { background: #fff !important; color: #64748b !important; border-color: #e2e8f0 !important; }
 </style>
 </head>
 <body>
@@ -1772,7 +1776,6 @@
   global.DCLogic = Logic;
   global.mountPage = mount;
 })(window);
-
 </script>
 
 <script>
