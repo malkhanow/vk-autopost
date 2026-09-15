@@ -2676,10 +2676,9 @@ class Component extends DCLogic {
           this.flash('Фото показано локально — задайте WEBAPP_URL, чтобы сохранить в таблицу');
           return;
         }
-        apiPost(conn, 'upload_avatar', { client_id: id, image: base64 })
-          .then(r => {
-            if (!r || !r.url) throw new Error('бэкенд не вернул ссылку на файл');
-            this.patch(id, { avatar: r.url, _uploading: false });
+        apiPost(conn, 'save', { client: { id: id, avatar: base64 } })
+          .then(() => {
+            this.patch(id, { avatar: base64, _uploading: false });
             this.flash('Фото сохранено');
           })
           .catch(err => {
