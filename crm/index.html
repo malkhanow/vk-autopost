@@ -2646,11 +2646,16 @@ class Component extends DCLogic {
     const resize = dataUrl => new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const MAX = 240, s = Math.min(MAX / img.width, MAX / img.height, 1);
+        // ~160 px и подбор качества: data-URL должен влезть в ячейку Sheets (50 000 символов)
+        const MAX = 160, s = Math.min(MAX / img.width, MAX / img.height, 1);
         const cv = document.createElement('canvas');
         cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
         cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        resolve(cv.toDataURL('image/jpeg', 0.88));
+        let out = cv.toDataURL('image/jpeg', 0.82);
+        let q = 0.82;
+        while (out.length > 44000 && q > 0.35) { q -= 0.12; out = cv.toDataURL('image/jpeg', q); }
+        if (out.length > 44000) return reject(new Error('фото не сжимается достаточно — возьмите файл поменьше'));
+        resolve(out);
       };
       img.onerror = () => reject(new Error('браузер не смог открыть этот файл'));
       img.src = dataUrl;
