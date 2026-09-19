@@ -1029,6 +1029,14 @@
                     <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #94a3b8">итераций: {{ c.iterations }}</span>
                   </div>
                   <p style="margin: 6px 0 10px; font-size: 11.5px; color: #94a3b8">Правки из Telegram вставляете сюда. Gemini обновляет промпты рубрик и перегенерирует примеры.</p>
+
+                  <!-- tg_channel --------------------------------------------------- -->
+                  <div style="display: flex; align-items: baseline; gap: 8px; margin: 0 0 5px">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600">tg_channel</span>
+                    <span style="font-size: 11px; color: #94a3b8">Telegram-канал клиента — сюда бот публикует посты</span>
+                  </div>
+                  <input type="text" value="{{ c.tgChannel }}" onChange="{{ set.tgChannel }}" placeholder="@customstudio_print" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; font-family: 'IBM Plex Mono', monospace; margin-bottom: 14px"/>
+
                   <textarea rows="3" placeholder="Например: меньше формальности, не начинать посты с вопроса, добавить про доставку" value="{{ c.edits }}" onChange="{{ set.edits }}" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dedeD9; border-radius: 4px; background: #fff; font-size: 12.5px; line-height: 1.5; resize: vertical"></textarea>
                   <div style="display: flex; align-items: center; gap: 9px; margin-top: 10px">
                     <button onClick="{{ applyEdits }}" style="{{ applyBtn }}">{{ applyLabel }}</button>
