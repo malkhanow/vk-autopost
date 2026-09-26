@@ -239,5 +239,10 @@
       "opener": 1,
       "topic:советы": 1
     }
+  },
+  "layn-mebel": {
+    "tie_index": 0,
+    "used_photos": [],
+    "slot_done": {}
   }
 }
