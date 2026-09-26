@@ -2129,6 +2129,33 @@ def rubric_interval_weeks(rubric):
     return n if n > 1 else 1
 
 
+def rubric_week_ok(rubric, today):
+    """
+    Необязательное поле "weeks": "even" / "odd" — рубрика активна только по
+    чётным/нечётным номерам недели ISO (today.isocalendar()[1]). Не задано —
+    активна каждую неделю, как раньше, ничего не меняется.
+
+    В отличие от every_n_weeks (который отсчитывается от даты ПОСЛЕДНЕГО
+    РЕАЛЬНОГО выхода конкретной рубрики и может "поплыть", если публикация
+    сорвалась или день достался рубрике-конкуренту), чётность недели
+    детерминирована самой датой и ни от какой истории публикаций не
+    зависит. Это специально для случая, когда ДВЕ РАЗНЫЕ рубрики должны
+    надёжно меняться местами по календарю в один и тот же день недели
+    (например у layn-mebel по субботам: по чётным неделям — доп. совет,
+    по нечётным — доп. фото шкафа) — с every_n_weeks для этого пришлось бы
+    городить две независимые самовосстанавливающиеся рубрики без гарантии
+    точной противофазы, тут же коллизии в принципе не может быть: неделя
+    либо чётная, либо нечётная, никогда оба сразу.
+    """
+    parity = str(rubric.get("weeks") or "").strip().lower()
+    if parity not in ("even", "odd"):
+        return True
+    if today is None:
+        return True
+    is_even = today.isocalendar()[1] % 2 == 0
+    return is_even if parity == "even" else not is_even
+
+
 def rubric_due(rubric, cs, today):
     """
     True, если рубрике пора выходить по интервалу every_n_weeks.
@@ -2172,6 +2199,8 @@ def matching_rubrics(client, today_abbr, cs=None, today=None):
         if today_abbr not in days:
             continue
         if cs is not None and not rubric_due(r, cs, today):
+            continue
+        if not rubric_week_ok(r, today):
             continue
         out.append(r)
     return out
