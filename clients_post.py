@@ -300,6 +300,9 @@ def _move_to_posted(src_path, filename, posted_dir):
 PHOTO_FOLDERS = {"rubrics/faq", "rubrics/ideas", "rubrics/reviews", "rubrics/tips"}
 
 
+_SAFE_FOLDER_RE = re.compile(r"^[a-z0-9_-]+$")
+
+
 def rubric_folder(rubric):
     """
     Рубрика -> подпапка с фото для неё, или None (общая очередь to_post).
@@ -316,13 +319,32 @@ def rubric_folder(rubric):
     Теперь kind == "photo_case" / "before_after" жёстко закрепляет рубрику
     за to_post независимо от того, как она названа, а явный photo_folder
     закрепляет ещё жёстче — независимо даже от kind.
+
+    photo_folder раньше принимался только из фиксированного списка
+    PHOTO_FOLDERS (rubrics/faq|ideas|reviews|tips) — этого хватало, пока
+    у клиента был только один photo_case на все виды фото. Когда у одного
+    клиента несколько независимых направлений с одинаковым kind (например
+    кухни и корпусная мебель — обе "photo_case", но не должны делить одну
+    очередь), им нужны РАЗНЫЕ подпапки. Поэтому любое другое имя, прошедшее
+    проверку _SAFE_FOLDER_RE (латиница/цифры/_/- одним сегментом, без
+    слэшей и точек — это путь на Диске, а не название для человека),
+    принимается как СВОЯ подпапка клиента и ведёт себя как to_post: файл
+    берётся, публикуется и уезжает в posted/, но из своей независимой
+    очереди. Мусорное или пустое значение — тихий откат к kind/названию,
+    чтобы опечатка в конфиге не роняла рубрику без фото вовсе.
     """
     if isinstance(rubric, dict):
-        explicit = str(rubric.get("photo_folder") or "").strip().lower()
+        explicit_raw = str(rubric.get("photo_folder") or "").strip()
+        explicit = explicit_raw.lower()
         if explicit == "to_post":
             return None
         if explicit in PHOTO_FOLDERS:
             return explicit
+        if explicit_raw:
+            candidate = explicit.replace(" ", "_")
+            if candidate != "posted" and _SAFE_FOLDER_RE.match(candidate):
+                return candidate
+            print(f"Некорректный photo_folder {explicit_raw!r} — беру папку по kind/названию")
         kind = str(rubric.get("kind") or "").strip().lower()
         name = str(rubric.get("name") or "")
     else:
@@ -433,6 +455,9 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id=""):
     posted = f"{yandex_folder}/posted"
     files = list_folder(source)
     if not files:
+        rname = rubric.get("name") if isinstance(rubric, dict) else rubric
+        print(f"{client_id or '?'}: папка {source} пуста — рубрика «{rname}» "
+              f"выйдет без фото (или будет пропущена), пополните очередь")
         return None, None
 
     loops = rubric_loops_photos(rubric)
