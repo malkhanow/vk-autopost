@@ -271,6 +271,68 @@ def download_yandex_file(yandex_path):
     return tmp.name
 
 
+_LOGO_CACHE = {}  # yandex_folder -> локальный путь к скачанному логотипу (или "" если не найден)
+
+
+def overlay_logo(photo_path, yandex_folder):
+    """
+    Накладывает фирменный логотип клиента в правый нижний угол фото.
+
+    Логотип берётся из {yandex_folder}/brand/logo.png — PNG с прозрачным
+    фоном, кладёт его туда сам клиент один раз. Скачивается один раз за
+    запуск скрипта и кэшируется в _LOGO_CACHE — на одном прогоне у
+    каждого клиента и так максимум один пост, но кэш защищает и от
+    повторного скачивания, если это когда-то изменится (test_mode и т.п.).
+
+    Размер — 18% от ширины фото (пропорция сохраняется), отступ от правого
+    и нижнего края — высота уже отмасштабированного логотипа. Требование
+    клиента (layn-mebel): "отступ от нижнего края — примерно на высоту
+    самого логотипа", "одинаковое расположение во всех публикациях".
+
+    Любая ошибка (нет файла на Диске, битый PNG, Pillow не поставился) —
+    публикуем фото как есть, без логотипа, а не роняем публикацию целиком.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        print("Pillow не установлен — логотип не наложен, фото публикуется как есть")
+        return photo_path
+
+    logo_path = _LOGO_CACHE.get(yandex_folder)
+    if logo_path is None:
+        try:
+            logo_path = download_yandex_file(f"{yandex_folder}/brand/logo.png")
+        except Exception as e:
+            print(f"Логотип не найден ({yandex_folder}/brand/logo.png): {e} — публикую фото без него")
+            logo_path = ""
+        _LOGO_CACHE[yandex_folder] = logo_path
+    if not logo_path:
+        return photo_path
+
+    try:
+        base = Image.open(photo_path).convert("RGBA")
+        logo = Image.open(logo_path).convert("RGBA")
+
+        target_w = max(1, int(base.width * 0.18))
+        ratio = target_w / logo.width
+        logo = logo.resize((target_w, max(1, int(logo.height * ratio))), Image.LANCZOS)
+
+        margin = logo.height
+        x = max(0, base.width - logo.width - margin)
+        y = max(0, base.height - logo.height - margin)
+        base.alpha_composite(logo, dest=(x, y))
+
+        if photo_path.lower().endswith((".jpg", ".jpeg")):
+            base.convert("RGB").save(photo_path, "JPEG", quality=92)
+            return photo_path
+        out_path = photo_path if photo_path.lower().endswith(".png") else photo_path + ".png"
+        base.save(out_path)
+        return out_path
+    except Exception as e:
+        print(f"Не удалось наложить логотип на {photo_path}: {e} — публикую фото без него")
+        return photo_path
+
+
 def move_to_posted(src_path, filename, posted_dir):
     """Переносит опубликованное фото в posted/.
 
@@ -2585,6 +2647,7 @@ def main():
         if holiday:
             # праздничный пост вытесняет обычную рубрику этого слота; фото из
             # очереди клиента не тратим — оно ждёт своей рубрики
+            rubric = None
             try:
                 text = build_holiday_post(client, holiday, kind)
             except Exception as e:
@@ -2671,6 +2734,15 @@ def main():
                       f"фото и текст уходят одним постом")
             text = body
         text = (text.rstrip() + "\n\n" + tail) if tail else text.rstrip()
+
+        # Логотип — по требованию клиента, в правый нижний угол, на всех
+        # публикациях, КРОМЕ рубрик "Советы"/"ЧЗВ": там фото — просто
+        # иллюстрация, не документирует конкретный проект компании.
+        if photo_path and client.get("logo_overlay"):
+            rubric_kind = str((rubric or {}).get("kind") or "").strip().lower()
+            if rubric_kind not in ("tips", "faq"):
+                photo_path = overlay_logo(photo_path, client.get("yandex_folder", ""))
+
         print(f"{cid}: публикую {what} в {channel}")
         try:
             post_to_telegram(channel, text, photo_path)
