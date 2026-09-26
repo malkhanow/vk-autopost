@@ -966,6 +966,7 @@
                                 <option value="{{ fo.value }}" selected="{{ fo.selected }}">{{ fo.label }}</option>
                               </sc-for>
                             </select>
+                            <input type="text" placeholder="или своя папка: a-z0-9_- (напр. to_post_kitchens)" value="{{ r.folderSelect.customValue }}" onChange="{{ r.folderSelect.setCustom }}" title="Своя подпапка на Диске — для нескольких независимых направлений фото у одного клиента с одинаковым типом рубрики (например разные подпапки под разные виды фото)." style="width: 100%; box-sizing: border-box; padding: 4px 6px; margin-top: 4px; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 10.5px; font-family: 'IBM Plex Mono', monospace; color: #64748b">
                             <sc-if value="{{ r.showLoopSelect }}" hint-placeholder-val="{{ true }}">
                             <select onChange="{{ r.loopSelect.onChange }}" title="{{ r.loopSelect.title }}" class="{{ r.loopSelect.cls }}" style="{{ r.loopSelect.style }}">
                               <option value="" selected="{{ r.loopSelect.isAuto }}">{{ r.loopSelect.autoLabel }}</option>
@@ -4299,7 +4300,15 @@ class Component extends DCLogic {
             style: 'width: 100%; box-sizing: border-box; padding: 4px 6px; margin-top: 4px; border: 1px solid '
               + (!r.photo_folder ? '#2563eb' : '#e2e8f0') + '; border-radius: 5px; font-size: 10.5px;'
               + ' font-family: \'IBM Plex Mono\', monospace; background: ' + (!r.photo_folder ? '#eff6ff' : '#fff')
-              + '; color: ' + (!r.photo_folder ? '#2563eb' : '#64748b') + ';'
+              + '; color: ' + (!r.photo_folder ? '#2563eb' : '#64748b') + ';',
+            // Своя подпапка — то, что не входит в фиксированные PHOTO_FOLDERS.
+            // Показываем в текстовом поле, только когда это реально кастомное
+            // значение, а не один из пяти зарезервированных (те живут в selecte).
+            customValue: (r.photo_folder && PHOTO_FOLDERS.indexOf(String(r.photo_folder).toLowerCase()) < 0) ? r.photo_folder : '',
+            setCustom: e => {
+              const v = String(e.target.value || '').trim().toLowerCase().replace(/\s+/g, '_');
+              this.patch(c.id, { rubrics: c.rubrics.map((x, j) => (j === i ? Object.assign({}, x, { photo_folder: v || null }) : x)) });
+            }
           },
           setFolder: e => {
             const val = e.target.value;

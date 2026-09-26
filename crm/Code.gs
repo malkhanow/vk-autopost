@@ -1286,10 +1286,18 @@ function normRubrics_(v) {
     // не задано — обычное еженедельное расписание, поле не пишем совсем.
     var everyNWeeks = parseInt(r.everyNWeeks || r.every_n_weeks, 10);
     if (everyNWeeks && everyNWeeks > 1) out.every_n_weeks = everyNWeeks;
-    // photo_folder — явный выбор папки на Диске из выпадающего списка в
-    // интерфейсе. Пусто/не из списка — авто по kind (см. rubricFolder_).
+    // photo_folder — явный выбор папки на Диске: либо из выпадающего списка
+    // (5 зарезервированных значений), либо своя подпапка клиента, вписанная
+    // вручную (несколько независимых направлений с одинаковым kind — см.
+    // safeFolderSlug_ и rubric_folder() в clients_post.py). Пусто/мусор —
+    // авто по kind (см. rubricFolder_).
     var photoFolder = str_(r.photoFolder || r.photo_folder).toLowerCase();
-    if (PHOTO_FOLDERS.indexOf(photoFolder) >= 0) out.photo_folder = photoFolder;
+    if (PHOTO_FOLDERS.indexOf(photoFolder) >= 0) {
+      out.photo_folder = photoFolder;
+    } else {
+      var customFolder = safeFolderSlug_(photoFolder);
+      if (customFolder) out.photo_folder = customFolder;
+    }
     // photo_loop — явный переключатель "по кругу / одноразово", независимый
     // от папки: по умолчанию (не задано) решает папка — tips/faq по кругу,
     // остальные одноразово (см. rubric_loops_photos в clients_post.py).
@@ -5072,9 +5080,26 @@ function letterSetup_(req) {
  */
 var PHOTO_FOLDERS = ['to_post', 'rubrics/faq', 'rubrics/ideas', 'rubrics/reviews', 'rubrics/tips'];
 
+/** Проверяет и нормализует имя СВОЕЙ подпапки клиента для фото (не из
+ *  PHOTO_FOLDERS). Разрешены только латиница/цифры/_/- одним сегментом —
+ *  без слэшей, точек, кириллицы и пробелов: это путь на Яндекс.Диске,
+ *  а не название для человека (человеку показываем название рубрики).
+ *  Те же правила, что в _SAFE_FOLDER_RE в clients_post.py — если разойдутся,
+ *  CRM будет принимать то, что движок откажется читать, или наоборот. */
+function safeFolderSlug_(v) {
+  var s = str_(v).toLowerCase().replace(/\s+/g, '_');
+  if (!s || s === 'posted') return '';
+  if (!/^[a-z0-9_-]+$/.test(s)) return '';
+  return s;
+}
+
 function rubricFolder_(rubric) {
   var explicit = str_(rubric && rubric.photo_folder).toLowerCase();
   if (PHOTO_FOLDERS.indexOf(explicit) >= 0) return explicit === 'to_post' ? null : explicit;
+  if (explicit) {
+    var custom = safeFolderSlug_(explicit);
+    if (custom) return custom;
+  }
 
   var kind = str_(rubric && rubric.kind).toLowerCase();
   if (kind === 'photo_case' || kind === 'before_after') return null; // to_post
@@ -5186,11 +5211,16 @@ function letterLaunchText_(c) {
 
   // Какие папки реально нужны этому клиенту — по его рубрикам
   var need = {};
+  var customLabel = {}; // своя_подпапка -> название рубрики, для письма
   var needToPost = false;
   rubrics.forEach(function (r) {
     var folder = rubricFolder_(r);
-    if (folder) need[folder] = true;
-    else needToPost = true;
+    if (folder) {
+      need[folder] = true;
+      if (PHOTO_FOLDERS.indexOf(folder) < 0) customLabel[folder] = str_(r.name) || folder;
+    } else {
+      needToPost = true;
+    }
   });
   if (needToPost || c.hasPhoto) need['to_post'] = true;
 
@@ -5200,6 +5230,18 @@ function letterLaunchText_(c) {
     if (!need[key]) return;
     var info = FOLDER_INFO[key];
     (info.loop ? once : refill).push(info);
+  });
+  // Свои подпапки клиента не описаны в FOLDER_INFO заранее — собираем
+  // такое же по форме описание на лету, по названию рубрики, которая её
+  // использует. Ведут себя как to_post: фото расходуется, папку пополнять.
+  Object.keys(customLabel).forEach(function (key) {
+    refill.push({
+      icon: '📁',
+      title: key,
+      text: 'Фото для рубрики «' + customLabel[key] + '». Система берёт по одному ' +
+        'фото на пост и убирает использованное, поэтому чем больше загрузите ' +
+        'сразу — тем дольше не придётся возвращаться.'
+    });
   });
 
   if (refill.length || once.length) {
