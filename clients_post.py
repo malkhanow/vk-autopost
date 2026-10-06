@@ -313,7 +313,7 @@ def overlay_logo(photo_path, yandex_folder):
         base = Image.open(photo_path).convert("RGBA")
         logo = Image.open(logo_path).convert("RGBA")
 
-        target_w = max(1, int(base.width * 0.18))
+        target_w = max(1, int(base.width * 0.25))
         ratio = target_w / logo.width
         logo = logo.resize((target_w, max(1, int(logo.height * ratio))), Image.LANCZOS)
 
