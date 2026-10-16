@@ -74,6 +74,10 @@ jobs:
           ROUTERAI_KEY: ${{ secrets.ROUTERAI_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
+          # Клиенты, которым разрешены видео из очереди to_post (через запятую).
+          # Здесь, а не в конфиге клиента: CRM пересобирает конфиг при каждом
+          # «Сохранить» и теряет поля, которых нет в её карточке.
+          VIDEO_CLIENTS: "plasticheskiy-hirurg"
           SLOT: ${{ steps.slot.outputs.slot }}
           TEST_CLIENT_ID: ${{ github.event.inputs.client_id }}
           PYTHONUNBUFFERED: "1"

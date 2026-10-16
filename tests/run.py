@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = [
     ("test_clients_post.py", "многоклиентский движок: рубрики, слоты, праздники"),
     ("test_text_guard.py", "защита от обрубленных постов"),
+    ("test_media.py", "очередь фото и видео: пропуск битых файлов, видео"),
 ]
 
 failed = 0
