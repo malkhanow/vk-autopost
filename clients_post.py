@@ -59,7 +59,10 @@ import glob
 import json
 import mimetypes
 import os
+import posixpath
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -190,6 +193,46 @@ HOLIDAY_KINDS = {
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
+# Видео берутся из очереди только у клиентов, где это включено явно
+# (см. video_enabled) — иначе ролики, годами лежавшие в to_post у других
+# клиентов и молча игнорировавшиеся, вдруг начали бы публиковаться.
+ALLOWED_VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp"}
+
+# Bot API принимает файлы до 50 МБ. Берём с запасом: multipart-обёртка и
+# подпись тоже занимают место, а отказ Telegram на 50.1 МБ — это потерянный пост.
+MAX_VIDEO_MB = 48
+
+# Исходник тяжелее этого не скачиваем вовсе: скачивание плюс перекодирование
+# гигабайтного файла упирается в лимит времени джобы и блокирует очередь
+# остальных клиентов.
+MAX_VIDEO_SOURCE_MB = 800
+
+# Сколько файлов очереди пробуем за один запуск. Битый файл в начале очереди
+# раньше блокировал её целиком: движок каждый день брал именно его, не мог
+# скачать и публиковал пост без фото, пока остальные файлы лежали рядом.
+MAX_FILE_ATTEMPTS = 6
+
+# Клиенты, которым разрешены видео: client_id через запятую. Задаётся в
+# workflow, а не в конфиге клиента: CRM пересобирает конфиг при каждом
+# «Сохранить» и теряет поля, которых нет в её карточке.
+VIDEO_CLIENTS = {x.strip() for x in os.environ.get("VIDEO_CLIENTS", "").split(",")
+                 if x.strip()}
+
+
+def video_enabled(client):
+    """Публикует ли клиент видео из очереди. Явное post_video в конфиге
+    главнее переменной VIDEO_CLIENTS в обе стороны."""
+    if not isinstance(client, dict):
+        return False
+    flag = client.get("post_video")
+    if isinstance(flag, bool):
+        return flag
+    return client.get("client_id") in VIDEO_CLIENTS
+
+
+def is_video_path(path):
+    return bool(path) and os.path.splitext(str(path))[1].lower() in ALLOWED_VIDEO_EXTS
+
 
 # ---------- состояние (ротация рубрик и фото) ----------
 
@@ -218,7 +261,7 @@ def yandex_headers():
     return {"Authorization": f"OAuth {YANDEX_TOKEN}"}
 
 
-def list_folder(path, quiet=False):
+def list_folder(path, quiet=False, allow_video=False):
     if not YANDEX_TOKEN:
         return []
     resp = requests.get(
@@ -227,7 +270,8 @@ def list_folder(path, quiet=False):
         params={
             "path": path, "limit": 200, "sort": "created",
             "fields": "_embedded.items.name,_embedded.items.path,"
-                      "_embedded.items.type,_embedded.items.created",
+                      "_embedded.items.type,_embedded.items.created,"
+                      "_embedded.items.size",
         },
         timeout=30,
     )
@@ -240,14 +284,18 @@ def list_folder(path, quiet=False):
         return []
     items = resp.json().get("_embedded", {}).get("items", [])
     files = [i for i in items if i.get("type") == "file"]
+    # Изображения — всегда; видео — только когда вызывающий их разрешил
+    # (клиент включён в video_enabled и рубрика берёт файлы из конечной очереди).
+    exts = (ALLOWED_IMAGE_EXTS | ALLOWED_VIDEO_EXTS) if allow_video else ALLOWED_IMAGE_EXTS
     ok = [i for i in files
-          if os.path.splitext(i.get("name", ""))[1].lower() in ALLOWED_IMAGE_EXTS]
-    # Публикуем только изображения. Всё остальное — видео, архивы, документы —
+          if os.path.splitext(i.get("name", ""))[1].lower() in exts]
+    # Всё остальное — архивы, документы, а для клиентов без видео и ролики —
     # игнорируется, но раньше исчезало молча и копилось в папке незаметно.
     # Теперь лишние файлы видны в логе запуска.
     if len(ok) < len(files) and not quiet:
         skipped = [i.get("name", "") for i in files if i not in ok]
-        print(f"В '{path}' пропущено файлов (не изображения): {len(skipped)} "
+        what = "не изображения" if not allow_video else "не изображения и не видео"
+        print(f"В '{path}' пропущено файлов ({what}): {len(skipped)} "
               f"— {', '.join(skipped[:5])}")
     return ok
 
@@ -269,6 +317,184 @@ def download_yandex_file(yandex_path):
             tmp.write(chunk)
     tmp.close()
     return tmp.name
+
+
+def _silent_unlink(path):
+    try:
+        if path and os.path.exists(path):
+            os.unlink(path)
+    except Exception:
+        pass
+
+
+def image_is_readable(path):
+    """Скачанный файл действительно открывается как картинка.
+
+    Во время сбоя Диска «скачивание» нередко заканчивается успешно, но внутри
+    лежит обрезанный файл или страница с ошибкой вместо снимка. Такой файл
+    раньше шёл дальше: AI не мог его разобрать, Telegram отвергал, и пост
+    выходил без фото. Теперь он отсеивается здесь, и берётся следующий.
+    """
+    try:
+        if os.path.getsize(path) == 0:
+            return False
+    except OSError:
+        return False
+    try:
+        from PIL import Image
+    except Exception:
+        return True   # Pillow не установлен — проверить нечем, не блокируем
+    try:
+        with Image.open(path) as im:
+            im.load()   # полное декодирование: ловит и обрезанные файлы
+        return True
+    except Exception as e:
+        print(f"Файл не открывается как изображение ({type(e).__name__}: {e})")
+        return False
+
+
+# ---------- видео ----------
+
+# (длинная сторона, crf) — от лучшего качества к самому лёгкому. Берём первый
+# вариант, который влез в лимит Telegram.
+VIDEO_PROFILES = [(1280, 27), (960, 30), (640, 34)]
+
+_DUR_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+_VID_RE = re.compile(
+    r"Stream #[^\n]*Video:\s*([A-Za-z0-9_]+)[^\n]*?,\s*(\d{2,5})x(\d{2,5})"
+)
+
+
+def ffmpeg_exe():
+    """Системный ffmpeg, а если его нет — бинарник из пакета imageio-ffmpeg
+    (он ставится из requirements.txt и не требует apt на раннере)."""
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _run_ffmpeg(args, timeout):
+    exe = ffmpeg_exe()
+    if not exe:
+        return None
+    return subprocess.run([exe] + list(args), capture_output=True, text=True,
+                          errors="replace", timeout=timeout)
+
+
+def probe_video(path):
+    """Сведения о видео из вывода `ffmpeg -i` или None, если файл не читается.
+
+    {} — ffmpeg недоступен, проверить нечем (это не признак поломки файла).
+    Читаем stderr, а не ffprobe: ffprobe отдельного бинарника в imageio-ffmpeg нет.
+    """
+    try:
+        r = _run_ffmpeg(["-hide_banner", "-i", path], timeout=60)
+    except Exception:
+        return None
+    if r is None:
+        return {}
+    text = r.stderr or ""
+    m = _VID_RE.search(text)
+    if not m:
+        return None   # нет видеопотока: обрезанный файл, «moov atom not found» и т. п.
+    info = {"codec": m.group(1), "width": int(m.group(2)), "height": int(m.group(3))}
+    d = _DUR_RE.search(text)
+    if d:
+        info["duration"] = int(float(d.group(1)) * 3600 + float(d.group(2)) * 60
+                               + float(d.group(3)))
+    # Повёрнутое видео (вертикальное с телефона): ширина и высота из потока
+    # не совпадают с тем, что покажет плеер, поэтому размеры Telegram не передаём.
+    info["rotated"] = ("rotation of" in text) or bool(re.search(r"\brotate\s*:", text))
+    return info
+
+
+def video_meta(path):
+    """Ширина, высота и длительность для sendVideo. Без них Telegram иногда
+    показывает вертикальное видео квадратом. Пустой словарь — не передаём."""
+    try:
+        info = probe_video(path)
+    except Exception:
+        return {}
+    if not info or info.get("rotated"):
+        return {}
+    return {k: info[k] for k in ("width", "height", "duration") if info.get(k)}
+
+
+def _transcode(src, dst, side, crf):
+    # Вписываем в квадрат side×side, не увеличивая маленькие ролики:
+    # min(side, iw) никогда не больше исходного размера.
+    vf = (f"scale='min({side},iw)':'min({side},ih)':"
+          f"force_original_aspect_ratio=decrease:force_divisible_by=2")
+    r = _run_ffmpeg([
+        "-hide_banner", "-loglevel", "error", "-y", "-i", src,
+        "-map", "0:v:0", "-map", "0:a:0?",
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "96k", "-ac", "2",
+        "-movflags", "+faststart", dst,
+    ], timeout=900)
+    if r is None or r.returncode != 0:
+        if r is not None:
+            print("ffmpeg: " + (r.stderr or "").strip()[-300:])
+        return False
+    return os.path.exists(dst) and os.path.getsize(dst) > 0
+
+
+def prepare_video(src):
+    """Приводит скачанное видео к виду, который примет Telegram.
+
+    Возвращает путь к готовому файлу или None, если видео непригодно
+    (битое, не влезает в лимит, нужен ffmpeg которого нет). При перекодировании
+    исходник удаляется, вызывающий получает только итоговый файл.
+
+    Как есть уходит только .mp4 в пределах лимита: обычная съёмка телефона
+    и мессенджеров. Остальное (.mov с iPhone, .webm, всё тяжелее лимита)
+    перекодируется в H.264/AAC mp4 — Telegram гарантированно играет его
+    потоково, а HEVC из .mov на части устройств показывается как файл.
+    """
+    try:
+        size_mb = os.path.getsize(src) / 1024 / 1024
+    except OSError:
+        return None
+    if size_mb <= 0:
+        return None
+
+    have_ffmpeg = ffmpeg_exe() is not None
+    info = probe_video(src) if have_ffmpeg else {}
+    if info is None:
+        print(f"Видео {os.path.basename(src)} не читается (повреждено или недокачано)")
+        return None
+
+    if os.path.splitext(src)[1].lower() == ".mp4" and size_mb <= MAX_VIDEO_MB:
+        return src
+
+    if not have_ffmpeg:
+        print(f"Видео нужно перекодировать (формат или размер {size_mb:.0f} МБ), "
+              f"а ffmpeg недоступен — пропускаю")
+        return None
+
+    for side, crf in VIDEO_PROFILES:
+        fd, dst = tempfile.mkstemp(suffix=".mp4")
+        os.close(fd)
+        try:
+            ok = _transcode(src, dst, side, crf)
+        except Exception as e:
+            print(f"Перекодирование видео оборвалось: {type(e).__name__}: {e}")
+            ok = False
+        if ok and os.path.getsize(dst) / 1024 / 1024 <= MAX_VIDEO_MB:
+            _silent_unlink(src)
+            return dst
+        _silent_unlink(dst)
+        if not ok:
+            return None   # ffmpeg споткнулся на самом файле — меньший профиль не поможет
+    print(f"Видео не удалось уложить в {MAX_VIDEO_MB} МБ даже при минимальном качестве")
+    return None
 
 
 _LOGO_CACHE = {}  # yandex_folder -> локальный путь к скачанному логотипу (или "" если не найден)
@@ -494,12 +720,61 @@ def rubric_loops_photos(rubric):
     return folder in ("rubrics/tips", "rubrics/faq")
 
 
-def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id=""):
+def rubric_accepts_video(rubric):
+    """Видео берётся только из «конечных» очередей: to_post и собственных
+    подпапок клиента. В круговых папках (tips, faq) лежат картинки-заглушки,
+    а в ideas и reviews — иллюстрации и скриншоты отзывов: ролик там неуместен."""
+    if rubric_loops_photos(rubric):
+        return False
+    return rubric_folder(rubric) not in PHOTO_FOLDERS
+
+
+def _fetch_media(item, allow_video, client_id=""):
+    """Скачивает один файл очереди и проверяет, что он годится к публикации.
+
+    Возвращает путь к локальному файлу или None. Сама ничего не бросает:
+    битый файл — это повод взять следующий, а не уронить пост клиента.
     """
-    Следующее фото для рубрики клиента, или (None, None), если фото нет.
+    path = item.get("path", "")
+    name = item.get("name", "")
+    tag = f"{client_id or '?'}: "
+    local = None
+    try:
+        video = allow_video and is_video_path(name)
+        if video:
+            size_mb = (item.get("size") or 0) / 1024 / 1024
+            if size_mb > MAX_VIDEO_SOURCE_MB:
+                print(f"{tag}видео {name} весит {size_mb:.0f} МБ — больше "
+                      f"{MAX_VIDEO_SOURCE_MB} МБ, пропускаю")
+                return None
+        local = download_yandex_file(path)
+        if video:
+            ready = prepare_video(local)
+            if not ready:
+                _silent_unlink(local)
+                return None
+            return ready
+        if not image_is_readable(local):
+            print(f"{tag}файл {name} скачался, но не является рабочим изображением")
+            _silent_unlink(local)
+            return None
+        return local
+    except Exception as e:
+        print(f"{tag}не удалось скачать {path}: {e}")
+        _silent_unlink(local)
+        return None
+
+
+def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id="",
+                          allow_video=False):
+    """
+    Следующее фото (или видео) для рубрики клиента, или (None, None), если
+    ничего пригодного нет.
 
     rubric — словарь рубрики (нужен kind, чтобы папка определялась
     надёжно) или просто её название для обратной совместимости.
+    allow_video — клиенту разрешены ролики (см. video_enabled); сработает
+    только для конечных очередей, см. rubric_accepts_video.
 
     Две стратегии зависят от рубрики:
 
@@ -511,11 +786,21 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id=""):
     последнего использованного файла в state и берёт следующий по алфавиту.
     Когда дошли до конца списка — начинаем сначала. Позволяет загрузить
     несколько заглушек один раз и больше не следить за папкой.
+
+    В обеих стратегиях файл, который не скачался или оказался битым, не
+    блокирует очередь: пробуем следующий (до MAX_FILE_ATTEMPTS за запуск).
+    Сбои запоминаются в state["file_fails"], и такой файл в следующий раз
+    встаёт в конец очереди, а не снова первым. Его не удаляем и не
+    переносим: при сбое самого Диска файл может оказаться целым завтра.
     """
     folder = rubric_folder(rubric)
     source = f"{yandex_folder}/{folder}" if folder else f"{yandex_folder}/to_post"
     posted = f"{yandex_folder}/posted"
-    files = list_folder(source)
+    allow_video = bool(allow_video) and rubric_accepts_video(rubric)
+    if allow_video:
+        files = list_folder(source, allow_video=True)
+    else:
+        files = list_folder(source)
     if not files:
         rname = rubric.get("name") if isinstance(rubric, dict) else rubric
         print(f"{client_id or '?'}: папка {source} пуста — рубрика «{rname}» "
@@ -524,38 +809,64 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id=""):
 
     loops = rubric_loops_photos(rubric)
 
-    if loops and state is not None and client_id:
+    # счётчик сбоев по файлам; без state (старые вызовы) живёт только в этом вызове
+    if state is not None and client_id:
+        cs = client_state(state, client_id)
+        fails = cs.setdefault("file_fails", {})
+    else:
+        cs = None
+        fails = {}
+    # забываем файлы этой папки, которых там уже нет (перенесены или удалены),
+    # чтобы словарь не рос бесконечно
+    present = {f["path"] for f in files}
+    dirs = {posixpath.dirname(p) for p in present}
+    for p in [p for p in fails if posixpath.dirname(p) in dirs and p not in present]:
+        del fails[p]
+
+    def failed(item):
+        fails[item["path"]] = fails.get(item["path"], 0) + 1
+
+    if loops and cs is not None:
         # круговой перебор: запоминаем имя последнего файла в state.
         # folder может быть None (to_post) — раньше цикл сюда не попадал,
         # теперь может, если photo_loop включён явно.
-        cs = client_state(state, client_id)
         loop_key = f"loop_{(folder or 'to_post').replace('/', '_')}"
         last_name = cs.get(loop_key, "")
         # сортируем по имени — стабильный порядок, не зависящий от времени
-        names = sorted(f["name"] for f in files)
-        if last_name in names:
-            idx = (names.index(last_name) + 1) % len(names)
-        else:
-            idx = 0
-        chosen_name = names[idx]
-        chosen = next(f for f in files if f["name"] == chosen_name)
-        cs[loop_key] = chosen_name
-        # при цикле НЕ передаём posted — фото остаётся на месте
-        try:
-            local_path = download_yandex_file(chosen["path"])
-        except Exception as e:
-            print(f"Не удалось скачать {chosen['path']}: {e}")
-            return None, None
-        return local_path, None   # None = не переносить в posted/
-    else:
-        # конечная стратегия: самый старый файл, после — в posted/
-        chosen = files[0]         # list_folder сортирует по created
-        try:
-            local_path = download_yandex_file(chosen["path"])
-        except Exception as e:
-            print(f"Не удалось скачать {chosen['path']}: {e}")
-            return None, None
-        return local_path, (chosen["path"], chosen["name"], posted)
+        by_name = {f["name"]: f for f in files}
+        names = sorted(by_name)
+        start = (names.index(last_name) + 1) % len(names) if last_name in names else 0
+        order = [by_name[names[(start + i) % len(names)]] for i in range(len(names))]
+        # ранее не скачавшиеся — в конец, остальной порядок круга сохраняется
+        order.sort(key=lambda f: fails.get(f["path"], 0))
+        for item in order[:MAX_FILE_ATTEMPTS]:
+            local_path = _fetch_media(item, allow_video, client_id)
+            if local_path:
+                cs[loop_key] = item["name"]
+                fails.pop(item["path"], None)
+                # при цикле НЕ передаём posted — фото остаётся на месте
+                return local_path, None   # None = не переносить в posted/
+            failed(item)
+        print(f"{client_id or '?'}: ни один из {min(len(order), MAX_FILE_ATTEMPTS)} "
+              f"файлов {source} не удалось взять — рубрика выйдет без фото")
+        return None, None
+
+    # конечная стратегия: самый старый рабочий файл, после — в posted/.
+    # list_folder сортирует по created; sorted() стабилен, поэтому внутри
+    # одной «категории здоровья» порядок остаётся «старые первыми».
+    order = sorted(files, key=lambda f: fails.get(f["path"], 0))
+    for n, item in enumerate(order[:MAX_FILE_ATTEMPTS]):
+        local_path = _fetch_media(item, allow_video, client_id)
+        if local_path:
+            fails.pop(item["path"], None)
+            if n:
+                print(f"{client_id or '?'}: {n} файл(а) из начала очереди не взялись, "
+                      f"опубликован {item['name']}")
+            return local_path, (item["path"], item["name"], posted)
+        failed(item)
+    print(f"{client_id or '?'}: ни один из {min(len(order), MAX_FILE_ATTEMPTS)} "
+          f"файлов {source} не удалось взять — рубрика выйдет без фото")
+    return None, None
 
 
 # ---------- RouterAI ----------
@@ -1486,7 +1797,129 @@ def parse_faq(raw):
     return [(q, a) for q, a in pairs if len(q.split()) >= 3]
 
 
+# ---------- подпись к видео ----------
+#
+# Что на видео, движок не знает: распознавать ролик так, как он разбирает
+# фото, нечем, а выдуманный по названию файла сюжет в медицинской или любой
+# другой нише — прямой риск. Поэтому подпись нейтральная: короткая мысль о
+# подходе к работе, которая подходит под любой ролик этого бизнеса и не
+# может оказаться неправдой. Промпт рубрики сюда НЕ идёт: он написан под
+# «приложенное фото» и заставил бы модель описывать несуществующий кадр.
+
+VIDEO_ANGLES = [
+    "внимание к деталям и аккуратность в работе",
+    "индивидуальный подход: у каждого человека своя задача",
+    "честный разговор о задаче до начала работы",
+    "ответственность за результат и за то, что происходит после",
+    "спокойный профессиональный подход без спешки",
+    "уважение ко времени, вопросам и сомнениям клиента",
+]
+
+VIDEO_CAPTION_RULE = (
+    "К посту будет приложено видео, но что на нём происходит — тебе НЕИЗВЕСТНО. "
+    "ЗАПРЕЩЕНО описывать видео, его сюжет и героев, пересказывать, что на нём "
+    "видно, писать «на видео», «в ролике», «смотрите», «посмотрите», «вы увидите», "
+    "«как видно». Запрещено называть конкретные услуги, процедуры, операции, "
+    "товары, материалы, части тела и объекты, говорить о результатах, сроках, "
+    "ценах и о конкретных клиентах или пациентах. Это короткий нейтральный текст "
+    "о подходе к работе: он должен подходить под любое видео этого бизнеса и "
+    "не оказаться неправдой."
+)
+
+# Слова, по которым видно, что модель всё-таки заговорила о ролике.
+VIDEO_REF_RE = re.compile(
+    r"\b(на видео|в видео|видеоролик\w*|ролик\w*|видео|смотрите|посмотрите|"
+    r"вы увидите|как видно|в кадре)\b", re.IGNORECASE
+)
+
+
+def build_video_post(client, state=None, client_id=""):
+    pseudo = {"name": "__video__"}   # ключ для антиповтора зачинов в state
+    forbidden = client.get("forbidden") or []
+    lines = [
+        f"Бизнес: {client.get('business', '')}",
+        f"Город: {client.get('city', '')}",
+        f"Тон: {client.get('tone', '')}",
+    ]
+    if forbidden:
+        lines.append("Запрещено упоминать: " + "; ".join(forbidden))
+    lines.append(
+        "Не пиши в конце поста призыв к действию, контакты, ссылки и приглашение "
+        "подписаться — они добавляются автоматически после генерации."
+    )
+    lines.append(NO_CONTACTS_RULE)
+
+    angle = pick_from_cycle(VIDEO_ANGLES, state, client_id, "video_angle") or VIDEO_ANGLES[0]
+    task = [
+        VIDEO_CAPTION_RULE,
+        f"Тема поста: общий взгляд на работу — {angle}.",
+        "Объём: 55–85 слов, два коротких абзаца. Первое предложение — мысль или "
+        "наблюдение, а не заголовок и не обращение вроде «Друзья».",
+    ]
+    extra = str(client.get("video_caption_instruction") or "").strip()
+    if extra:
+        task.append("Дополнительное указание клиента: " + extra)
+    previous = recent_openings(pseudo, state, client_id)
+    if previous:
+        task.append(
+            "Раньше подписи к видео начинались так:\n"
+            + "\n".join("— " + p for p in previous)
+            + "\nНачни иначе и зайди с другой стороны."
+        )
+    task.append("Ответь только текстом поста.")
+
+    style_instruction = (
+        f"СТИЛЬ АВТОРА (соблюдать обязательно): {client['style_prompt']}\n\n"
+        if client.get("style_prompt") else ""
+    )
+    system = (
+        "Ты пишешь посты для соцсетей малого бизнеса от лица владельца. "
+        "Если задан style_prompt — это описание реальной манеры речи этого человека, "
+        "её нужно точно воспроизвести. Никакой воды и канцелярита. "
+        + openers_rule() +
+        "В ответе — только готовый текст поста, без заголовков и пометок. "
+        "Не показывай ход рассуждений."
+    )
+    user = style_instruction + "\n".join(lines) + "\n\n" + "\n".join(task)
+
+    def generate(extra_note=""):
+        return ai_text([
+            {"role": "system", "content": system},
+            {"role": "user", "content": user + (("\n\n" + extra_note) if extra_note else "")},
+        ])
+
+    def clean(t):
+        return (t and not has_forbidden_opener(t) and len(t.split()) >= 40
+                and text_is_complete(t) and not VIDEO_REF_RE.search(t))
+
+    text = generate()
+    if not clean(text):
+        note = ("Предыдущая попытка не подошла: она оказалась слишком короткой, "
+                "оборванной, начиналась с дежурной формулы или упоминала видео. "
+                "Напиши полноценный нейтральный текст на 55–85 слов, не упоминая "
+                "ни видео, ни то, что на нём может быть.")
+        print("Перегенерирую подпись к видео")
+        try:
+            retry = generate(note)
+            if retry:
+                if clean(retry) or not text:
+                    text = retry
+                # оба варианта несовершенны — берём тот, где нет разговора о ролике
+                elif VIDEO_REF_RE.search(text) and not VIDEO_REF_RE.search(retry):
+                    text = retry
+        except Exception as e:
+            print(f"Повторная генерация подписи не удалась, оставляю первый вариант: {e}")
+
+    text = trim_to_sentence(text)
+    remember_opening(pseudo, state, client_id, text)
+    return text
+
+
 def build_post(client, rubric, photo_path=None, state=None, client_id=""):
+    # Видео: содержимое неизвестно, подпись нейтральная и без vision.
+    if photo_path and is_video_path(photo_path):
+        return build_video_post(client, state=state, client_id=client_id)
+
     forbidden = client.get("forbidden") or []
     lines = [
         f"Бизнес: {client.get('business', '')}",
@@ -2042,8 +2475,20 @@ def post_to_telegram(channel, text, photo_path=None):
                 f"{base_url}/sendPhoto", data=data, files={"photo": f}, timeout=60
             )
 
+    def send_video(path, caption, meta):
+        data = {"chat_id": channel, "supports_streaming": "true"}
+        if caption:
+            data["caption"] = caption
+        for key, value in (meta or {}).items():
+            data[key] = str(value)
+        with open(path, "rb") as f:
+            return requests.post(
+                f"{base_url}/sendVideo", data=data, files={"video": f}, timeout=600
+            )
+
+    is_video = is_video_path(photo_path)
     has_photo = bool(photo_path and os.path.exists(photo_path))
-    if has_photo:
+    if has_photo and not is_video:
         size_mb = os.path.getsize(photo_path) / 1024 / 1024
         if size_mb > MAX_PHOTO_MB:
             print(f"Фото больше {MAX_PHOTO_MB} МБ — отправляю без него.")
@@ -2074,7 +2519,26 @@ def post_to_telegram(channel, text, photo_path=None):
         return last
 
     try:
-        if has_photo:
+        if is_video:
+            # Видео от текста без видео неотделимо: подпись нейтральная и
+            # без ролика бессмысленна, а файл при «успехе» уехал бы в posted/
+            # и пропал из очереди. Поэтому при любой неудаче — ошибка, а не
+            # тихий откат к тексту, как у фото.
+            if not has_photo:
+                raise RuntimeError("видеофайл для публикации не найден")
+            if os.path.getsize(photo_path) / 1024 / 1024 > MAX_VIDEO_MB:
+                raise RuntimeError(f"видео больше {MAX_VIDEO_MB} МБ — лимит Telegram")
+            meta = video_meta(photo_path)
+            with_caption = len(text) <= CAPTION_LIMIT
+            resp = send_video(photo_path, text if with_caption else None, meta)
+            if not resp.ok and meta:
+                # неверные размеры из пробы не должны стоить поста
+                print("sendVideo с размерами не прошёл:", resp.text[:200])
+                resp = send_video(photo_path, text if with_caption else None, {})
+            if resp.ok and not with_caption:
+                # подпись не влезла: видео ушло без неё, следом — текст
+                resp = send_text_chunked(text)
+        elif has_photo:
             if len(text) > CAPTION_LIMIT:
                 # подпись не влезает: сначала фото без подписи, следом текст
                 resp = send_photo(photo_path, None)
@@ -2697,8 +3161,11 @@ def main():
             what = f"рубрику «{rubric.get('name')}»"
             photo_path, photo_meta = next_photo_for_client(
                 client.get("yandex_folder", ""), rubric,
-                state=state, client_id=cid
+                state=state, client_id=cid,
+                allow_video=video_enabled(client)
             )
+            if photo_path and is_video_path(photo_path):
+                what += " (видео)"
             try:
                 # Только «Фото работ» получает изображение внутри AI-запроса.
                 # Остальные рубрики сохраняют прежнюю текстовую логику.
@@ -2767,7 +3234,7 @@ def main():
         # Логотип — по требованию клиента, в правый нижний угол, на всех
         # публикациях, КРОМЕ рубрик "Советы"/"ЧЗВ": там фото — просто
         # иллюстрация, не документирует конкретный проект компании.
-        if photo_path and client.get("logo_overlay"):
+        if photo_path and client.get("logo_overlay") and not is_video_path(photo_path):
             rubric_kind = str((rubric or {}).get("kind") or "").strip().lower()
             if rubric_kind not in ("tips", "faq"):
                 photo_path = overlay_logo(photo_path, client.get("yandex_folder", ""))
