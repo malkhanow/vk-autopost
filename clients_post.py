@@ -1200,7 +1200,7 @@ def append_hashtags(text, client, holiday=None):
     return (text.rstrip() + "\n\n" + line) if line else text
 
 
-def hashtags_for_post(text, client, holiday=None):
+def hashtags_for_post(text, client, holiday=None, ai_tags=True):
     """
     Готовая строка тегов для этого поста, без самого текста.
 
@@ -1212,6 +1212,8 @@ def hashtags_for_post(text, client, holiday=None):
     Сперва постоянные из поля hashtags конфига, остальное добирается
     подбором под текст. У памятных дат тегов нет совсем — «#страхование»
     под постом о Дне Победы выглядит как реклама на памятной дате.
+    ai_tags=False — только постоянные: у видео подпись фиксированная, и
+    теги «по тексту» из неё получались бессмысленными.
     """
     if holiday and holiday.get("solemn"):
         return ""
@@ -1225,7 +1227,7 @@ def hashtags_for_post(text, client, holiday=None):
         tags.append(tag)
 
     need = HASHTAGS_MAX - len(tags)
-    if need > 0:
+    if need > 0 and ai_tags:
         try:
             for tag in build_hashtags_ai(client, text, need):
                 if tag.lower() in seen:
@@ -1799,120 +1801,30 @@ def parse_faq(raw):
 
 # ---------- подпись к видео ----------
 #
-# Что на видео, движок не знает: распознавать ролик так, как он разбирает
-# фото, нечем, а выдуманный по названию файла сюжет в медицинской или любой
-# другой нише — прямой риск. Поэтому подпись нейтральная: короткая мысль о
-# подходе к работе, которая подходит под любой ролик этого бизнеса и не
-# может оказаться неправдой. Промпт рубрики сюда НЕ идёт: он написан под
-# «приложенное фото» и заставил бы модель описывать несуществующий кадр.
+# Что на видео, движок не знает: распознать ролик так, как он разбирает фото,
+# нечем, а домысленный сюжет в медицинской или любой другой нише — прямой
+# риск. Поэтому подпись не пишется моделью, а берётся по кругу из короткого
+# списка нейтральных фраз: они не описывают сюжет, не называют услуг,
+# результатов и сроков и подходят под любой ролик любого бизнеса.
+# Модель здесь не просто лишняя, а вредная: она раз за разом «додумывала»
+# содержание (писала о хирургических этапах под роликом неизвестного
+# содержания, обещала «абсолютную точность»), а короткий или оборванный ответ
+# отменял публикацию, и тот же ролик оставался первым в очереди.
+# Телефон и обязательные оговорки клиента добавляются к подписи как всегда
+# (cta_short), так что к фразе ничего юридически значимого добавлять не нужно.
 
-VIDEO_ANGLES = [
-    "внимание к деталям и аккуратность в работе",
-    "индивидуальный подход: у каждого человека своя задача",
-    "честный разговор о задаче до начала работы",
-    "ответственность за результат и за то, что происходит после",
-    "спокойный профессиональный подход без спешки",
-    "уважение ко времени, вопросам и сомнениям клиента",
+VIDEO_CAPTIONS = [
+    "Новое видео в нашем канале.",
+    "Делимся видео.",
+    "Видео для вас.",
+    "Смотрите видео.",
+    "Ещё одно видео для вас.",
 ]
-
-VIDEO_CAPTION_RULE = (
-    "К посту будет приложено видео, но что на нём происходит — тебе НЕИЗВЕСТНО. "
-    "ЗАПРЕЩЕНО описывать видео, его сюжет и героев, пересказывать, что на нём "
-    "видно, писать «на видео», «в ролике», «смотрите», «посмотрите», «вы увидите», "
-    "«как видно». Запрещено называть конкретные услуги, процедуры, операции, "
-    "товары, материалы, части тела и объекты, говорить о результатах, сроках, "
-    "ценах и о конкретных клиентах или пациентах. Это короткий нейтральный текст "
-    "о подходе к работе: он должен подходить под любое видео этого бизнеса и "
-    "не оказаться неправдой."
-)
-
-# Слова, по которым видно, что модель всё-таки заговорила о ролике.
-VIDEO_REF_RE = re.compile(
-    r"\b(на видео|в видео|видеоролик\w*|ролик\w*|видео|смотрите|посмотрите|"
-    r"вы увидите|как видно|в кадре)\b", re.IGNORECASE
-)
 
 
 def build_video_post(client, state=None, client_id=""):
-    pseudo = {"name": "__video__"}   # ключ для антиповтора зачинов в state
-    forbidden = client.get("forbidden") or []
-    lines = [
-        f"Бизнес: {client.get('business', '')}",
-        f"Город: {client.get('city', '')}",
-        f"Тон: {client.get('tone', '')}",
-    ]
-    if forbidden:
-        lines.append("Запрещено упоминать: " + "; ".join(forbidden))
-    lines.append(
-        "Не пиши в конце поста призыв к действию, контакты, ссылки и приглашение "
-        "подписаться — они добавляются автоматически после генерации."
-    )
-    lines.append(NO_CONTACTS_RULE)
-
-    angle = pick_from_cycle(VIDEO_ANGLES, state, client_id, "video_angle") or VIDEO_ANGLES[0]
-    task = [
-        VIDEO_CAPTION_RULE,
-        f"Тема поста: общий взгляд на работу — {angle}.",
-        "Объём: 55–85 слов, два коротких абзаца. Первое предложение — мысль или "
-        "наблюдение, а не заголовок и не обращение вроде «Друзья».",
-    ]
-    extra = str(client.get("video_caption_instruction") or "").strip()
-    if extra:
-        task.append("Дополнительное указание клиента: " + extra)
-    previous = recent_openings(pseudo, state, client_id)
-    if previous:
-        task.append(
-            "Раньше подписи к видео начинались так:\n"
-            + "\n".join("— " + p for p in previous)
-            + "\nНачни иначе и зайди с другой стороны."
-        )
-    task.append("Ответь только текстом поста.")
-
-    style_instruction = (
-        f"СТИЛЬ АВТОРА (соблюдать обязательно): {client['style_prompt']}\n\n"
-        if client.get("style_prompt") else ""
-    )
-    system = (
-        "Ты пишешь посты для соцсетей малого бизнеса от лица владельца. "
-        "Если задан style_prompt — это описание реальной манеры речи этого человека, "
-        "её нужно точно воспроизвести. Никакой воды и канцелярита. "
-        + openers_rule() +
-        "В ответе — только готовый текст поста, без заголовков и пометок. "
-        "Не показывай ход рассуждений."
-    )
-    user = style_instruction + "\n".join(lines) + "\n\n" + "\n".join(task)
-
-    def generate(extra_note=""):
-        return ai_text([
-            {"role": "system", "content": system},
-            {"role": "user", "content": user + (("\n\n" + extra_note) if extra_note else "")},
-        ])
-
-    def clean(t):
-        return (t and not has_forbidden_opener(t) and len(t.split()) >= 40
-                and text_is_complete(t) and not VIDEO_REF_RE.search(t))
-
-    text = generate()
-    if not clean(text):
-        note = ("Предыдущая попытка не подошла: она оказалась слишком короткой, "
-                "оборванной, начиналась с дежурной формулы или упоминала видео. "
-                "Напиши полноценный нейтральный текст на 55–85 слов, не упоминая "
-                "ни видео, ни то, что на нём может быть.")
-        print("Перегенерирую подпись к видео")
-        try:
-            retry = generate(note)
-            if retry:
-                if clean(retry) or not text:
-                    text = retry
-                # оба варианта несовершенны — берём тот, где нет разговора о ролике
-                elif VIDEO_REF_RE.search(text) and not VIDEO_REF_RE.search(retry):
-                    text = retry
-        except Exception as e:
-            print(f"Повторная генерация подписи не удалась, оставляю первый вариант: {e}")
-
-    text = trim_to_sentence(text)
-    remember_opening(pseudo, state, client_id, text)
-    return text
+    return pick_from_cycle(VIDEO_CAPTIONS, state, client_id, "video_caption") \
+        or VIDEO_CAPTIONS[0]
 
 
 def build_post(client, rubric, photo_path=None, state=None, client_id=""):
@@ -3184,13 +3096,18 @@ def main():
 
         # Последний рубеж: модель могла дописать свой телефон или ссылку
         # вопреки запрету в промпте — в канал такое уходить не должно.
-        text = scrub_fabricated_contacts(text, client)
+        # У видео подпись фиксированная и контактов в ней нет — чистить нечего.
+        is_video = bool(photo_path and is_video_path(photo_path))
+        if not is_video:
+            text = scrub_fabricated_contacts(text, client)
 
         # Второй рубеж: проверяем ТЕЛО поста до приклеивания CTA и тегов.
         # После них текст всегда заканчивается «правильно», и обрыв внутри
         # тела становится невидимым — именно так обрубок и попал в канал.
+        # Подпись к видео — короткая фиксированная фраза, а не текст модели:
+        # ни обрыва, ни «слишком коротко» у неё быть не может.
         text = trim_to_sentence(text)
-        if not text_is_complete(text) or len(text.split()) < 40:
+        if not is_video and (not text_is_complete(text) or len(text.split()) < 40):
             head = " ".join(text.split()[:12])
             print(f"{cid}: текст неполный после всех попыток — публикацию отменяю. "
                   f"Начало: «{head}…»")
@@ -3218,7 +3135,7 @@ def main():
             cta = str(cta).strip()
             if cta and cta.splitlines()[0].strip().lower() not in text.lower():
                 parts.append(cta)
-        tag_line = hashtags_for_post(text, client, holiday)
+        tag_line = hashtags_for_post(text, client, holiday, ai_tags=not is_video)
         if tag_line:
             parts.append(tag_line)
         tail = "\n\n".join(parts)
@@ -3259,6 +3176,12 @@ def main():
         except Exception as e:
             print(f"{cid}: ошибка публикации — {e}")
             report_post_status(cid, f"Ошибка: {str(e)[:80]}", stamp_msk(today))
+            if is_video and photo_meta:
+                # Ролик скачался и перекодировался, но Telegram его не принял.
+                # Без отметки он оставался бы первым в очереди и срывал каждый
+                # следующий пост; с отметкой встаёт в конец, как не скачавшийся.
+                fails = cs.setdefault("file_fails", {})
+                fails[photo_meta[0]] = fails.get(photo_meta[0], 0) + 1
 
     save_state(state)
     if not posted_any:

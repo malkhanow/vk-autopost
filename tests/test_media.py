@@ -267,12 +267,7 @@ else:
 
 
 # ---------- нейтральная подпись ----------
-
-NEUTRAL = ("Спокойный профессиональный подход начинается с внимательного разговора. "
-           "Мы сначала слушаем задачу, уточняем детали и только потом предлагаем "
-           "решение, которое подходит именно вам, без спешки и без лишних обещаний. "
-           "Это даёт ощущение опоры. Когда понятны шаги и причины каждого "
-           "решения, появляется уверенность, что всё идёт так, как должно идти.")
+# Подпись к видео не пишется моделью: что на ролике, движок не знает.
 
 captured = []
 
@@ -288,44 +283,43 @@ client = {"client_id": "t", "business": "Клиника", "city": "СПб", "ton
           "rubrics": []}
 rubric = {"name": "Фото работ", "kind": "photo_case", "prompt": "Опиши случай по приложенному фото"}
 
-# видео -> нейтральная подпись, vision не вызывается, промпт рубрики не используется
 vid_path = os.path.join(TMP, "caption.mp4")
 open(vid_path, "wb").write(b"x")
 seen_vision = []
 cp.image_to_data_url = lambda p: seen_vision.append(p)
-fake_ai.replies = [NEUTRAL]
 captured.clear()
 st = fresh_state()
 text = cp.build_post(client, rubric, vid_path, state=st, client_id="t")
-sent = "\n".join(m["content"] if isinstance(m["content"], str) else "" for m in captured[0])
-eq("подпись к видео получена", text.startswith("Спокойный профессиональный"), True)
+eq("подпись к видео — из списка нейтральных фраз", text in cp.VIDEO_CAPTIONS, True)
+eq("модель для подписи не вызывалась", captured, [])
 eq("vision для видео не вызывался", seen_vision, [])
-eq("в промпте есть запрет описывать ролик", "НЕИЗВЕСТНО" in sent, True)
-eq("промпт рубрики про фото в запрос не попал", "приложенному фото" in sent, False)
-eq("запреты клиента переданы", "цены" in sent, True)
-eq("зачин запомнен для антиповтора", "__video__" in st["t"]["recent"], True)
 
-# модель упомянула ролик — перегенерируем и берём чистый вариант
-fake_ai.replies = ["Посмотрите, как на видео мы работаем спокойно и без спешки. " * 6, NEUTRAL]
-captured.clear()
-text = cp.build_post(client, rubric, vid_path, state=fresh_state(), client_id="t")
-eq("упоминание видео -> перегенерация", len(captured), 2)
-eq("в итоге чистый текст", "видео" in text.lower(), False)
-
-# слишком короткий текст -> перегенерация
-fake_ai.replies = ["Коротко.", NEUTRAL]
-captured.clear()
-text = cp.build_post(client, rubric, vid_path, state=fresh_state(), client_id="t")
-eq("короткий текст -> перегенерация", (len(captured), text.startswith("Спокойный")), (2, True))
-
-# ротация тем подписи: подряд разные
-fake_ai.replies = [NEUTRAL, NEUTRAL, NEUTRAL]
-captured.clear()
+# ротация: за полный круг каждая фраза по разу, дальше круг начинается заново
 st = fresh_state()
-for _ in range(3):
-    cp.build_post(client, rubric, vid_path, state=st, client_id="t")
-angles = [m[1]["content"].split("общий взгляд на работу — ")[1].split(".")[0] for m in captured]
-eq("тема подписи меняется от поста к посту", len(set(angles)), 3)
+seq = [cp.build_post(client, rubric, vid_path, state=st, client_id="t")
+       for _ in range(len(cp.VIDEO_CAPTIONS))]
+eq("за круг подписи не повторяются", sorted(seq), sorted(cp.VIDEO_CAPTIONS))
+eq("после круга начинается новый",
+   cp.build_post(client, rubric, vid_path, state=st, client_id="t"), seq[0])
+
+# страховка от возврата к «додумыванию»: ни сюжета, ни услуг, ни обещаний
+BAD = ("хирург", "операц", "пациент", "клиент", "результат", "процедур", "врач",
+       "цен", "скидк", "гарант", "навсегда", "безболезн", "точност")
+eq("в подписях нет описания содержания и обещаний",
+   [w for cap in cp.VIDEO_CAPTIONS for w in BAD if w in cap.lower()], [])
+eq("подписи короткие", max(len(x) for x in cp.VIDEO_CAPTIONS) <= 80, True)
+
+# теги: у видео модель не вызывается, постоянные теги клиента остаются
+def no_ai_tags(*a, **k):
+    raise AssertionError("ИИ-теги для видео вызываться не должны")
+
+
+cp.build_hashtags_ai = no_ai_tags
+eq("теги видео: только постоянные из конфига",
+   cp.hashtags_for_post("Видео для вас.", {"hashtags": "#один #два"}, None, ai_tags=False),
+   "#один #два")
+eq("теги видео: без постоянных — пусто",
+   cp.hashtags_for_post("Видео для вас.", {}, None, ai_tags=False), "")
 
 # обычное фото по-прежнему идёт старым путём (vision)
 cp.image_to_data_url = lambda p: "data:image/jpeg;base64,AAAA"
@@ -406,6 +400,62 @@ photo = make_jpeg("tg_photo.jpg")
 posts.clear()
 cp.post_to_telegram("@ch", "Подпись к фото", photo)
 eq("фото уходит через sendPhoto", [p[0] for p in posts], ["sendPhoto"])
+
+# ---------- main(): видео целиком ----------
+# Настоящий main() на настоящем ролике; Диск, ИИ, Telegram и таблица подменены.
+
+if shutil.which("ffmpeg"):
+    import json
+
+    cdir = os.path.join(TMP, "clients")
+    os.makedirs(cdir)
+    cfg = {"client_id": "vc", "active": True, "tg_channel": "@ch", "holidays": "Не нужны",
+           "yandex_folder": "disk:/vc",
+           "cta_short": "Тел. 123\n\nИмеются противопоказания.",
+           "slots": [{"name": "midday"}, {"name": "evening"}],
+           "rubrics": [{"name": "Фото работ", "kind": "photo_case", "days": []}]}
+    with open(os.path.join(cdir, "vc.json"), "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False)
+    cp.CLIENTS_DIR = cdir
+    cp.STATE_FILE = os.path.join(TMP, "state.json")
+    cp.SLOT, cp.TEST_CLIENT_ID = "midday", "vc"   # точечный запуск: рубрика и фото как в бою
+    cp.VIDEO_CLIENTS = {"vc"}
+
+    VID = make_video("main.mp4")
+    QI = {"name": "main.mp4", "path": "disk:/vc/to_post/main.mp4", "size": os.path.getsize(VID)}
+    cp.list_folder = lambda path, quiet=False, allow_video=False: \
+        [QI] if (allow_video and path.endswith("/to_post")) else []
+    cp.download_yandex_file = lambda path: shutil.copy(VID, os.path.join(TMP, "dl.mp4"))
+    moved, statuses, ai_calls = [], [], []
+    cp.move_to_posted = lambda *a: moved.append(a)
+    cp.report_post_status = lambda cid, status, d: statuses.append(status)
+    cp.ai_text = lambda *a, **k: ai_calls.append(1) or "не должно вызываться"
+
+    # 1. обычный день: ролик уходит с нейтральной подписью и оговоркой клиента
+    posts.clear()
+    http.post = fake_post_ok
+    cp.main()
+    eq("main: ролик ушёл через sendVideo", [p[0] for p in posts], ["sendVideo"])
+    caption = posts[0][1]["data"].get("caption", "") if posts else ""
+    eq("main: подпись — нейтральная фраза из списка",
+       caption.split("\n")[0] in cp.VIDEO_CAPTIONS, True)
+    eq("main: оговорка клиента на месте", "Имеются противопоказания." in caption, True)
+    eq("main: тегов нет", "#" in caption, False)
+    eq("main: модель не вызывалась вообще", ai_calls, [])
+    eq("main: ролик уехал в posted", [m[1] for m in moved], ["main.mp4"])
+    eq("main: статус «Опубликован»", statuses, ["Опубликован"])
+
+    # 2. Telegram ролик не принял: пост не отмечен, файл не перенесён и встаёт в конец
+    posts.clear(), moved.clear(), statuses.clear()
+    http.post = fake_post_reject
+    cp.main()
+    eq("main: при отказе файл не перенесён", moved, [])
+    eq("main: при отказе статус — ошибка", statuses[-1].startswith("Ошибка"), True)
+    with open(cp.STATE_FILE, encoding="utf-8") as f:
+        fails = json.load(f)["vc"].get("file_fails", {})
+    eq("main: отказавший ролик отмечен для конца очереди", fails, {QI["path"]: 1})
+else:
+    print("skip  main с видео: ffmpeg недоступен")
 
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(c.finish())
