@@ -261,42 +261,78 @@ def yandex_headers():
     return {"Authorization": f"OAuth {YANDEX_TOKEN}"}
 
 
+# Итоги последнего list_folder: сколько файлов лежит в папке и какие
+# расширения отсеяны. Читает next_photo_for_client — это сводка по очереди,
+# которая уходит в state: логи запусков не всегда доступны, а по state
+# видно, что на самом деле лежит в to_post.
+LAST_LIST_STATS = {}
+
+# За один запрос Диск отдаёт не больше limit файлов, дальше нужен offset.
+# Раньше запрашивалась одна страница в 200 файлов: у клиента с длинной очередью
+# (сотни роликов) всё, что загружено позже двухсотого файла, было невидимо —
+# фото не выходили вовсе, пока очередь не разбиралась по одному ролику в день.
+LIST_PAGE = 200
+LIST_MAX_FILES = 5000
+
+
 def list_folder(path, quiet=False, allow_video=False):
+    global LAST_LIST_STATS
+    LAST_LIST_STATS = {}
     if not YANDEX_TOKEN:
         return []
-    resp = requests.get(
-        "https://cloud-api.yandex.net/v1/disk/resources",
-        headers=yandex_headers(),
-        params={
-            "path": path, "limit": 200, "sort": "created",
-            "fields": "_embedded.items.name,_embedded.items.path,"
-                      "_embedded.items.type,_embedded.items.created,"
-                      "_embedded.items.size",
-        },
-        timeout=30,
-    )
-    if resp.status_code != 200:
-        # quiet=True — путь необязательный (личная папка клиента, подпапка
-        # праздника): её отсутствие это норма, а не ошибка, и засорять лог
-        # четырьмя «404» на каждый праздничный пост не нужно.
-        if not (quiet and resp.status_code == 404):
-            print(f"Яндекс Диск {resp.status_code} для пути '{path}': {resp.text[:200]}")
-        return []
-    items = resp.json().get("_embedded", {}).get("items", [])
+    items, seen, offset = [], set(), 0
+    while True:
+        resp = requests.get(
+            "https://cloud-api.yandex.net/v1/disk/resources",
+            headers=yandex_headers(),
+            params={
+                "path": path, "limit": LIST_PAGE, "offset": offset, "sort": "created",
+                "fields": "_embedded.items.name,_embedded.items.path,"
+                          "_embedded.items.type,_embedded.items.created,"
+                          "_embedded.items.size",
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            # quiet=True — путь необязательный (личная папка клиента, подпапка
+            # праздника): её отсутствие это норма, а не ошибка, и засорять лог
+            # четырьмя «404» на каждый праздничный пост не нужно.
+            if not (quiet and resp.status_code == 404):
+                print(f"Яндекс Диск {resp.status_code} для пути '{path}': {resp.text[:200]}")
+            if offset == 0:
+                return []
+            break   # первые страницы уже получены — работаем с тем, что есть
+        page = resp.json().get("_embedded", {}).get("items", [])
+        fresh = []
+        for i in page:
+            key = i.get("path") or i.get("name") or id(i)
+            if key not in seen:
+                seen.add(key)
+                fresh.append(i)
+        items.extend(fresh)
+        if len(page) < LIST_PAGE or not fresh or len(items) >= LIST_MAX_FILES:
+            break
+        offset += LIST_PAGE
     files = [i for i in items if i.get("type") == "file"]
     # Изображения — всегда; видео — только когда вызывающий их разрешил
     # (клиент включён в video_enabled и рубрика берёт файлы из конечной очереди).
     exts = (ALLOWED_IMAGE_EXTS | ALLOWED_VIDEO_EXTS) if allow_video else ALLOWED_IMAGE_EXTS
     ok = [i for i in files
           if os.path.splitext(i.get("name", ""))[1].lower() in exts]
+    ok_ids = {id(i) for i in ok}
+    skipped = [i for i in files if id(i) not in ok_ids]
+    by_ext = {}
+    for i in skipped:
+        ext = os.path.splitext(i.get("name", ""))[1].lower() or "(без расширения)"
+        by_ext[ext] = by_ext.get(ext, 0) + 1
+    LAST_LIST_STATS = {"files": len(files), "skipped": by_ext}
     # Всё остальное — архивы, документы, а для клиентов без видео и ролики —
     # игнорируется, но раньше исчезало молча и копилось в папке незаметно.
     # Теперь лишние файлы видны в логе запуска.
-    if len(ok) < len(files) and not quiet:
-        skipped = [i.get("name", "") for i in files if i not in ok]
+    if skipped and not quiet:
         what = "не изображения" if not allow_video else "не изображения и не видео"
         print(f"В '{path}' пропущено файлов ({what}): {len(skipped)} "
-              f"— {', '.join(skipped[:5])}")
+              f"— {', '.join(i.get('name', '') for i in skipped[:5])}")
     return ok
 
 
@@ -327,6 +363,12 @@ def _silent_unlink(path):
         pass
 
 
+# Причина последнего отказа при подготовке файла. Копится в state рядом со
+# счётчиком сбоев: по ней видно, ЧТО именно не так с файлом (не скачался,
+# пустой, не открывается как картинка), без доступа к логам запуска.
+_FETCH_WHY = ""
+
+
 def image_is_readable(path):
     """Скачанный файл действительно открывается как картинка.
 
@@ -335,10 +377,13 @@ def image_is_readable(path):
     раньше шёл дальше: AI не мог его разобрать, Telegram отвергал, и пост
     выходил без фото. Теперь он отсеивается здесь, и берётся следующий.
     """
+    global _FETCH_WHY
     try:
         if os.path.getsize(path) == 0:
+            _FETCH_WHY = "скачанный файл пустой"
             return False
     except OSError:
+        _FETCH_WHY = "скачанный файл не найден на раннере"
         return False
     try:
         from PIL import Image
@@ -349,8 +394,63 @@ def image_is_readable(path):
             im.load()   # полное декодирование: ловит и обрезанные файлы
         return True
     except Exception as e:
+        _FETCH_WHY = f"не открывается как изображение: {type(e).__name__}: {e}"[:200]
         print(f"Файл не открывается как изображение ({type(e).__name__}: {e})")
         return False
+
+
+# Telegram принимает фото до 10 МБ и с суммой сторон не больше 10000 пикселей.
+# Крупное фото раньше уходило в канал БЕЗ снимка (пост «успешно» выходил текстом),
+# а файл при этом переезжал в posted/ — снимок пропадал из очереди молча.
+TG_PHOTO_MAX_SUM = 10000
+
+# (длинная сторона, качество JPEG): берём первый вариант, который влез в лимит
+PHOTO_SHRINK_STEPS = [(2560, 88), (1920, 82), (1280, 75), (960, 70)]
+
+
+def fit_photo_for_telegram(path):
+    """Ужимает фото, не проходящее в Telegram; иначе возвращает файл как есть.
+    Исходник при ужатии удаляется. Любой сбой — берём исходный файл: пусть
+    лучше уйдёт, как раньше, чем пост сорвётся из-за оптимизации."""
+    try:
+        from PIL import Image, ImageOps
+        size_mb = os.path.getsize(path) / 1024 / 1024
+    except Exception:
+        return path
+    result = None
+    try:
+        with Image.open(path) as im:
+            w, h = im.size
+            if size_mb <= MAX_PHOTO_MB and w + h <= TG_PHOTO_MAX_SUM:
+                return path
+            im = ImageOps.exif_transpose(im)
+            if im.mode in ("RGBA", "LA") or "transparency" in im.info:
+                rgba = im.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.split()[-1])
+                im = flat
+            elif im.mode != "RGB":
+                im = im.convert("RGB")
+            for side, quality in PHOTO_SHRINK_STEPS:
+                work = im.copy()
+                work.thumbnail((side, side), Image.LANCZOS)
+                fd, dst = tempfile.mkstemp(suffix=".jpg")
+                os.close(fd)
+                work.save(dst, "JPEG", quality=quality, optimize=True)
+                if (os.path.getsize(dst) / 1024 / 1024 <= MAX_PHOTO_MB
+                        and sum(work.size) <= TG_PHOTO_MAX_SUM):
+                    result = dst
+                    break
+                _silent_unlink(dst)
+    except Exception as e:
+        print(f"Фото не удалось ужать ({type(e).__name__}: {e}) — беру как есть")
+        return path
+    if not result:
+        return path
+    print(f"Фото {size_mb:.1f} МБ ({w}×{h}) ужато до "
+          f"{os.path.getsize(result) / 1024 / 1024:.1f} МБ")
+    _silent_unlink(path)
+    return result
 
 
 # ---------- видео ----------
@@ -735,6 +835,8 @@ def _fetch_media(item, allow_video, client_id=""):
     Возвращает путь к локальному файлу или None. Сама ничего не бросает:
     битый файл — это повод взять следующий, а не уронить пост клиента.
     """
+    global _FETCH_WHY
+    _FETCH_WHY = ""
     path = item.get("path", "")
     name = item.get("name", "")
     tag = f"{client_id or '?'}: "
@@ -744,6 +846,7 @@ def _fetch_media(item, allow_video, client_id=""):
         if video:
             size_mb = (item.get("size") or 0) / 1024 / 1024
             if size_mb > MAX_VIDEO_SOURCE_MB:
+                _FETCH_WHY = f"видео {size_mb:.0f} МБ больше лимита {MAX_VIDEO_SOURCE_MB} МБ"
                 print(f"{tag}видео {name} весит {size_mb:.0f} МБ — больше "
                       f"{MAX_VIDEO_SOURCE_MB} МБ, пропускаю")
                 return None
@@ -751,6 +854,8 @@ def _fetch_media(item, allow_video, client_id=""):
         if video:
             ready = prepare_video(local)
             if not ready:
+                _FETCH_WHY = ("видео не прошло проверку: повреждено, не влезает "
+                              "в лимит Telegram или нет ffmpeg")
                 _silent_unlink(local)
                 return None
             return ready
@@ -758,11 +863,33 @@ def _fetch_media(item, allow_video, client_id=""):
             print(f"{tag}файл {name} скачался, но не является рабочим изображением")
             _silent_unlink(local)
             return None
-        return local
+        return fit_photo_for_telegram(local)
     except Exception as e:
+        _FETCH_WHY = f"скачивание: {type(e).__name__}: {e}"[:200]
         print(f"{tag}не удалось скачать {path}: {e}")
         _silent_unlink(local)
         return None
+
+
+def _kind_of(item):
+    return "video" if is_video_path(item.get("name", "")) else "image"
+
+
+def _queue_info(files, stats):
+    """Сводка по очереди для state: что реально лежит в папке и что отсеяно."""
+    from datetime import datetime, timezone
+    limit = MAX_PHOTO_MB * 1024 * 1024
+    images = [f for f in files if _kind_of(f) == "image"]
+    return {
+        "at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "files": stats.get("files", len(files)),
+        "images": len(images),
+        "videos": len(files) - len(images),
+        "skipped": stats.get("skipped", {}),
+        "images_over_limit": sum(1 for f in images if (f.get("size") or 0) > limit),
+        "oldest": [[f.get("name", ""), round((f.get("size") or 0) / 1024 / 1024, 1)]
+                   for f in files[:5]],
+    }
 
 
 def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id="",
@@ -797,10 +924,20 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id="",
     source = f"{yandex_folder}/{folder}" if folder else f"{yandex_folder}/to_post"
     posted = f"{yandex_folder}/posted"
     allow_video = bool(allow_video) and rubric_accepts_video(rubric)
+    global LAST_LIST_STATS
+    LAST_LIST_STATS = {}
     if allow_video:
         files = list_folder(source, allow_video=True)
     else:
         files = list_folder(source)
+    info = _queue_info(files, dict(LAST_LIST_STATS))
+    print(f"{client_id or '?'}: очередь {source}: файлов {info['files']}, "
+          f"фото {info['images']}, видео {info['videos']}, "
+          f"отсеяно по расширению {info['skipped'] or 0}, "
+          f"фото крупнее лимита {info['images_over_limit']}")
+    if state is not None and client_id:
+        client_state(state, client_id).setdefault("queue_info", {})[
+            folder or "to_post"] = info
     if not files:
         rname = rubric.get("name") if isinstance(rubric, dict) else rubric
         print(f"{client_id or '?'}: папка {source} пуста — рубрика «{rname}» "
@@ -822,9 +959,18 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id="",
     dirs = {posixpath.dirname(p) for p in present}
     for p in [p for p in fails if posixpath.dirname(p) in dirs and p not in present]:
         del fails[p]
+        if cs is not None:
+            cs.get("file_fail_why", {}).pop(p, None)
 
     def failed(item):
         fails[item["path"]] = fails.get(item["path"], 0) + 1
+        if cs is not None:
+            cs.setdefault("file_fail_why", {})[item["path"]] = _FETCH_WHY
+
+    def succeeded(item):
+        fails.pop(item["path"], None)
+        if cs is not None:
+            cs.get("file_fail_why", {}).pop(item["path"], None)
 
     if loops and cs is not None:
         # круговой перебор: запоминаем имя последнего файла в state.
@@ -843,7 +989,7 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id="",
             local_path = _fetch_media(item, allow_video, client_id)
             if local_path:
                 cs[loop_key] = item["name"]
-                fails.pop(item["path"], None)
+                succeeded(item)
                 # при цикле НЕ передаём posted — фото остаётся на месте
                 return local_path, None   # None = не переносить в posted/
             failed(item)
@@ -854,11 +1000,22 @@ def next_photo_for_client(yandex_folder, rubric=None, state=None, client_id="",
     # конечная стратегия: самый старый рабочий файл, после — в posted/.
     # list_folder сортирует по created; sorted() стабилен, поэтому внутри
     # одной «категории здоровья» порядок остаётся «старые первыми».
-    order = sorted(files, key=lambda f: fails.get(f["path"], 0))
+    # Если в очереди есть и фото, и видео, они чередуются: раньше шёл строго
+    # самый старый файл, и длинная вереница роликов полностью вытесняла фото
+    # (или наоборот). Сбойные файлы по-прежнему в конце, внутри одного вида —
+    # «старые первыми». Первым в паре идёт фото.
+    prefer = None
+    if allow_video and cs is not None and len({_kind_of(f) for f in files}) == 2:
+        prefer = "video" if cs.get("last_media") == "image" else "image"
+    order = sorted(files, key=lambda f: (
+        fails.get(f["path"], 0),
+        0 if prefer is None or _kind_of(f) == prefer else 1))
     for n, item in enumerate(order[:MAX_FILE_ATTEMPTS]):
         local_path = _fetch_media(item, allow_video, client_id)
         if local_path:
-            fails.pop(item["path"], None)
+            succeeded(item)
+            if cs is not None:
+                cs["last_media"] = _kind_of(item)
             if n:
                 print(f"{client_id or '?'}: {n} файл(а) из начала очереди не взялись, "
                       f"опубликован {item['name']}")
@@ -3182,6 +3339,8 @@ def main():
                 # следующий пост; с отметкой встаёт в конец, как не скачавшийся.
                 fails = cs.setdefault("file_fails", {})
                 fails[photo_meta[0]] = fails.get(photo_meta[0], 0) + 1
+                cs.setdefault("file_fail_why", {})[photo_meta[0]] = \
+                    ("Telegram: " + str(e))[:200]
 
     save_state(state)
     if not posted_any:
