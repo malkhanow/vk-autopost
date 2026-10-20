@@ -95,6 +95,46 @@ eq("с разрешением — картинки и видео, регистр
    [i["name"] for i in cp.list_folder("f", allow_video=True)], ["a.jpg", "b.MOV", "c.mp4"])
 
 
+eq("статистика листинга: сколько файлов и что отсеяно",
+   (cp.LAST_LIST_STATS.get("files"), cp.LAST_LIST_STATS.get("skipped")),
+   (4, {".mov": 1, ".mp4": 1, ".heic": 1})) if cp.list_folder("f") is not None else None
+
+# страницы: в папке 450 файлов, а за запрос Диск отдаёт 200
+_real_get = http.get
+NAMES = [f"{i:04d}.jpg" for i in range(450)]
+
+
+def paged_get(url, **kw):
+    prm = kw["params"]
+    chunk = NAMES[prm.get("offset", 0): prm.get("offset", 0) + prm["limit"]]
+    return Response(payload={"_embedded": {"items": [
+        {"name": n, "path": f"disk:/f/{n}", "type": "file", "size": 1} for n in chunk]}})
+
+
+http.get = paged_get
+got = cp.list_folder("f")
+eq("450 файлов: прочитаны все страницы", len(got), 450)
+eq("порядок «старые первыми» сохранён", (got[0]["name"], got[-1]["name"]), ("0000.jpg", "0449.jpg"))
+eq("в статистике все 450", cp.LAST_LIST_STATS["files"], 450)
+
+# Диск на каждый запрос отдаёт одну и ту же страницу — зацикливания нет
+http.get = lambda url, **kw: Response(payload={"_embedded": {"items": [
+    {"name": f"{i}.jpg", "path": f"disk:/f/{i}.jpg", "type": "file"} for i in range(200)]}})
+eq("повторяющаяся страница не зацикливает", len(cp.list_folder("f")), 200)
+
+
+# сбой на второй странице: работаем с первой, а не теряем всё
+def flaky_get(url, **kw):
+    if kw["params"].get("offset", 0) == 0:
+        return paged_get(url, **kw)
+    return Response(status=500, body="boom")
+
+
+http.get = flaky_get
+eq("сбой второй страницы: остаётся первая", len(cp.list_folder("f")), 200)
+http.get = _real_get
+
+
 # ---------- пропуск битых файлов ----------
 
 def with_queue(files, downloads, allow_video=False, rubric=None, state=None, client_id="t"):
@@ -191,6 +231,65 @@ eq("сбой удалённого файла забыт", b["path"] in st["t"]["
 eq("сбой файла из другой папки не тронут", "disk:/other/x.jpg" in st["t"]["file_fails"], True)
 
 
+# 10. сводка очереди и причины отказов уходят в state — по ним видно, что на Диске
+st = fresh_state()
+vq = item("Autopost WORK/t/to_post", "clip.mp4", size=3 * 1024 * 1024)
+big_img = item("Autopost WORK/t/to_post", "huge.jpg", size=20 * 1024 * 1024)
+good8 = make_jpeg("info.jpg")
+with_queue([a, vq, big_img], {a["path"]: good8, vq["path"]: "-", big_img["path"]: "-"},
+           allow_video=True, state=st)
+qi = st["t"]["queue_info"]["to_post"]
+eq("сводка: фото, видео и крупные фото посчитаны",
+   (qi["images"], qi["videos"], qi["images_over_limit"]), (2, 1, 1))
+eq("сводка: первые файлы очереди видны", [x[0] for x in qi["oldest"]], ["a.jpg", "clip.mp4", "huge.jpg"])
+
+st = fresh_state()
+junk2 = os.path.join(TMP, "junk2.jpg")
+open(junk2, "wb").write(b"<html>x</html>")
+good9 = make_jpeg("why_ok.jpg")
+with_queue([a, b, d], {a["path"]: RuntimeError("504 Gateway"), b["path"]: junk2, d["path"]: good9}, state=st)
+why = st["t"]["file_fail_why"]
+eq("причина: ошибка скачивания", "504 Gateway" in why[a["path"]], True)
+eq("причина: не открывается как картинка", "не открывается как изображение" in why[b["path"]], True)
+good10 = make_jpeg("why_ok2.jpg")
+with_queue([b], {b["path"]: good10}, state=st)
+eq("после успешной загрузки причина и счётчик забыты",
+   (b["path"] in st["t"]["file_fails"], b["path"] in st["t"].get("file_fail_why", {})), (False, False))
+
+
+# ---------- крупные фото ужимаются ----------
+
+from PIL import Image  # noqa: E402
+
+saved_limit = cp.MAX_PHOTO_MB
+cp.MAX_PHOTO_MB = 0.3
+noise = os.path.join(TMP, "noise.png")
+Image.frombytes("RGB", (400, 400), os.urandom(400 * 400 * 3)).save(noise)
+eq("исходник тяжелее лимита", os.path.getsize(noise) > 0.3 * 1024 * 1024, True)
+shrunk = cp.fit_photo_for_telegram(noise)
+eq("тяжёлое фото ужато до лимита",
+   (shrunk != noise, shrunk.endswith(".jpg"), os.path.getsize(shrunk) <= 0.3 * 1024 * 1024),
+   (True, True, True))
+eq("ужатый файл открывается", cp.image_is_readable(shrunk), True)
+eq("исходник убран", os.path.exists(noise), False)
+
+wide = os.path.join(TMP, "wide.jpg")
+Image.new("RGB", (9000, 2000), (230, 230, 230)).save(wide, "JPEG")
+shrunk_w = cp.fit_photo_for_telegram(wide)
+with Image.open(shrunk_w) as im:
+    c.ok("слишком широкое фото (сумма сторон > 10000) ужато",
+         sum(im.size) <= cp.TG_PHOTO_MAX_SUM and shrunk_w != wide, im.size)
+
+ok_small = make_jpeg("small_ok.jpg")
+eq("нормальное фото не трогается", cp.fit_photo_for_telegram(ok_small), ok_small)
+
+noise2 = os.path.join(TMP, "noise2.png")
+Image.frombytes("RGB", (400, 400), os.urandom(400 * 400 * 3)).save(noise2)
+(path, meta), calls = with_queue([a], {a["path"]: noise2}, state=fresh_state())
+eq("в очереди тяжёлое фото приходит уже ужатым", (path.endswith(".jpg"), os.path.getsize(path) <= 0.3 * 1024 * 1024), (True, True))
+cp.MAX_PHOTO_MB = saved_limit
+
+
 # ---------- видео в очереди ----------
 
 HAVE_FFMPEG = shutil.which("ffmpeg") is not None
@@ -264,6 +363,38 @@ else:
             "size": (cp.MAX_VIDEO_SOURCE_MB + 1) * 1024 * 1024}
     (path, meta), calls = with_queue([huge], {huge["path"]: "-"}, allow_video=True, state=fresh_state())
     eq("гигантский ролик не скачивается", (path, calls), (None, []))
+
+
+# ---------- чередование фото и видео ----------
+
+if HAVE_FFMPEG:
+    imgs = [item("Autopost WORK/t/to_post", n) for n in ("i1.jpg", "i2.jpg")]
+    vids = [item("Autopost WORK/t/to_post", n) for n in ("v1.mp4", "v2.mp4")]
+    alt_mp4 = make_video("alt.mp4")
+    local = {imgs[0]["path"]: make_jpeg("alt_i1.jpg"), imgs[1]["path"]: make_jpeg("alt_i2.jpg"),
+             vids[0]["path"]: alt_mp4, vids[1]["path"]: alt_mp4}
+    # ролики старше фото: раньше они вытесняли фото полностью
+    queue, seq, st = [vids[0], vids[1], imgs[0], imgs[1]], [], fresh_state()
+    while queue:
+        (path, meta), _ = with_queue(queue, local, allow_video=True, state=st)
+        seq.append(meta[1])
+        queue = [q for q in queue if q["name"] != meta[1]]
+    eq("фото и видео чередуются, начиная с фото", seq, ["i1.jpg", "v1.mp4", "i2.jpg", "v2.mp4"])
+
+    # только видео — идут подряд, только фото — тоже
+    queue, seq, st = [vids[0], vids[1]], [], fresh_state()
+    while queue:
+        (path, meta), _ = with_queue(queue, local, allow_video=True, state=st)
+        seq.append(meta[1])
+        queue = [q for q in queue if q["name"] != meta[1]]
+    eq("в очереди одни видео — берутся подряд", seq, ["v1.mp4", "v2.mp4"])
+
+    # сбойный файл по-прежнему уходит в конец, даже если он «нужного» вида
+    st = fresh_state()
+    local_bad = dict(local)
+    local_bad[imgs[0]["path"]] = RuntimeError("504")
+    (path, meta), _ = with_queue([imgs[0], vids[0], imgs[1]], local_bad, allow_video=True, state=st)
+    eq("сбойное фото пропущено, взято следующее фото", meta[1], "i2.jpg")
 
 
 # ---------- нейтральная подпись ----------
@@ -454,6 +585,10 @@ if shutil.which("ffmpeg"):
     with open(cp.STATE_FILE, encoding="utf-8") as f:
         fails = json.load(f)["vc"].get("file_fails", {})
     eq("main: отказавший ролик отмечен для конца очереди", fails, {QI["path"]: 1})
+    with open(cp.STATE_FILE, encoding="utf-8") as f:
+        why = json.load(f)["vc"].get("file_fail_why", {})
+    eq("main: причина отказа Telegram записана",
+       why.get(QI["path"], "").startswith("Telegram:"), True)
 else:
     print("skip  main с видео: ffmpeg недоступен")
 
