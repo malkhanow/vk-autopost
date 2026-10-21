@@ -91,7 +91,7 @@
     "tie_index": 2,
     "used_photos": [],
     "slot_done": {
-      "midday": "2026-10-20",
+      "midday": "2026-10-21",
       "evening": "2026-10-20"
     },
     "cycles": {
@@ -109,7 +109,7 @@
       "fmt:photo_case": 5,
       "topic:Фото работ": 5,
       "video_angle": 1,
-      "video_caption": 3
+      "video_caption": 4
     },
     "recent": {
       "Фото работ": [
@@ -165,12 +165,12 @@
         "Каждый хирургический этап требует абсолютной точности и полного контроля над ситуацией. Точные миллиметры имеют"
       ]
     },
-    "photo_tie_index": 49,
+    "photo_tie_index": 50,
     "text_tie_index": 48,
     "loop_rubrics_tips": "Ползеное - Хавьер.jpg",
     "loop_rubrics_faq": "ЧЗВ - Хавьер.jpg",
     "rubric_last_run": {
-      "Фото работ": "2026-10-20",
+      "Фото работ": "2026-10-21",
       "Идеи и вдохновение": "2026-10-19",
       "Советы и полезное": "2026-10-20",
       "Частые вопросы": "2026-10-18",
@@ -182,9 +182,9 @@
     },
     "queue_info": {
       "to_post": {
-        "at": "2026-10-20 11:01 UTC",
-        "files": 262,
-        "images": 182,
+        "at": "2026-10-21 11:01 UTC",
+        "files": 260,
+        "images": 180,
         "videos": 77,
         "skipped": {
           ".heic": 3
@@ -231,7 +231,7 @@
     "file_fail_why": {
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/20260311_200327.jpg": "скачивание: ReadTimeout: HTTPSConnectionPool(host='s48klg.storage.yandex.net', port=443): Read timed out. (read timeout=60)"
     },
-    "last_media": "image"
+    "last_media": "video"
   },
   "pro-nedvizhimost-s-natal": {
     "tie_index": 24,
@@ -417,21 +417,21 @@
     }
   },
   "media-manager": {
-    "tie_index": 4,
+    "tie_index": 5,
     "used_photos": [],
     "slot_done": {
-      "midday": "2026-10-19"
+      "midday": "2026-10-21"
     },
-    "last_day": "пн",
+    "last_day": "ср",
     "today_used": [
-      "Новости медиа"
+      "Совет недели"
     ],
     "cycles": {
       "fmt:news": 2,
-      "opener": 4,
+      "opener": 5,
       "topic:Новости медиа": 2,
-      "fmt:tips": 1,
-      "topic:Совет недели": 1,
+      "fmt:tips": 2,
+      "topic:Совет недели": 2,
       "fmt:howto": 1,
       "topic:Как это делается": 1
     },
@@ -441,7 +441,8 @@
         "Клиповый контент — это формат коротких роликов, где главная мысль подается за считанные секунды"
       ],
       "Совет недели": [
-        "Мы в группе уверены, что ждать вдохновения для новых постов — пустая трата времени."
+        "Мы в группе уверены, что ждать вдохновения для новых постов — пустая трата времени.",
+        "Мигающий курсор в начале пустого поля выглядит как самый строгий критик. Чтобы читатель не"
       ],
       "Как это делается": [
         "Говорят, будто контент-план — это просто жесткая таблица со списком тем на весь месяц"
@@ -449,8 +450,25 @@
     },
     "rubric_last_run": {
       "Новости медиа": "2026-10-19",
-      "Совет недели": "2026-10-14"
+      "Совет недели": "2026-10-21"
     },
-    "loop_rubrics_tips": "Полезное.png"
+    "loop_rubrics_tips": "Полезное.png",
+    "queue_info": {
+      "rubrics/tips": {
+        "at": "2026-10-21 11:01 UTC",
+        "files": 1,
+        "images": 1,
+        "videos": 0,
+        "skipped": {},
+        "images_over_limit": 0,
+        "oldest": [
+          [
+            "Полезное.png",
+            1.5
+          ]
+        ]
+      }
+    },
+    "file_fails": {}
   }
 }
