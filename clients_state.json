@@ -91,7 +91,7 @@
     "tie_index": 2,
     "used_photos": [],
     "slot_done": {
-      "midday": "2026-10-22",
+      "midday": "2026-10-23",
       "evening": "2026-10-22"
     },
     "cycles": {
@@ -109,7 +109,7 @@
       "fmt:photo_case": 5,
       "topic:Фото работ": 5,
       "video_angle": 1,
-      "video_caption": 4
+      "video_caption": 5
     },
     "recent": {
       "Фото работ": [
@@ -165,12 +165,12 @@
         "Каждый хирургический этап требует абсолютной точности и полного контроля над ситуацией. Точные миллиметры имеют"
       ]
     },
-    "photo_tie_index": 51,
+    "photo_tie_index": 52,
     "text_tie_index": 50,
     "loop_rubrics_tips": "Ползеное - Хавьер.jpg",
     "loop_rubrics_faq": "ЧЗВ - Хавьер.jpg",
     "rubric_last_run": {
-      "Фото работ": "2026-10-22",
+      "Фото работ": "2026-10-23",
       "Идеи и вдохновение": "2026-10-22",
       "Советы и полезное": "2026-10-20",
       "Частые вопросы": "2026-10-21",
@@ -182,9 +182,9 @@
     },
     "queue_info": {
       "to_post": {
-        "at": "2026-10-22 11:01 UTC",
-        "files": 259,
-        "images": 180,
+        "at": "2026-10-23 11:01 UTC",
+        "files": 258,
+        "images": 179,
         "videos": 76,
         "skipped": {
           ".heic": 3
@@ -255,7 +255,7 @@
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/20260311_200327.jpg": "скачивание: ReadTimeout: HTTPSConnectionPool(host='s48klg.storage.yandex.net', port=443): Read timed out. (read timeout=60)",
       "disk:/Autopost WORK/plasticheskiy-hirurg/rubrics/faq/ЧЗВ - Хавьер.jpg": "скачивание: HTTPError: 500 Server Error: Internal Server Error for url: https://downloader.disk.yandex.ru/disk/c532d546832138ac8108e0a01f8d9075aa60bd7be8a8a39e0f8bc7d16f58844e/6ad91a03/6HbfDqMvPPWjj0o"
     },
-    "last_media": "image"
+    "last_media": "video"
   },
   "pro-nedvizhimost-s-natal": {
     "tie_index": 25,
@@ -487,23 +487,23 @@
     }
   },
   "media-manager": {
-    "tie_index": 5,
+    "tie_index": 6,
     "used_photos": [],
     "slot_done": {
-      "midday": "2026-10-21"
+      "midday": "2026-10-23"
     },
-    "last_day": "ср",
+    "last_day": "пт",
     "today_used": [
-      "Совет недели"
+      "Как это делается"
     ],
     "cycles": {
       "fmt:news": 2,
-      "opener": 5,
+      "opener": 6,
       "topic:Новости медиа": 2,
       "fmt:tips": 2,
       "topic:Совет недели": 2,
-      "fmt:howto": 1,
-      "topic:Как это делается": 1
+      "fmt:howto": 2,
+      "topic:Как это делается": 2
     },
     "recent": {
       "Новости медиа": [
@@ -515,12 +515,14 @@
         "Мигающий курсор в начале пустого поля выглядит как самый строгий критик. Чтобы читатель не"
       ],
       "Как это делается": [
-        "Говорят, будто контент-план — это просто жесткая таблица со списком тем на весь месяц"
+        "Говорят, будто контент-план — это просто жесткая таблица со списком тем на весь месяц",
+        "Идея, набросок и публикация — три этапа, из которых складывается жизнь любого поста. Главная"
       ]
     },
     "rubric_last_run": {
       "Новости медиа": "2026-10-19",
-      "Совет недели": "2026-10-21"
+      "Совет недели": "2026-10-21",
+      "Как это делается": "2026-10-23"
     },
     "loop_rubrics_tips": "Полезное.png",
     "queue_info": {
@@ -537,6 +539,15 @@
             1.5
           ]
         ]
+      },
+      "to_post": {
+        "at": "2026-10-23 11:01 UTC",
+        "files": 0,
+        "images": 0,
+        "videos": 0,
+        "skipped": {},
+        "images_over_limit": 0,
+        "oldest": []
       }
     },
     "file_fails": {}
