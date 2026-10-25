@@ -91,7 +91,7 @@
     "tie_index": 2,
     "used_photos": [],
     "slot_done": {
-      "midday": "2026-10-24",
+      "midday": "2026-10-25",
       "evening": "2026-10-24"
     },
     "cycles": {
@@ -109,7 +109,7 @@
       "fmt:photo_case": 5,
       "topic:Фото работ": 5,
       "video_angle": 1,
-      "video_caption": 5
+      "video_caption": 1
     },
     "recent": {
       "Фото работ": [
@@ -166,12 +166,12 @@
         "Каждый хирургический этап требует абсолютной точности и полного контроля над ситуацией. Точные миллиметры имеют"
       ]
     },
-    "photo_tie_index": 53,
+    "photo_tie_index": 54,
     "text_tie_index": 52,
     "loop_rubrics_tips": "Ползеное - Хавьер.jpg",
     "loop_rubrics_faq": "ЧЗВ - Хавьер.jpg",
     "rubric_last_run": {
-      "Фото работ": "2026-10-24",
+      "Фото работ": "2026-10-25",
       "Идеи и вдохновение": "2026-10-22",
       "Советы и полезное": "2026-10-24",
       "Частые вопросы": "2026-10-21",
@@ -179,13 +179,14 @@
     },
     "file_fails": {
       "disk:/Autopost WORK/plasticheskiy-hirurg/rubrics/faq/ЧЗВ - Хавьер.jpg": 2,
-      "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/20260311_200327.jpg": 1
+      "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/20260311_200327.jpg": 1,
+      "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/DJI_20260521132020_0192_D.MP4": 1
     },
     "queue_info": {
       "to_post": {
-        "at": "2026-10-24 11:01 UTC",
-        "files": 257,
-        "images": 179,
+        "at": "2026-10-25 11:01 UTC",
+        "files": 256,
+        "images": 178,
         "videos": 75,
         "skipped": {
           ".heic": 3
@@ -263,9 +264,10 @@
     },
     "file_fail_why": {
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/20260311_200327.jpg": "скачивание: ReadTimeout: HTTPSConnectionPool(host='s48klg.storage.yandex.net', port=443): Read timed out. (read timeout=60)",
-      "disk:/Autopost WORK/plasticheskiy-hirurg/rubrics/faq/ЧЗВ - Хавьер.jpg": "скачивание: HTTPError: 500 Server Error: Internal Server Error for url: https://downloader.disk.yandex.ru/disk/c532d546832138ac8108e0a01f8d9075aa60bd7be8a8a39e0f8bc7d16f58844e/6ad91a03/6HbfDqMvPPWjj0o"
+      "disk:/Autopost WORK/plasticheskiy-hirurg/rubrics/faq/ЧЗВ - Хавьер.jpg": "скачивание: HTTPError: 500 Server Error: Internal Server Error for url: https://downloader.disk.yandex.ru/disk/c532d546832138ac8108e0a01f8d9075aa60bd7be8a8a39e0f8bc7d16f58844e/6ad91a03/6HbfDqMvPPWjj0o",
+      "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/DJI_20260521132020_0192_D.MP4": "видео 1325 МБ больше лимита 800 МБ"
     },
-    "last_media": "image"
+    "last_media": "video"
   },
   "pro-nedvizhimost-s-natal": {
     "tie_index": 25,
