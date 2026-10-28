@@ -92,7 +92,7 @@
     "used_photos": [],
     "slot_done": {
       "midday": "2026-10-28",
-      "evening": "2026-10-27"
+      "evening": "2026-10-28"
     },
     "cycles": {
       "fmt:service": 2,
@@ -265,7 +265,11 @@
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/20260311_200327.jpg": "скачивание: ReadTimeout: HTTPSConnectionPool(host='s48klg.storage.yandex.net', port=443): Read timed out. (read timeout=60)",
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/DJI_20260521132020_0192_D.MP4": "видео 1325 МБ больше лимита 800 МБ"
     },
-    "last_media": "image"
+    "last_media": "image",
+    "holiday_loop_unity_before": "Год единства народов России (1).jpeg",
+    "holiday_done": [
+      "2026-10-28:unity:before7"
+    ]
   },
   "pro-nedvizhimost-s-natal": {
     "tie_index": 27,
