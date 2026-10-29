@@ -91,7 +91,7 @@
     "tie_index": 2,
     "used_photos": [],
     "slot_done": {
-      "midday": "2026-10-28",
+      "midday": "2026-10-29",
       "evening": "2026-10-28"
     },
     "cycles": {
@@ -109,7 +109,7 @@
       "fmt:photo_case": 5,
       "topic:Фото работ": 5,
       "video_angle": 1,
-      "video_caption": 2
+      "video_caption": 3
     },
     "recent": {
       "Фото работ": [
@@ -166,12 +166,12 @@
         "Каждый хирургический этап требует абсолютной точности и полного контроля над ситуацией. Точные миллиметры имеют"
       ]
     },
-    "photo_tie_index": 57,
+    "photo_tie_index": 58,
     "text_tie_index": 55,
     "loop_rubrics_tips": "Ползеное - Хавьер.jpg",
     "loop_rubrics_faq": "ЧЗВ - Хавьер.jpg",
     "rubric_last_run": {
-      "Фото работ": "2026-10-28",
+      "Фото работ": "2026-10-29",
       "Идеи и вдохновение": "2026-10-26",
       "Советы и полезное": "2026-10-27",
       "Частые вопросы": "2026-10-25",
@@ -183,9 +183,9 @@
     },
     "queue_info": {
       "to_post": {
-        "at": "2026-10-28 11:01 UTC",
-        "files": 253,
-        "images": 177,
+        "at": "2026-10-29 11:01 UTC",
+        "files": 252,
+        "images": 176,
         "videos": 73,
         "skipped": {
           ".heic": 3
@@ -265,7 +265,7 @@
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/20260311_200327.jpg": "скачивание: ReadTimeout: HTTPSConnectionPool(host='s48klg.storage.yandex.net', port=443): Read timed out. (read timeout=60)",
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/DJI_20260521132020_0192_D.MP4": "видео 1325 МБ больше лимита 800 МБ"
     },
-    "last_media": "image",
+    "last_media": "video",
     "holiday_loop_unity_before": "Год единства народов России (1).jpeg",
     "holiday_done": [
       "2026-10-28:unity:before7"
