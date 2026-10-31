@@ -91,7 +91,7 @@
     "tie_index": 2,
     "used_photos": [],
     "slot_done": {
-      "midday": "2026-10-30",
+      "midday": "2026-10-31",
       "evening": "2026-10-30"
     },
     "cycles": {
@@ -109,7 +109,7 @@
       "fmt:photo_case": 5,
       "topic:Фото работ": 5,
       "video_angle": 1,
-      "video_caption": 3
+      "video_caption": 4
     },
     "recent": {
       "Фото работ": [
@@ -166,12 +166,12 @@
         "Каждый хирургический этап требует абсолютной точности и полного контроля над ситуацией. Точные миллиметры имеют"
       ]
     },
-    "photo_tie_index": 59,
+    "photo_tie_index": 60,
     "text_tie_index": 57,
     "loop_rubrics_tips": "Ползеное - Хавьер.jpg",
     "loop_rubrics_faq": "ЧЗВ - Хавьер.jpg",
     "rubric_last_run": {
-      "Фото работ": "2026-10-30",
+      "Фото работ": "2026-10-31",
       "Идеи и вдохновение": "2026-10-29",
       "Советы и полезное": "2026-10-27",
       "Частые вопросы": "2026-10-25",
@@ -184,9 +184,9 @@
     },
     "queue_info": {
       "to_post": {
-        "at": "2026-10-30 11:01 UTC",
-        "files": 251,
-        "images": 176,
+        "at": "2026-10-31 11:00 UTC",
+        "files": 250,
+        "images": 175,
         "videos": 72,
         "skipped": {
           ".heic": 3
@@ -267,7 +267,7 @@
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/DJI_20260521132020_0192_D.MP4": "видео 1325 МБ больше лимита 800 МБ",
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/VideoCapture_20250322-175357.jpg": "скачивание: HTTPError: 500 Server Error: Internal Server Error for url: https://downloader.disk.yandex.ru/disk/02ce509014bc0d66fb893ca833a1a28be525d3738670bafcf83fe491d104bc68/6ae4b144/ahFi0Va57BZMc6J"
     },
-    "last_media": "image",
+    "last_media": "video",
     "holiday_loop_unity_before": "Год единства народов России (1).jpeg",
     "holiday_done": [
       "2026-10-28:unity:before7"
