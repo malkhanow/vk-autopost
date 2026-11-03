@@ -92,7 +92,7 @@
     "used_photos": [],
     "slot_done": {
       "midday": "2026-11-03",
-      "evening": "2026-11-02"
+      "evening": "2026-11-03"
     },
     "cycles": {
       "fmt:service": 2,
@@ -268,9 +268,10 @@
       "disk:/Autopost WORK/plasticheskiy-hirurg/to_post/VideoCapture_20250322-175357.jpg": "скачивание: HTTPError: 500 Server Error: Internal Server Error for url: https://downloader.disk.yandex.ru/disk/02ce509014bc0d66fb893ca833a1a28be525d3738670bafcf83fe491d104bc68/6ae4b144/ahFi0Va57BZMc6J"
     },
     "last_media": "image",
-    "holiday_loop_unity_before": "Год единства народов России (1).jpeg",
+    "holiday_loop_unity_before": "Год единства народов России.jpeg",
     "holiday_done": [
-      "2026-10-28:unity:before7"
+      "2026-10-28:unity:before7",
+      "2026-11-03:unity:before1"
     ]
   },
   "pro-nedvizhimost-s-natal": {
